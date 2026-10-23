@@ -34,12 +34,20 @@
     const headers = {...(options.body ? {'Content-Type':'application/json'} : {}), ...(options.headers || {})};
     if (path.startsWith('/api/')) {
       if (accessKeyRejected) throw new Error('JARVIS access key rejected. Reload this page to try again.');
-      let accessKey = sessionStorage.getItem('jarvisAccessKey');
+      let accessKey = localStorage.getItem('jarvisAccessKey');
+      // Migrate a key saved by the previous session-only version.
+      if (!accessKey) {
+        const sessionKey = sessionStorage.getItem('jarvisAccessKey');
+        if (sessionKey) {
+          accessKey = sessionKey;
+          localStorage.setItem('jarvisAccessKey', accessKey);
+        }
+      }
       if (!accessKey) {
         accessKey = window.prompt('JARVIS MultiAgent is private. Enter the dashboard access key configured in Render:');
         if (!accessKey || !accessKey.trim()) throw new Error('A JARVIS access key is required to connect.');
         accessKey = accessKey.trim();
-        sessionStorage.setItem('jarvisAccessKey', accessKey);
+        localStorage.setItem('jarvisAccessKey', accessKey);
       }
       headers['X-JARVIS-Access-Key'] = accessKey;
     }
@@ -47,6 +55,7 @@
     let payload;
     try { payload = await response.json(); } catch { payload = {error:`Unexpected response (${response.status})`}; }
     if (response.status === 401) {
+      localStorage.removeItem('jarvisAccessKey');
       sessionStorage.removeItem('jarvisAccessKey');
       accessKeyRejected = true;
       throw new Error('JARVIS access key was rejected. Reload the page to try again.');
