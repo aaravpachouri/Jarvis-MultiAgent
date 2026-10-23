@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # JARVIS Agent Network
 
 A **new, standalone project** for an expandable multi-agent AI network. It is not an overlay and does not depend on the existing `JARVIS-X` desktop repository. You can extract this project anywhere and develop it independently.
@@ -498,3 +499,12 @@ Mission results are rendered as readable dashboard cards rather than a single cl
 - Embedded Chromium interaction check with deterministic `/api/overview` and `/api/events` fixtures: Mission Control opened, cinematic mission banner visible, miniature suit visible, clicking switched the suit profile from MARK III to MARK V, and no browser JavaScript exceptions occurred.
 - The suit uses absolute positioning inside the existing drawer header; the header's width and height remained the same when toggling the suit. The dashboard grid wasn't given a new layout track.
 - The full browser check used fixture API data because the build environment blocks direct navigation to the local server from Chromium. This verifies the actual UI markup, styling and interaction, not live provider behavior.
+=======
+# JARVIS MultiAgent
+
+Cinematic AI command center with specialist agents for research, coding, desktop automation, planning, memory, voice, and Quant market intelligence. Includes the Phase 27 Iron Man-inspired HUD, mission orchestration, interactive agent identities, runtime telemetry, and Quant market-data recovery paths.
+
+## Project source
+
+The source and implementation overlays are being published in follow-up commits. Do not commit `.env` files, API keys, personal memory notes, or generated market reports.
+>>>>>>> origin/main
