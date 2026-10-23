@@ -62,10 +62,28 @@
     el.className = `toast ${type}`; el.textContent = message; stack.append(el);
     window.setTimeout(() => el.remove(), 4200);
   };
+  let accessKeyRejected = false;
   async function api(path, options = {}) {
-    const response = await fetch(path, { cache: 'no-store', ...options, headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(options.headers || {}) } });
+    const headers = { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(options.headers || {}) };
+    if (path.startsWith('/api/')) {
+      if (accessKeyRejected) throw new Error('JARVIS access key rejected. Reload this page to try again.');
+      let accessKey = sessionStorage.getItem('jarvisAccessKey');
+      if (!accessKey) {
+        accessKey = window.prompt('JARVIS MultiAgent is private. Enter the dashboard access key configured in Render:');
+        if (!accessKey || !accessKey.trim()) throw new Error('A JARVIS access key is required to connect.');
+        accessKey = accessKey.trim();
+        sessionStorage.setItem('jarvisAccessKey', accessKey);
+      }
+      headers['X-JARVIS-Access-Key'] = accessKey;
+    }
+    const response = await fetch(path, { cache: 'no-store', ...options, headers });
     let payload;
     try { payload = await response.json(); } catch { payload = { error: `Unexpected response (${response.status})` }; }
+    if (response.status === 401) {
+      sessionStorage.removeItem('jarvisAccessKey');
+      accessKeyRejected = true;
+      throw new Error('JARVIS access key was rejected. Reload the page to try again.');
+    }
     if (!response.ok) throw new Error(payload.error || `Request failed (${response.status})`);
     return payload;
   }
