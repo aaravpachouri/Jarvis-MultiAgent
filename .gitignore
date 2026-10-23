@@ -1,0 +1,21 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+data/agent_registry.json
+.env
+.env.*
+!.env.example
+.vscode/
+.idea/
+
+# User-controlled local notes; never package personal note contents by default.
+data/memory_notes.json
+
+# Generated daily market reports
+data/reports/
+# Large local speech model; keep on this computer, not in Git
+JARVIS_Agent_Network/models/kokoro-v1.0.int8.onnx
+**/kokoro-v1.0.int8.onnx

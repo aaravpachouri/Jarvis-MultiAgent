@@ -1,0 +1,1 @@
+"""Scout agent package."""

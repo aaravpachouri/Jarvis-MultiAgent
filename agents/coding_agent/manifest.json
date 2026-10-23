@@ -1,0 +1,51 @@
+{
+  "agent_id": "coding.forge",
+  "name": "Forge",
+  "role": "Software engineering, debugging and code quality specialist",
+  "description": "Inspects repositories, designs and implements features, debugs failures, refactors, writes tests and verifies code.",
+  "capabilities": [
+    "code.inspect",
+    "code.write",
+    "code.debug",
+    "code.test",
+    "code.refactor",
+    "repository.analyze"
+  ],
+  "routing_keywords": [
+    "write code",
+    "coding",
+    "source code",
+    "inspect the repository",
+    "inspect this repo",
+    "repository",
+    "repo",
+    "debug",
+    "bug",
+    "traceback",
+    "stack trace",
+    "exception",
+    "fix error",
+    "implement",
+    "refactor",
+    "build an app",
+    "saas app",
+    "unit test"
+  ],
+  "tags": [
+    "engineering",
+    "quality-gates"
+  ],
+  "requires_approval_for": [
+    "production_write",
+    "external_publish"
+  ],
+  "max_concurrency": 2,
+  "timeout_seconds": 300,
+  "version": "0.1.0",
+  "enabled": true,
+  "metadata": {
+    "profile_only": false,
+    "folder": "coding_agent",
+    "execution_mode": "executable"
+  }
+}
