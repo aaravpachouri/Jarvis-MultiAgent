@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import hmac
 import mimetypes
 import os
 import threading
@@ -529,8 +530,24 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(raw)
 
+    def _authorize_api(self) -> bool:
+        """Require a private access key for every API endpoint when deployed."""
+        expected = os.environ.get("JARVIS_DASHBOARD_ACCESS_KEY", "").strip()
+        if not expected:
+            if os.environ.get("RENDER"):
+                self._send(503, {"error": "Dashboard access protection is not configured."})
+                return False
+            return True
+        supplied = self.headers.get("X-JARVIS-Access-Key", "")
+        if not hmac.compare_digest(supplied, expected):
+            self._send(401, {"error": "JARVIS access key missing or invalid."})
+            return False
+        return True
+
     def do_GET(self):
         path = urlparse(self.path).path
+        if path.startswith("/api/") and not self._authorize_api():
+            return
         if path == "/api/overview":
             return self._send(200, APP.overview())
         if path == "/api/agents":
@@ -633,6 +650,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urlparse(self.path).path
+        if path.startswith("/api/") and not self._authorize_api():
+            return
         if path not in {"/api/tasks", "/api/missions", "/api/quant/refresh"}:
             return self._send(404, {"error": "Not found."})
         try:
