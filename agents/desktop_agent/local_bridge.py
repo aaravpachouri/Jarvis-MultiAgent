@@ -120,7 +120,7 @@ def validate_url(value: str) -> str:
     return value
 
 
-def _parse_one(task: str) -> list[dict[str, Any]]:
+def _parse_one(task: str, app_context: bool = False) -> list[dict[str, Any]]:
     text = task.strip().strip(" .")
     if not text:
         raise DesktopAgentError("One of the steps is empty.")
@@ -152,7 +152,43 @@ def _parse_one(task: str) -> list[dict[str, Any]]:
         query = search_match.group(1).strip().strip("'\"")
         if not query:
             raise DesktopAgentError("Enter a search query.")
+        if app_context:
+            return [{"type": "smart_type", "text": query, "target": "search"}]
         return [{"type": "open_url", "url": "https://www.google.com/search?q=" + quote_plus(query)}]
+
+    search_field_type = re.fullmatch(
+        r"(?:type|write|enter)(?:\s+text)?\s+(.+?)\s+(?:into|in)\s+(?:the\s+)?(?:search\s+bar|search\s+box|search\s+field|search\s+input)",
+        text, re.IGNORECASE | re.DOTALL,
+    )
+    if search_field_type:
+        value = search_field_type.group(1).strip().strip("'\"")
+        if not value:
+            raise DesktopAgentError("Enter the text to search for.")
+        return [{"type": "smart_type", "text": value, "target": "search"}]
+
+    search_field_focus = re.fullmatch(
+        r"(?:focus|select|go\s+to|open|click|tap)(?:\s+on)?\s+(?:the\s+)?(?:search\s+bar|search\s+box|search\s+field|search\s+input)",
+        text, re.IGNORECASE,
+    )
+    if search_field_focus:
+        return [{"type": "focus_search"}]
+
+    named_result = re.fullmatch(
+        r"(?:click|select|open|choose|play|tap)\s+(?:on\s+)?(?:the\s+)?(?:search\s+)?result\s+(.+)",
+        text, re.IGNORECASE,
+    )
+    if named_result:
+        target = named_result.group(1).strip().strip("'\"")
+        if not target:
+            raise DesktopAgentError("Name the result you want to select.")
+        return [{"type": "click_result", "target": target}]
+
+    first_result = re.fullmatch(
+        r"(?:click|select|open|choose|play|tap)\s+(?:on\s+)?(?:the\s+)?(?:(?:first|top|matching)\s+)?(?:search\s+)?result",
+        text, re.IGNORECASE,
+    )
+    if first_result:
+        return [{"type": "click_first_result"}]
 
     url_match = re.fullmatch(r"(?:open|visit|go to|navigate to)\s+(https?://\S+|www\.\S+)", text, re.IGNORECASE)
     if url_match:
@@ -294,6 +330,11 @@ def _parse_one(task: str) -> list[dict[str, Any]]:
             raise DesktopAgentError("Wait steps must be between 0 and 5 seconds.")
         return [{"type": "wait", "seconds": seconds}]
 
+    if re.fullmatch(r"(?:go\s+back|navigate\s+back|back\s+to\s+previous\s+page)", text, re.IGNORECASE):
+        return [{"type": "hotkey", "keys": ["alt", "left"]}]
+    if re.fullmatch(r"(?:go\s+forward|navigate\s+forward)", text, re.IGNORECASE):
+        return [{"type": "hotkey", "keys": ["alt", "right"]}]
+
     if re.search(r"\b(?:powershell|cmd\.exe|command prompt|run command|shell command|shutdown|restart computer|delete files|uninstall|install software|send email|transfer money|place an order|make a payment)\b", text, re.IGNORECASE):
         raise DesktopAgentError(
             "That request is outside the desktop agent's safe action set. "
@@ -309,25 +350,23 @@ def _parse_one(task: str) -> list[dict[str, Any]]:
 def parse_task(value: Any) -> list[dict[str, Any]]:
     """Translate a small, explicit command grammar into allowlisted actions."""
     task = _normalise_task(value)
-    browser_search = re.fullmatch(
-        r"(?:open|launch|start)\s+(.+?)\s+(?:and\s+then|then|and)\s+(?:search|google)\s+(?:for\s+)?(.+)",
-        task, re.IGNORECASE,
-    )
-    if browser_search:
-        app = browser_search.group(1).strip().strip("'\"")
-        query = browser_search.group(2).strip().strip("'\"")
-        if not app or not query or len(app) > 100 or re.search(r"[\x00-\x1f/\\;&|<>]", app):
-            raise DesktopAgentError("Use a valid app name and a non-empty search query.")
-        return [
-            {"type": "open_app", "app": APP_ALIASES.get(app.casefold(), app)},
-            {"type": "open_url", "url": "https://www.google.com/search?q=" + quote_plus(query)},
-        ]
-
-    # Multiple explicit instructions are allowed on separate lines or separated by semicolons.
-    segments = [part.strip() for part in re.split(r"[;\n]+", task) if part.strip()]
+    # Split a natural-language request into sequential commands while leaving words such
+    # as "rock and roll" inside search text untouched.
+    splitter = r"\s*(?:;|\n+)\s*|\s+(?:and\s+then|then)\s+|,\s*(?=(?:and\s+)?(?:search|find|type|write|enter|press|click|tap|scroll|focus|go\s+to|wait|open|launch|start)\b)|\s+and\s+(?=(?:search|find|type|write|enter|press|click|tap|scroll|focus|go\s+to|wait)\b)"
+    segments = [part.strip(" ,\t") for part in re.split(splitter, task, flags=re.IGNORECASE) if part.strip(" ,\t")]
     actions: list[dict[str, Any]] = []
+    app_context = False
+    last_search_query = ""
     for segment in segments:
-        actions.extend(_parse_one(segment))
+        step_actions = _parse_one(segment, app_context=app_context)
+        for action in step_actions:
+            if action.get("type") == "open_app":
+                app_context = True
+            elif action.get("type") == "smart_type" and action.get("target") == "search":
+                last_search_query = str(action.get("text", ""))
+            elif action.get("type") == "click_first_result" and last_search_query:
+                action["target"] = last_search_query
+        actions.extend(step_actions)
         if len(actions) > MAX_ACTIONS:
             raise DesktopAgentError("A task can contain at most 8 actions.")
     if not actions:
