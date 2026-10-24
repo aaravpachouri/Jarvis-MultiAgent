@@ -353,7 +353,11 @@ def parse_task(value: Any) -> list[dict[str, Any]]:
     # Split a natural-language request into sequential commands while leaving words such
     # as "rock and roll" inside search text untouched.
     splitter = r"\s*(?:;|\n+)\s*|\s+(?:and\s+then|then)\s+|,\s*(?=(?:and\s+)?(?:search|find|type|write|enter|press|click|tap|scroll|focus|go\s+to|wait|open|launch|start)\b)|\s+and\s+(?=(?:search|find|type|write|enter|press|click|tap|scroll|focus|go\s+to|wait)\b)"
-    segments = [part.strip(" ,\t") for part in re.split(splitter, task, flags=re.IGNORECASE) if part.strip(" ,\t")]
+    segments = [
+        re.sub(r"^(?:and\s+then|and)\s+", "", part.strip(" ,\t"), flags=re.IGNORECASE)
+        for part in re.split(splitter, task, flags=re.IGNORECASE)
+        if part.strip(" ,\t") and re.sub(r"^(?:and\s+then|and)\s+", "", part.strip(" ,\t"), flags=re.IGNORECASE)
+    ]
     actions: list[dict[str, Any]] = []
     app_context = False
     last_search_query = ""
