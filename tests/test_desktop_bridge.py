@@ -316,6 +316,72 @@ class FakeUIControl:
         self.clicked += 1
 
 
+class FakeResultWrapper:
+    def __init__(self, name, control_type, parent=None):
+        from types import SimpleNamespace
+
+        self.element_info = SimpleNamespace(
+            name=name,
+            control_type=control_type,
+            automation_id="",
+            help_text="",
+            class_name="",
+        )
+        self._parent = parent
+        self.clicked = 0
+
+    def parent(self):
+        return self._parent
+
+    def click_input(self):
+        self.clicked += 1
+
+
+def test_result_finder_matches_short_browser_title_against_long_query(monkeypatch):
+    executor = DesktopActionExecutor(backend=FakeKeyboardBackend())
+    title = FakeResultWrapper("Blinding Lights", "Text")
+    visible_controls = [
+        (title, "Text", "Blinding Lights", "blinding lights text"),
+    ]
+    monkeypatch.setattr(
+        executor,
+        "_active_ui_controls",
+        lambda allowed: (object(), visible_controls),
+    )
+
+    found, label = executor._find_result_control(
+        "The Weeknd Blinding Lights official music video",
+        timeout_seconds=0.01,
+    )
+
+    assert found is title
+    assert label == "Blinding Lights"
+
+
+def test_result_click_promotes_title_text_to_its_clickable_ancestor(monkeypatch):
+    backend = FakeKeyboardBackend()
+    executor = DesktopActionExecutor(backend=backend)
+    link = FakeResultWrapper("Blinding Lights — The Weeknd", "Hyperlink")
+    title = FakeResultWrapper("Blinding Lights", "Text", parent=link)
+    monkeypatch.setattr(
+        executor,
+        "_find_result_control",
+        lambda target="", timeout_seconds=8.0: (title, "Blinding Lights"),
+    )
+
+    result = executor.execute([
+        {
+            "type": "click_first_result",
+            "target": "The Weeknd Blinding Lights official music video",
+        }
+    ])
+
+    assert result["ok"] is True
+    assert link.clicked == 1
+    assert title.clicked == 0
+    assert "Clicked result" in result["completed"][0]["detail"]
+
+
 def test_youtube_search_falls_back_to_results_url_when_page_search_is_not_accessible(monkeypatch):
     backend = FakeKeyboardBackend()
     executor = DesktopActionExecutor(backend=backend)
