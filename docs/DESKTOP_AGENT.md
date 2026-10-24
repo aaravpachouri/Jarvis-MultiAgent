@@ -20,9 +20,11 @@ Mouse and keyboard input runs locally through http://127.0.0.1:8766. Hosted dash
 - Move around the desktop: click 620, 420; double click 100, 200; scroll down; scroll up 750; drag 100, 200 to 300, 400.
 - Target named UI Automation controls: click button Refresh; click button Send in Mail.
 - Use the supported shortcuts: press ctrl+l, ctrl+f, ctrl+s, alt+tab.
-- Combine up to eight actions with separate lines or semicolons.
+- Combine up to eight actions with separate lines, semicolons, commas before commands, or the word then.
+- Example end-to-end workflow: open [app name] then search for [title/query] then press Enter then click the result.
+- You can also say type [text] into the search bar, focus the search bar, click result [title], or click the first result. These use visible UI Automation metadata rather than per-app selectors.
 
-App names not in the fast-launch map are searched using the Windows Start menu. The app must be installed and discoverable by Windows. Named controls must be exposed through Windows UI Automation. Coordinate actions request approval because Atlas cannot reliably identify their target from coordinates alone.
+App names not in the fast-launch map are searched using the Windows Start menu. The app must be installed and discoverable by Windows. For app workflows, Atlas inspects the active window's UI Automation tree, ranks visible text fields using accessibility names/automation IDs/help text, enters the query, waits for visible controls, and looks for result rows matching the query. This approach is app-agnostic, but it cannot guarantee support for custom-drawn or inaccessible controls. If multiple fields/results are equally plausible or no accessible match is found, Atlas stops instead of typing or clicking blindly. Coordinate actions request approval because they have ambiguous targets.
 
 ## Permission model
 
