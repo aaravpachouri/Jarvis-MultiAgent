@@ -167,6 +167,22 @@ def _parse_one(task: str) -> list[dict[str, Any]]:
             raise DesktopAgentError("There is no text to type.")
         return [{"type": "type_text", "text": value}]
 
+    ui_click_match = re.fullmatch(
+        r"click\s+(?:the\s+)?(button|link)\s+[\"']?(.+?)[\"']?\s+in\s+(${APP_PATTERN})",
+        text,
+        re.IGNORECASE,
+    )
+    if ui_click_match:
+        control = ui_click_match.group(1).casefold()
+        label = ui_click_match.group(2).strip().strip("'\\\"")
+        app = APP_ALIASES[ui_click_match.group(3).casefold()]
+        if not label or len(label) > 100:
+            raise DesktopAgentError("UI control names must be between 1 and 100 characters.")
+        return [
+            {"type": "open_app", "app": app},
+            {"type": "click_ui", "control": control, "text": label},
+        ]
+
     click_match = re.fullmatch(
         r"click(?:\s+(?:at|on))?\s+(\d{1,5})\s*(?:,|\s)\s*(\d{1,5})(?:\s+(left|right))?",
         text,
@@ -255,6 +271,10 @@ def action_summary(actions: list[dict[str, Any]], active_window: str = "") -> st
             label = "Type text: " + repr(preview)
         elif kind == "click":
             label = "Click screen position (" + str(action.get("x")) + ", " + str(action.get("y")) + "), " + str(action.get("button", "left")) + " button"
+        elif kind == "click_ui":
+            label = "Click " + str(action.get("control", "button")) + " named " + repr(str(action.get("text", ""))) + " in the foreground app"
+        elif kind == "screenshot":
+            label = "Capture a screenshot of the current desktop"
         elif kind == "hotkey":
             label = "Press shortcut: " + "+".join(str(key) for key in action.get("keys", []))
         elif kind == "wait":
@@ -449,6 +469,21 @@ class DesktopActionExecutor:
                     backend.moveTo(x, y, duration=0.08)
                     backend.click(x=x, y=y, button=button)
                     detail = "Clicked (" + str(x) + ", " + str(y) + ")"
+                elif kind == "click_ui":
+                    control_type = str(action.get("control", "")).casefold()
+                    label = str(action.get("text", "")).strip()
+                    if control_type not in {"button", "link"} or not label or len(label) > 100:
+                        raise DesktopAgentError("UI click requires an explicit button or link name.")
+                    try:
+                        from pywinauto import Desktop
+                    except ImportError as exc:
+                        raise DesktopAgentError('Named UI clicks need pywinauto; run run_desktop_agent.bat to install it.') from exc
+                    active = Desktop(backend="uia").get_active()
+                    expected_type = "Button" if control_type == "button" else "Hyperlink"
+                    control = active.child_window(title=label, control_type=expected_type)
+                    control.wait("visible enabled", timeout=2)
+                    control.click_input()
+                    detail = "Clicked " + control_type + " " + repr(label)
                 elif kind == "hotkey":
                     keys = tuple(str(key).casefold() for key in action.get("keys", []))
                     key_name = next((name for name, key_values in SAFE_HOTKEYS.items() if key_values == keys), None)
