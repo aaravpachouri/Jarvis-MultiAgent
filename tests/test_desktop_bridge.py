@@ -197,3 +197,12 @@ def test_shell_commands_remain_unsupported():
     for task in ("run powershell Get-Process", "delete files in Downloads", "make a payment"):
         with pytest.raises(DesktopAgentError):
             parse_task(task)
+
+
+def test_general_mouse_actions_are_parsed():
+    assert parse_task("scroll down") == [{"type": "scroll", "amount": -500}]
+    assert parse_task("scroll up 750") == [{"type": "scroll", "amount": 750}]
+    assert parse_task("double click 100, 200") == [{"type": "double_click", "x": 100, "y": 200}]
+    assert parse_task("drag 100, 200 to 300, 400") == [
+        {"type": "drag", "x1": 100, "y1": 200, "x2": 300, "y2": 400}
+    ]
