@@ -44,6 +44,13 @@ def _is_loopback_url(url: str) -> bool:
     except (ValueError, OSError):
         return False
 
+def _is_render_hosted() -> bool:
+    """Detect Render using its documented platform environment variable."""
+    return (
+        os.getenv("RENDER", "").strip().casefold() == "true"
+        or bool(os.getenv("RENDER_SERVICE_ID", "").strip())
+    )
+
 
 class OpenAICompatibleClient:
     """Try Gemini first, then Groq, then local Ollama."""
@@ -70,6 +77,7 @@ class OpenAICompatibleClient:
 
     def _load_providers(self) -> list[_Provider]:
         providers: list[_Provider] = []
+        render_hosted = _is_render_hosted()
 
         # Primary: Gemini OpenAI-compatible endpoint.
         gemini_url = os.getenv(
@@ -119,9 +127,12 @@ class OpenAICompatibleClient:
             )
 
         # Final fallback: local Ollama.
+        # On Render, localhost refers to the Render container, not the
+        # user's desktop. Do not register a loopback provider by default there.
+        default_ollama_url = "" if render_hosted else "http://localhost:11434/v1"
         ollama_url = os.getenv(
             "JARVIS_LLM_FALLBACK_BASE_URL",
-            "http://localhost:11434/v1",
+            default_ollama_url,
         ).strip().rstrip("/")
 
         ollama_key = os.getenv(
@@ -134,7 +145,11 @@ class OpenAICompatibleClient:
         ).strip()
 
         if ollama_url and ollama_model:
-            if ollama_key or _is_loopback_url(ollama_url):
+            # A localhost Ollama instance on the developer's PC cannot be
+            # reached from Render. Also skip an explicitly stale loopback URL.
+            if render_hosted and _is_loopback_url(ollama_url):
+                pass
+            elif ollama_key or _is_loopback_url(ollama_url):
                 providers.append(
                     _Provider(
                         "ollama",
@@ -194,9 +209,17 @@ class OpenAICompatibleClient:
         json_mode: bool,
     ) -> str:
         if not self.providers:
+            if _is_render_hosted():
+                raise ModelClientError(
+                    "No cloud model provider is configured for Render. Add "
+                    "JARVIS_LLM_API_KEY in the Render service Environment settings "
+                    "(Gemini; the default model is gemini-3.8-flash), or configure "
+                    "JARVIS_LLM_SECONDARY_API_KEY and JARVIS_LLM_SECONDARY_MODEL "
+                    "for Groq. Local Ollama on your computer is not reachable from Render."
+                )
             raise ModelClientError(
                 "No model provider is configured. Set Gemini credentials, "
-                "configure Groq, or ensure local Ollama is available."
+                "configure Groq, or explicitly configure a reachable Ollama endpoint."
             )
 
         errors: list[str] = []
