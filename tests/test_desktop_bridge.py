@@ -380,7 +380,13 @@ def test_youtube_page_never_uses_address_bar_as_generic_search_field(monkeypatch
             return self.element_info.name
 
     executor = DesktopActionExecutor(backend=FakeKeyboardBackend())
-    address = Control("Address and search bar")
+    address_control = Control("Address and search bar")
+    address = (
+        address_control,
+        "Edit",
+        "Address and search bar",
+        "address and search bar",
+    )
     monkeypatch.setattr(executor, "_active_ui_controls", lambda allowed: (object(), [address]))
     with pytest.raises(DesktopAgentError, match="No accessible search field"):
         executor._find_search_field(timeout_seconds=0.01)
