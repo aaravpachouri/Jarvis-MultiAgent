@@ -77,7 +77,7 @@
     out.replaceChildren();
     const heading = document.createElement("strong");
     heading.className = "success";
-    heading.textContent = "APPROVAL PLAN · " + plan.actions.length + " STEP" + (plan.actions.length === 1 ? "" : "S");
+    heading.textContent = (plan.approval_required ? "LOCAL APPROVAL NEEDED · " : "ROUTINE PLAN · ") + plan.actions.length + " STEP" + (plan.actions.length === 1 ? "" : "S");
     out.appendChild(heading);
     const list = document.createElement("ol");
     for (const action of plan.actions) {
@@ -87,7 +87,10 @@
       else if (action.type === "type_text") {
         const preview = action.text.length > 160 ? action.text.slice(0, 160) + " … [preview]" : action.text;
         item.textContent = "Type text: " + JSON.stringify(preview);
-      } else if (action.type === "click") item.textContent = "Click screen position (" + action.x + ", " + action.y + "), " + action.button + " button";
+      } else if (action.type === "click" || action.type === "double_click") item.textContent = (action.type === "double_click" ? "Double-click" : "Click") + " screen position (" + action.x + ", " + action.y + ")";
+      else if (action.type === "drag") item.textContent = "Drag (" + action.x1 + ", " + action.y1 + ") to (" + action.x2 + ", " + action.y2 + ")";
+      else if (action.type === "scroll") item.textContent = "Scroll " + (action.amount > 0 ? "up " : "down ") + Math.abs(action.amount);
+      else if (action.type === "click_ui") item.textContent = "Click " + action.control + " " + JSON.stringify(action.text);
       else if (action.type === "hotkey") item.textContent = "Press shortcut: " + action.keys.join("+");
       else if (action.type === "wait") item.textContent = "Wait " + action.seconds + " seconds";
       else item.textContent = "Unknown action";
@@ -96,7 +99,9 @@
     out.appendChild(list);
     const footer = document.createElement("p");
     footer.className = "muted";
-    footer.textContent = "Preview only. No actions have run. Execution opens a native Windows approval dialog.";
+    footer.textContent = plan.approval_required
+      ? "Preview only. Sensitive action: execution pauses for native Windows approval. " + (plan.approval_reason || "")
+      : "Preview only. No actions have run. Routine actions run directly; sensitive actions pause for local approval.";
     out.appendChild(footer);
     out.classList.remove("hidden");
   }
@@ -144,7 +149,7 @@
       localStorage.setItem(STORAGE_KEY, value);
       $("pairing-token").value = value;
       setConnected(true, status);
-      toast(status.desktop_available ? "Desktop companion connected. Actions still require local approval." : "Connected, but desktop dependencies are not ready.", !status.desktop_available);
+      toast(status.desktop_available ? "Atlas connected. Routine actions run directly; sensitive actions require approval." : "Connected, but desktop dependencies are not ready.", !status.desktop_available);
     } catch (error) {
       setConnected(false);
       setText("connection-detail", error.message);
@@ -175,11 +180,11 @@
     const task = $("task-input").value.trim();
     if (!task) return toast("Enter a desktop task first.", true);
     $("execute-button").disabled = true;
-    setText("result-output", "Waiting for the Windows permission dialog…");
+    setText("result-output", "Atlas is checking the task. Sensitive actions will pause for local approval…");
     try {
       const result = await api("/v1/execute", { method: "POST", body: { task } });
       renderResult(result);
-      toast(result.ok ? "Approved task completed." : "Task stopped at the first failure.", !result.ok);
+      toast(result.ok ? (result.approval_required ? "Approved task completed." : "Routine task completed.") : "Task stopped at the first failure.", !result.ok);
       if (!result.ok) $("execute-button").disabled = false;
     } catch (error) {
       const out = $("result-output");
