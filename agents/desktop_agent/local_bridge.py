@@ -64,6 +64,8 @@ SAFE_HOTKEYS = {
     "ctrl+shift+s": ("ctrl", "shift", "s"),
     "ctrl+shift+n": ("ctrl", "shift", "n"),
     "alt+tab": ("alt", "tab"),
+    "alt+left": ("alt", "left"),
+    "alt+right": ("alt", "right"),
     "enter": ("enter",),
     "tab": ("tab",),
     "escape": ("esc",),
@@ -178,7 +180,7 @@ def _parse_one(task: str, app_context: bool = False) -> list[dict[str, Any]]:
         text, re.IGNORECASE,
     )
     if named_result:
-        target = named_result.group(1).strip().strip("'\"")
+        target = re.sub(r"^(?:named|called)\s+", "", named_result.group(1).strip(), flags=re.IGNORECASE).strip("'\"")
         if not target:
             raise DesktopAgentError("Name the result you want to select.")
         return [{"type": "click_result", "target": target}]
@@ -314,6 +316,9 @@ def _parse_one(task: str, app_context: bool = False) -> list[dict[str, Any]]:
         if not 50 <= amount <= 1500:
             raise DesktopAgentError("Scroll amount must be between 50 and 1,500.")
         return [{"type": "scroll", "amount": amount if scroll_match.group(1).casefold() == "up" else -amount}]
+
+    if re.fullmatch(r"(?:(?:press|hit|tap)\s+)?(?:the\s+)?enter(?:\s+key)?", text, re.IGNORECASE):
+        return [{"type": "hotkey", "keys": list(SAFE_HOTKEYS["enter"])}]
 
     hotkey_match = re.fullmatch(r"(?:press|hotkey)\s+([a-z0-9+_-]+)", text, re.IGNORECASE)
     if hotkey_match:
