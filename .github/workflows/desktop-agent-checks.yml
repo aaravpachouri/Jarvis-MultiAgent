@@ -1,0 +1,39 @@
+name: Desktop agent verification
+
+on:
+  push:
+    branches:
+      - publish/jarvis-multiagent
+    paths:
+      - "agents/desktop_agent/**"
+      - "tests/test_desktop_bridge.py"
+      - "pyproject.toml"
+      - ".github/workflows/desktop-agent-checks.yml"
+  pull_request:
+    paths:
+      - "agents/desktop_agent/**"
+      - "tests/test_desktop_bridge.py"
+      - "pyproject.toml"
+      - ".github/workflows/desktop-agent-checks.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  desktop-and-regression-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install test dependencies
+        run: python -m pip install -e ".[dev]"
+      - name: Compile source
+        run: python -m compileall -q agents core tests dashboard_server.py main.py
+      - name: Run full regression suite
+        run: PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -p no:cacheprovider
