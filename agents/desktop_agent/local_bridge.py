@@ -511,6 +511,9 @@ class DesktopActionExecutor:
 
     def __init__(self, backend: Any | None = None) -> None:
         self._backend = backend
+        # Preserve search context across separate dashboard submissions in the same session.
+        self._last_search_query = ""
+        self._last_app_name = ""
 
     def _get_backend(self):
         if self._backend is not None:
@@ -653,9 +656,10 @@ class DesktopActionExecutor:
             scored: list[tuple[int, Any, str, str]] = []
             generic: list[tuple[Any, str, str]] = []
             for control, kind, name, metadata in controls:
-                generic.append((control, kind, name))
+                # Never use a lone credential/payment field as a fallback search field.
                 if re.search(r"\b(password|passcode|one.time.code|username|email address|credit card|security code)\b", metadata):
                     continue
+                generic.append((control, kind, name))
                 score = 0
                 if re.search(r"\b(search|find)\b", metadata):
                     score += 100
@@ -757,12 +761,17 @@ class DesktopActionExecutor:
     def execute(self, actions: list[dict[str, Any]]) -> dict[str, Any]:
         backend = self._get_backend()
         completed: list[dict[str, Any]] = []
-        last_search_query = ""
+        last_search_query = self._last_search_query
         for index, action in enumerate(actions, 1):
             kind = action.get("type")
             try:
                 if kind == "open_app":
-                    app = str(action.get("app", ""))
+                    app = str(action.get("app", "")).strip()
+                    app_key = APP_ALIASES.get(app.casefold(), app.casefold())
+                    if app_key != self._last_app_name:
+                        last_search_query = ""
+                        self._last_search_query = ""
+                    self._last_app_name = app_key
                     executable = self._find_app(app)
                     if executable:
                         subprocess.Popen([executable], shell=False, close_fds=True)
@@ -836,6 +845,7 @@ class DesktopActionExecutor:
                                 except Exception:
                                     pass
                         last_search_query = value
+                        self._last_search_query = value
                         detail = "Found " + repr(field_name) + " and entered the search text"
                     else:
                         detail = "Focused " + repr(field_name)
