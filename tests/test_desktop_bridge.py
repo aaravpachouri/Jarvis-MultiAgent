@@ -257,3 +257,16 @@ def test_sequencing_accepts_commas_and_and_connectors():
         "open_app", "smart_type", "hotkey", "click_first_result"
     ]
     assert actions[-1]["target"] == "Blinding Lights"
+
+
+def test_standalone_enter_and_back_forward_navigation_steps():
+    assert parse_task("Enter") == [{"type": "hotkey", "keys": ["enter"]}]
+    assert parse_task("hit Enter") == [{"type": "hotkey", "keys": ["enter"]}]
+    assert parse_task("go back") == [{"type": "hotkey", "keys": ["alt", "left"]}]
+    assert parse_task("go forward") == [{"type": "hotkey", "keys": ["alt", "right"]}]
+
+
+def test_named_result_can_be_described_as_called_or_named():
+    assert parse_task("click the result named Blinding Lights") == [
+        {"type": "click_result", "target": "Blinding Lights"}
+    ]
