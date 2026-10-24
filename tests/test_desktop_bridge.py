@@ -37,6 +37,17 @@ def test_common_desktop_actions_are_parsed_without_shell():
     assert parse_task("wait 1 second") == [{"type": "wait", "seconds": 1.0}]
 
 
+def test_named_button_click_targets_allowlisted_app():
+    assert parse_task("click button Save in Notepad") == [
+        {"type": "open_app", "app": "notepad"},
+        {"type": "click_ui", "control": "button", "text": "Save"},
+    ]
+    assert parse_task("click the Save button in Notepad") == [
+        {"type": "open_app", "app": "notepad"},
+        {"type": "click_ui", "control": "button", "text": "Save"},
+    ]
+
+
 def test_web_search_is_encoded_as_an_https_url():
     actions = parse_task("search for Python 3.12 release notes")
     assert actions[0]["type"] == "open_url"
