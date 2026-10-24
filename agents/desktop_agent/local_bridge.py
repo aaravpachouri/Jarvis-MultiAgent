@@ -718,60 +718,138 @@ class DesktopActionExecutor:
         )
 
     def _find_result_control(self, target: str = "", timeout_seconds: float = 8.0) -> tuple[Any, str]:
-        """Find a visible, clickable result by accessible name, independent of app identity."""
+        """Find a visible result across accessible list rows, links, cards, and title text."""
         deadline = time.monotonic() + timeout_seconds
         target_text = re.sub(r"\s+", " ", target.casefold()).strip()
         target_tokens = {token for token in re.findall(r"[a-z0-9]+", target_text) if len(token) > 1}
-        allowed = {"ListItem", "DataItem", "TreeItem", "Hyperlink", "Button"}
+        allowed = {
+            "ListItem", "DataItem", "TreeItem", "Hyperlink", "Button",
+            "Text", "Group", "Custom", "Image",
+        }
         excluded = re.compile(
             r"^(?:home|back|forward|next|previous|play|pause|stop|close|cancel|settings|"
             r"library|search|filter|sort|more options|menu|minimize|maximize|refresh|"
             r"sign in|log in|send|delete|buy|purchase|checkout|pay|payment)$",
             re.IGNORECASE,
         )
+        type_bonus = {
+            "ListItem": 30, "DataItem": 28, "TreeItem": 25, "Hyperlink": 22,
+            "Group": 14, "Custom": 12, "Button": 8, "Text": 5, "Image": 3,
+        }
 
         while time.monotonic() < deadline:
-            active, controls = self._active_ui_controls(allowed)
+            _, controls = self._active_ui_controls(allowed)
             candidates: list[tuple[float, Any, str, str]] = []
             for control, kind, name, metadata in controls:
                 label = re.sub(r"\s+", " ", name).strip()
-                if not label or excluded.fullmatch(label):
+                if not label or excluded.fullmatch(label) or len(label) > 400:
                     continue
-                if len(label) < 2 or len(label) > 240:
+                if len(label) < 2:
                     continue
-                normalized = label.casefold()
-                if target_text:
-                    label_tokens = {token for token in re.findall(r"[a-z0-9]+", normalized) if len(token) > 1}
-                    overlap = len(target_tokens & label_tokens) / max(1, len(target_tokens))
-                    score = 100.0 if target_text in normalized else overlap * 70.0
-                    if score < 35:
+
+                score = 0.0
+                if target_tokens:
+                    label_tokens = {
+                        token for token in re.findall(r"[a-z0-9]+", label.casefold())
+                        if len(token) > 1
+                    }
+                    matches = target_tokens & label_tokens
+                    required_matches = 1 if len(target_tokens) <= 2 else 2
+                    # Results often expose only their title ("Blinding Lights"), while
+                    # the query contains extra words ("The Weeknd ... official music
+                    # video"). Score both query coverage and label coverage so a short
+                    # but highly relevant title is not incorrectly discarded.
+                    if len(matches) < required_matches:
                         continue
+                    query_coverage = len(matches) / max(1, len(target_tokens))
+                    label_coverage = len(matches) / max(1, len(label_tokens))
+                    score = query_coverage * 55.0 + label_coverage * 35.0
+                    normalized_label = " ".join(re.findall(r"[a-z0-9]+", label.casefold()))
+                    normalized_target = " ".join(re.findall(r"[a-z0-9]+", target_text))
+                    if normalized_target and normalized_target in normalized_label:
+                        score += 35.0
                 else:
-                    score = 0.0
-                # Prefer semantic list rows over generic buttons or links.
-                score += {"ListItem": 28, "DataItem": 26, "TreeItem": 20, "Hyperlink": 12, "Button": 5}.get(kind, 0)
+                    # With no query context, only choose semantic result containers,
+                    # not arbitrary text such as headings, menus, or description labels.
+                    if kind not in {"ListItem", "DataItem", "TreeItem", "Hyperlink", "Group", "Custom"}:
+                        continue
+
+                score += type_bonus.get(kind, 0)
                 candidates.append((score, control, label, kind))
 
             if candidates:
                 candidates.sort(key=lambda item: item[0], reverse=True)
                 best_score = candidates[0][0]
                 close = [item for item in candidates if abs(item[0] - best_score) < 0.5]
-                # For an explicitly named result, selecting the first exact/highest match is deterministic;
-                # for an unspecified result, only choose the first semantic row rather than a random button.
-                if target_text and len(close) > 1 and candidates[0][0] < 125:
-                    names = [item[2] for item in close[:3]]
-                    raise DesktopAgentError("Several visible results match that text: " + "; ".join(names) + ". Name the exact result.")
-                chosen = candidates[0]
-                if not target_text and chosen[3] not in {"ListItem", "DataItem", "TreeItem"}:
+                if target_tokens and len(close) > 1 and candidates[0][0] < 125:
+                    names = [item[2] for item in close[:4]]
                     raise DesktopAgentError(
-                        "I couldn't identify a result row in this app. Name the result or use the app's visible result list."
+                        "Several visible results match that text: " + "; ".join(names) +
+                        ". Name the exact result so I don't click an uncertain item."
+                    )
+                chosen = candidates[0]
+                if not target_tokens and chosen[3] not in {
+                    "ListItem", "DataItem", "TreeItem", "Hyperlink", "Group", "Custom"
+                }:
+                    raise DesktopAgentError(
+                        "I couldn't identify a result container in this app. Name the result instead."
                     )
                 return chosen[1], chosen[2]
             time.sleep(0.35)
 
-        if target_text:
-            raise DesktopAgentError("I couldn't find a visible result matching " + repr(target) + ". No result was clicked.")
-        raise DesktopAgentError("I couldn't identify a visible result row in the active app. No result was clicked.")
+        if target_tokens:
+            raise DesktopAgentError(
+                "I couldn't find an accessible result matching " + repr(target) +
+                ". No result was clicked. Try naming the visible result title."
+            )
+        raise DesktopAgentError(
+            "I couldn't identify a visible result in the active app. No result was clicked."
+        )
+
+    def _click_result_control(self, control: Any) -> str:
+        """Click the result's actionable ancestor when accessibility exposes one."""
+        actionable = {"Hyperlink", "ListItem", "DataItem", "TreeItem", "Button"}
+        current = control
+        selected = control
+        for _ in range(5):
+            kind = self._control_text(current, "control_type")
+            if kind in actionable:
+                selected = current
+                break
+            try:
+                parent = current.parent()
+            except Exception:
+                break
+            if parent is None or parent is current:
+                break
+            parent_kind = self._control_text(parent, "control_type")
+            if parent_kind in actionable:
+                selected = parent
+                break
+            current = parent
+
+        try:
+            selected.click_input()
+            return self._control_text(selected, "name") or self._control_text(selected, "control_type") or "result control"
+        except Exception as click_error:
+            # Some custom UIA providers expose a result element but do not implement
+            # Invoke/Click. A physical click at its verified on-screen bounds is a
+            # generic fallback; it is never guessed from arbitrary screen coordinates.
+            try:
+                rect = selected.rectangle()
+                center_x = int((rect.left + rect.right) / 2)
+                center_y = int((rect.top + rect.bottom) / 2)
+                backend = self._get_backend()
+                size = backend.size()
+                if not (0 <= center_x < int(size.width) and 0 <= center_y < int(size.height)):
+                    raise DesktopAgentError("The result control is outside the visible screen.")
+                backend.click(x=center_x, y=center_y)
+                return self._control_text(selected, "name") or "result control"
+            except Exception as fallback_error:
+                raise DesktopAgentError(
+                    "I found the result but couldn't activate its accessible control: " +
+                    str(click_error) + "; physical fallback failed: " + str(fallback_error)
+                ) from fallback_error
 
     def execute(self, actions: list[dict[str, Any]]) -> dict[str, Any]:
         backend = self._get_backend()
@@ -896,8 +974,8 @@ class DesktopActionExecutor:
                 elif kind in {"click_result", "click_first_result"}:
                     target = str(action.get("target", "") or last_search_query).strip()
                     control, result_name = self._find_result_control(target)
-                    control.click_input()
-                    detail = "Selected result " + repr(result_name)
+                    activated_name = self._click_result_control(control)
+                    detail = "Clicked result " + repr(result_name) + " using " + repr(activated_name)
                 elif kind in {"click", "double_click"}:
                     size = backend.size()
                     x, y = int(action.get("x", -1)), int(action.get("y", -1))
