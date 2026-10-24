@@ -389,6 +389,15 @@ def action_summary(actions: list[dict[str, Any]], active_window: str = "") -> st
             value = str(action.get("text", ""))
             preview = value if len(value) <= 420 else value[:420] + " … [text truncated in preview]"
             label = "Type text: " + repr(preview)
+        elif kind == "smart_type":
+            value = str(action.get("text", ""))
+            preview = value if len(value) <= 280 else value[:280] + " … [text truncated in preview]"
+            label = "Find the app's search field and type: " + repr(preview)
+        elif kind == "focus_search":
+            label = "Find and focus the best matching search field in the current app"
+        elif kind in {"click_result", "click_first_result"}:
+            target = str(action.get("target", "")).strip()
+            label = ("Click visible result matching " + repr(target)) if target else "Click the first matching result in the current app"
         elif kind in {"click", "double_click"}:
             label = ("Double-click" if kind == "double_click" else "Click") + " screen position (" + str(action.get("x")) + ", " + str(action.get("y")) + ")"
         elif kind == "drag":
@@ -443,6 +452,8 @@ def approval_reason(task: str, actions: list[dict[str, Any]], active_window: str
             return "Opening a system or administrative utility needs approval."
         if kind in {"click", "double_click", "drag"}:
             return "Coordinate input has an ambiguous target and needs approval."
+        if kind in {"click_result", "click_first_result"} and sensitive_control.search(str(action.get("target", ""))):
+            return "The selected result may trigger a consequential action."
         if kind == "click_ui" and sensitive_control.search(str(action.get("text", ""))):
             return "This named control may perform a consequential action."
         if kind == "type_text":
