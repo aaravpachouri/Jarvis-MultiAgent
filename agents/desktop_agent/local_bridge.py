@@ -168,14 +168,14 @@ def _parse_one(task: str) -> list[dict[str, Any]]:
         return [{"type": "type_text", "text": value}]
 
     ui_click_match = re.fullmatch(
-        r"click\s+(?:the\s+)?(button|link)\s+[\"']?(.+?)[\"']?\s+in\s+(" + APP_PATTERN + ")",
+        r"click\s+(?:the\s+)?(?:(button|link)\s+[\"']?(.+?)[\"']?|(.+?)\s+(button|link))\s+in\s+(" + APP_PATTERN + ")",
         text,
         re.IGNORECASE,
     )
     if ui_click_match:
-        control = ui_click_match.group(1).casefold()
-        label = ui_click_match.group(2).strip().strip("'\\\"")
-        app = APP_ALIASES[ui_click_match.group(3).casefold()]
+        control = (ui_click_match.group(1) or ui_click_match.group(4)).casefold()
+        label = (ui_click_match.group(2) or ui_click_match.group(3)).strip().strip("'\\\"")
+        app = APP_ALIASES[ui_click_match.group(5).casefold()]
         if not label or len(label) > 100:
             raise DesktopAgentError("UI control names must be between 1 and 100 characters.")
         return [
