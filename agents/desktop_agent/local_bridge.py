@@ -168,7 +168,7 @@ def _parse_one(task: str) -> list[dict[str, Any]]:
         return [{"type": "type_text", "text": value}]
 
     ui_click_match = re.fullmatch(
-        r"click\s+(?:the\s+)?(button|link)\s+[\"']?(.+?)[\"']?\s+in\s+(${APP_PATTERN})",
+        r"click\s+(?:the\s+)?(button|link)\s+[\"']?(.+?)[\"']?\s+in\s+(" + APP_PATTERN + ")",
         text,
         re.IGNORECASE,
     )
