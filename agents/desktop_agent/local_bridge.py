@@ -231,6 +231,14 @@ def _parse_one(task: str) -> list[dict[str, Any]]:
             {"type": "click_ui", "control": control, "text": label},
         ]
 
+    double_click = re.fullmatch(r"(?:double[\s-]+click)(?:\s+(?:at|on))?\s+(\d{1,5})\s*(?:,|\s)\s*(\d{1,5})", text, re.IGNORECASE)
+    if double_click:
+        return [{"type": "double_click", "x": int(double_click.group(1)), "y": int(double_click.group(2))}]
+
+    drag = re.fullmatch(r"drag\s+(\d{1,5})\s*,\s*(\d{1,5})\s+to\s+(\d{1,5})\s*,\s*(\d{1,5})", text, re.IGNORECASE)
+    if drag:
+        return [{"type": "drag", "x1": int(drag.group(1)), "y1": int(drag.group(2)), "x2": int(drag.group(3)), "y2": int(drag.group(4))}]
+
     click_match = re.fullmatch(
         r"click(?:\s+(?:at|on))?\s+(\d{1,5})\s*(?:,|\s)\s*(\d{1,5})(?:\s+(left|right))?",
         text,
@@ -243,6 +251,13 @@ def _parse_one(task: str) -> list[dict[str, Any]]:
             "y": int(click_match.group(2)),
             "button": (click_match.group(3) or "left").casefold(),
         }]
+
+    scroll_match = re.fullmatch(r"scroll\s+(up|down)(?:\s+(\d{1,4}))?", text, re.IGNORECASE)
+    if scroll_match:
+        amount = int(scroll_match.group(2) or 500)
+        if not 50 <= amount <= 1500:
+            raise DesktopAgentError("Scroll amount must be between 50 and 1,500.")
+        return [{"type": "scroll", "amount": amount if scroll_match.group(1).casefold() == "up" else -amount}]
 
     hotkey_match = re.fullmatch(r"(?:press|hotkey)\s+([a-z0-9+_-]+)", text, re.IGNORECASE)
     if hotkey_match:
@@ -547,18 +562,36 @@ class DesktopActionExecutor:
                             except Exception:
                                 pass
                     detail = "Typed " + str(len(value)) + " characters"
-                elif kind == "click":
+                elif kind in {"click", "double_click"}:
                     size = backend.size()
-                    x = int(action.get("x", -1))
-                    y = int(action.get("y", -1))
+                    x, y = int(action.get("x", -1)), int(action.get("y", -1))
                     if not (0 <= x < int(size.width) and 0 <= y < int(size.height)):
                         raise DesktopAgentError("Click coordinates are outside the current screen.")
                     button = str(action.get("button", "left")).casefold()
                     if button not in {"left", "right"}:
                         raise DesktopAgentError("Only left and right mouse clicks are supported.")
                     backend.moveTo(x, y, duration=0.08)
-                    backend.click(x=x, y=y, button=button)
-                    detail = "Clicked (" + str(x) + ", " + str(y) + ")"
+                    if kind == "double_click":
+                        backend.doubleClick(x=x, y=y, interval=0.12, button="left")
+                        detail = "Double-clicked (" + str(x) + ", " + str(y) + ")"
+                    else:
+                        backend.click(x=x, y=y, button=button)
+                        detail = "Clicked (" + str(x) + ", " + str(y) + ")"
+                elif kind == "drag":
+                    size = backend.size()
+                    coords = [int(action.get(name, -1)) for name in ("x1", "y1", "x2", "y2")]
+                    points = ((coords[0], coords[1]), (coords[2], coords[3]))
+                    if any(x < 0 or y < 0 or x >= int(size.width) or y >= int(size.height) for x, y in points):
+                        raise DesktopAgentError("Drag coordinates are outside the current screen.")
+                    backend.moveTo(coords[0], coords[1], duration=0.08)
+                    backend.dragTo(coords[2], coords[3], duration=0.3, button="left")
+                    detail = "Dragged from (" + str(coords[0]) + ", " + str(coords[1]) + ") to (" + str(coords[2]) + ", " + str(coords[3]) + ")"
+                elif kind == "scroll":
+                    amount = int(action.get("amount", 0))
+                    if amount == 0 or abs(amount) > 1500:
+                        raise DesktopAgentError("Scroll amount must be between 1 and 1,500 units.")
+                    backend.scroll(amount)
+                    detail = "Scrolled " + ("up " if amount > 0 else "down ") + str(abs(amount)) + " units"
                 elif kind == "click_ui":
                     control_type = str(action.get("control", "")).casefold()
                     label = str(action.get("text", "")).strip()
