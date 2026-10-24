@@ -6,6 +6,8 @@ from agents.voice_agent.model_client import ModelClientError, OpenAICompatibleCl
 
 
 def configure_all(monkeypatch):
+    monkeypatch.delenv("RENDER", raising=False)
+    monkeypatch.delenv("RENDER_SERVICE_ID", raising=False)
     monkeypatch.setenv("JARVIS_LLM_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai")
     monkeypatch.setenv("JARVIS_LLM_API_KEY", "gemini-test")
     monkeypatch.setenv("JARVIS_LLM_MODEL", "gemini-test-model")
@@ -62,6 +64,21 @@ def test_decision_invalid_json_fails_over(monkeypatch):
     assert client.decide([{"role": "user", "content": "hi"}]) == {"route": "chat"}
     assert calls == ["gemini", "groq"]
     assert client.active_provider == "groq"
+
+
+def test_render_skips_localhost_ollama_when_cloud_credentials_are_missing(monkeypatch):
+    monkeypatch.setenv("RENDER", "true")
+    monkeypatch.setenv("JARVIS_LLM_API_KEY", "")
+    monkeypatch.setenv("JARVIS_LLM_SECONDARY_API_KEY", "")
+    monkeypatch.setenv("JARVIS_LLM_SECONDARY_MODEL", "")
+    monkeypatch.setenv("JARVIS_LLM_FALLBACK_BASE_URL", "http://localhost:11434/v1")
+    monkeypatch.setenv("JARVIS_LLM_FALLBACK_MODEL", "llama3.2:latest")
+
+    client = OpenAICompatibleClient()
+
+    assert client.providers == []
+    with pytest.raises(ModelClientError, match="No cloud model provider is configured for Render"):
+        client.answer_chat([{"role": "user", "content": "plan a mission"}])
 
 
 def test_raises_when_all_providers_fail(monkeypatch):
