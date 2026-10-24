@@ -7,6 +7,7 @@ import urllib.request
 
 import pytest
 
+import agents.desktop_agent.local_bridge as desktop_bridge
 from agents.desktop_agent.local_bridge import (
     BridgeHandler,
     BridgeHTTPServer,
@@ -300,6 +301,9 @@ class FakeKeyboardBackend:
     def hotkey(self, *keys):
         self.events.append(("hotkey", keys))
 
+    def press(self, key):
+        self.events.append(("press", key))
+
     def write(self, value, interval=0):
         self.events.append(("write", value))
 
@@ -310,6 +314,52 @@ class FakeUIControl:
 
     def click_input(self):
         self.clicked += 1
+
+
+def test_youtube_search_falls_back_to_results_url_when_page_search_is_not_accessible(monkeypatch):
+    backend = FakeKeyboardBackend()
+    executor = DesktopActionExecutor(backend=backend)
+    monkeypatch.setattr(desktop_bridge.webbrowser, "open_new_tab", lambda url: True)
+    monkeypatch.setattr(desktop_bridge.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(
+        executor,
+        "_find_search_field",
+        lambda timeout_seconds=8.0: (_ for _ in ()).throw(
+            DesktopAgentError("No accessible search field is exposed yet.")
+        ),
+    )
+
+    result = executor.execute([
+        {"type": "open_url", "url": "https://www.youtube.com"},
+        {"type": "smart_type", "text": "The Weeknd Blinding Lights", "target": "search"},
+    ])
+
+    assert result["ok"] is True
+    assert "YouTube search results" in result["completed"][1]["detail"]
+    assert ("hotkey", ("ctrl", "l")) in backend.events
+    assert (
+        "write",
+        "https://www.youtube.com/results?search_query=The+Weeknd+Blinding+Lights",
+    ) in backend.events
+    assert ("press", "enter") in backend.events
+    assert executor._last_search_query == "The Weeknd Blinding Lights"
+
+
+def test_youtube_page_never_uses_address_bar_as_generic_search_field(monkeypatch):
+    # The browser's address bar must not be accepted as the page's only text field.
+    class Control:
+        def __init__(self, name, kind="Edit"):
+            self.name = name
+            self.kind = kind
+        def window_text(self):
+            return self.name
+
+    executor = DesktopActionExecutor(backend=FakeKeyboardBackend())
+    address = (Control("Address and search bar"), "Edit", "Address and search bar",
+               "address and search bar address and search bar")
+    monkeypatch.setattr(executor, "_active_ui_controls", lambda allowed: (object(), [address]))
+    with pytest.raises(DesktopAgentError, match="No accessible search field"):
+        executor._find_search_field(timeout_seconds=0.01)
 
 
 def test_search_query_is_remembered_for_a_follow_up_result_click(monkeypatch):
