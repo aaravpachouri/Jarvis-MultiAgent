@@ -15,6 +15,7 @@ from agents.desktop_agent.local_bridge import (
     action_summary,
     parse_task,
     validate_url,
+    approval_reason,
 )
 
 
@@ -144,7 +145,8 @@ def test_preview_requires_auth_and_returns_allowlisted_actions(bridge_server):
     with urllib.request.urlopen(request, timeout=2) as response:
         payload = json.loads(response.read().decode("utf-8"))
     assert payload["ok"] is True
-    assert payload["approval_required"] is True
+    assert payload["approval_required"] is False
+    assert payload["execution_mode"] == "routine_auto_run"
     assert [action["type"] for action in payload["actions"]] == ["open_app", "type_text"]
 
 
@@ -159,3 +161,39 @@ def test_bridge_rejects_unapproved_browser_origins(bridge_server):
     with pytest.raises(urllib.error.HTTPError) as captured:
         urllib.request.urlopen(request, timeout=2)
     assert captured.value.code == 403
+
+
+def test_any_installed_app_name_can_be_parsed_without_a_fixed_allowlist():
+    assert parse_task("open Spotify") == [{"type": "open_app", "app": "Spotify"}]
+    assert parse_task("open Microsoft Word") == [{"type": "open_app", "app": "Microsoft Word"}]
+    assert parse_task("open Windows Settings") == [{"type": "open_app", "app": "Windows Settings"}]
+
+
+def test_generic_app_target_can_be_opened_and_typed_into():
+    assert parse_task("type hello from JARVIS into Discord") == [
+        {"type": "open_app", "app": "Discord"},
+        {"type": "type_text", "text": "hello from JARVIS"},
+    ]
+
+
+def test_routine_tasks_do_not_require_approval():
+    actions = parse_task("open notepad and type Hello from JARVIS")
+    assert approval_reason("open notepad and type Hello from JARVIS", actions, "Desktop") is None
+    assert approval_reason("search for Python release notes", parse_task("search for Python release notes"), "Desktop") is None
+
+
+def test_sensitive_tasks_and_ambiguous_coordinates_require_approval():
+    assert approval_reason("click button Send", parse_task("click button Send"), "Inbox") is not None
+    assert approval_reason("click 620, 420", parse_task("click 620, 420"), "Desktop") is not None
+    assert approval_reason("open PowerShell", parse_task("open PowerShell"), "Desktop") is not None
+    assert approval_reason("type 123456 into Notepad", parse_task("type 123456 into Notepad"), "Password dialog") is not None
+
+
+def test_named_routine_control_does_not_require_approval():
+    assert approval_reason("click button Refresh", parse_task("click button Refresh"), "Browser") is None
+
+
+def test_shell_commands_remain_unsupported():
+    for task in ("run powershell Get-Process", "delete files in Downloads", "make a payment"):
+        with pytest.raises(DesktopAgentError):
+            parse_task(task)
