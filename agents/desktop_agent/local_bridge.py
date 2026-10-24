@@ -787,6 +787,7 @@ class DesktopActionExecutor:
                         last_search_query = ""
                         self._last_search_query = ""
                     self._last_app_name = app_key
+                    self._last_opened_url = ""
                     executable = self._find_app(app)
                     if executable:
                         subprocess.Popen([executable], shell=False, close_fds=True)
