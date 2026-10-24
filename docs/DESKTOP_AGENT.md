@@ -22,7 +22,8 @@ Mouse and keyboard input runs locally through http://127.0.0.1:8766. Hosted dash
 - Use the supported shortcuts: press ctrl+l, ctrl+f, ctrl+s, alt+tab.
 - Combine up to eight actions with separate lines, semicolons, commas before commands, or the word then.
 - Example end-to-end workflow: open [app name] then search for [title/query] then press Enter then click the result.
-- You can also say type [text] into the search bar, focus the search bar, click result [title], or click the first result. These use visible UI Automation metadata rather than per-app selectors.
+- You can also send steps as separate commands: open the app, then in the next command type [text] into the search bar, then send Enter, then click the result. Atlas remembers the last search query in the running companion so a later "click the result" can refer to it. Opening a different app clears that search context.
+- You can say focus the search bar, click result [title], click the first result, go back, or go forward. These use general Windows UI Automation metadata rather than per-app selectors.
 
 App names not in the fast-launch map are searched using the Windows Start menu. The app must be installed and discoverable by Windows. For app workflows, Atlas inspects the active window's UI Automation tree, ranks visible text fields using accessibility names/automation IDs/help text, enters the query, waits for visible controls, and looks for result rows matching the query. This approach is app-agnostic, but it cannot guarantee support for custom-drawn or inaccessible controls. If multiple fields/results are equally plausible or no accessible match is found, Atlas stops instead of typing or clicking blindly. Coordinate actions request approval because they have ambiguous targets.
 
