@@ -84,10 +84,12 @@
       const item = document.createElement("li");
       if (action.type === "open_app") item.textContent = "Open application: " + action.app;
       else if (action.type === "open_url") item.textContent = "Open website: " + action.url;
-      else if (action.type === "type_text") {
+      else if (action.type === "type_text" || action.type === "smart_type") {
         const preview = action.text.length > 160 ? action.text.slice(0, 160) + " … [preview]" : action.text;
-        item.textContent = "Type text: " + JSON.stringify(preview);
-      } else if (action.type === "click" || action.type === "double_click") item.textContent = (action.type === "double_click" ? "Double-click" : "Click") + " screen position (" + action.x + ", " + action.y + ")";
+        item.textContent = (action.type === "smart_type" ? "Find search field and type: " : "Type text: ") + JSON.stringify(preview);
+      } else if (action.type === "focus_search") item.textContent = "Find and focus the app's search field";
+      else if (action.type === "click_result" || action.type === "click_first_result") item.textContent = "Select result" + (action.target ? ": " + JSON.stringify(action.target) : "");
+      else if (action.type === "click" || action.type === "double_click") item.textContent = (action.type === "double_click" ? "Double-click" : "Click") + " screen position (" + action.x + ", " + action.y + ")";
       else if (action.type === "drag") item.textContent = "Drag (" + action.x1 + ", " + action.y1 + ") to (" + action.x2 + ", " + action.y2 + ")";
       else if (action.type === "scroll") item.textContent = "Scroll " + (action.amount > 0 ? "up " : "down ") + Math.abs(action.amount);
       else if (action.type === "click_ui") item.textContent = "Click " + action.control + " " + JSON.stringify(action.text);
