@@ -456,7 +456,7 @@ def approval_reason(task: str, actions: list[dict[str, Any]], active_window: str
             return "The selected result may trigger a consequential action."
         if kind == "click_ui" and sensitive_control.search(str(action.get("text", ""))):
             return "This named control may perform a consequential action."
-        if kind == "type_text":
+        if kind in {"type_text", "smart_type"}:
             value = str(action.get("text", ""))
             if len(value) > 1000 or sensitive.search(value):
                 return "Long or sensitive text entry needs approval."
