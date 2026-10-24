@@ -591,6 +591,165 @@ class DesktopActionExecutor:
             return found
         return None
 
+    @staticmethod
+    def _control_text(control: Any, property_name: str) -> str:
+        try:
+            value = getattr(control.element_info, property_name, "")
+            return str(value or "")
+        except Exception:
+            return ""
+
+    @staticmethod
+    def _is_visible_enabled(control: Any) -> bool:
+        try:
+            if not control.is_visible() or not control.is_enabled():
+                return False
+        except Exception:
+            return False
+        try:
+            rect = control.rectangle()
+            if rect.width() < 8 or rect.height() < 8:
+                return False
+        except Exception:
+            return False
+        return True
+
+    def _active_ui_controls(self, allowed_types: set[str]) -> tuple[Any, list[tuple[Any, str, str, str]]]:
+        """Return visible UI Automation controls from the active app window."""
+        try:
+            from pywinauto import Desktop
+        except ImportError as exc:
+            raise DesktopAgentError(
+                "Adaptive app control needs pywinauto. Run run_desktop_agent.bat to install desktop dependencies."
+            ) from exc
+        try:
+            active = Desktop(backend="uia").get_active()
+            wrappers = active.descendants()
+        except Exception as exc:
+            raise DesktopAgentError("Could not inspect the active app's accessible controls.") from exc
+
+        found: list[tuple[Any, str, str, str]] = []
+        for control in wrappers:
+            kind = self._control_text(control, "control_type")
+            if kind not in allowed_types or not self._is_visible_enabled(control):
+                continue
+            name = self._control_text(control, "name") or str(getattr(control, "window_text", lambda: "")() or "")
+            automation_id = self._control_text(control, "automation_id")
+            help_text = self._control_text(control, "help_text")
+            metadata = " ".join((name, automation_id, help_text, self._control_text(control, "class_name"))).strip().casefold()
+            found.append((control, kind, name.strip(), metadata))
+        return active, found
+
+    def _find_search_field(self, timeout_seconds: float = 8.0) -> tuple[Any, Any, str]:
+        """Discover a search/address field from its accessibility metadata, app-agnostically."""
+        deadline = time.monotonic() + timeout_seconds
+        last_error = ""
+        while time.monotonic() < deadline:
+            active, controls = self._active_ui_controls({"Edit", "ComboBox", "TextBox"})
+            scored: list[tuple[int, Any, str, str]] = []
+            generic: list[tuple[Any, str, str]] = []
+            for control, kind, name, metadata in controls:
+                generic.append((control, kind, name))
+                if re.search(r"\b(password|passcode|one.time.code|username|email address|credit card|security code)\b", metadata):
+                    continue
+                score = 0
+                if re.search(r"\b(search|find)\b", metadata):
+                    score += 100
+                if re.search(r"\b(query|lookup)\b", metadata):
+                    score += 85
+                if re.search(r"\b(filter)\b", metadata):
+                    score += 65
+                if re.search(r"\b(address bar|address and search bar|url bar|web address)\b", metadata):
+                    score += 95
+                if "url" in metadata or "omnibox" in metadata:
+                    score += 55
+                if kind == "ComboBox":
+                    score += 5
+                if kind == "Edit":
+                    score += 3
+                if score > 0:
+                    scored.append((score, control, name, kind))
+
+            if scored:
+                scored.sort(key=lambda item: item[0], reverse=True)
+                top_score = scored[0][0]
+                close = [item for item in scored if top_score - item[0] < 18]
+                if len(close) > 1:
+                    labels = [item[2] or item[3] for item in close[:4]]
+                    raise DesktopAgentError(
+                        "I found several equally plausible search fields: " + ", ".join(labels) +
+                        ". Click the intended field once, or specify a named field."
+                    )
+                return active, scored[0][1], scored[0][2] or "search field"
+
+            if len(generic) == 1:
+                return active, generic[0][0], generic[0][2] or "the app's only text field"
+            if len(generic) > 1:
+                last_error = "This app exposes multiple text fields but doesn't label a clear search field."
+            else:
+                last_error = "No accessible search field is exposed yet."
+            time.sleep(0.3)
+
+        raise DesktopAgentError(
+            last_error + " I won't guess where to type. Click the intended field or use the app's visible search control."
+        )
+
+    def _find_result_control(self, target: str = "", timeout_seconds: float = 8.0) -> tuple[Any, str]:
+        """Find a visible, clickable result by accessible name, independent of app identity."""
+        deadline = time.monotonic() + timeout_seconds
+        target_text = re.sub(r"\s+", " ", target.casefold()).strip()
+        target_tokens = {token for token in re.findall(r"[a-z0-9]+", target_text) if len(token) > 1}
+        allowed = {"ListItem", "DataItem", "TreeItem", "Hyperlink", "Button"}
+        excluded = re.compile(
+            r"^(?:home|back|forward|next|previous|play|pause|stop|close|cancel|settings|"
+            r"library|search|filter|sort|more options|menu|minimize|maximize|refresh|"
+            r"sign in|log in|send|delete|buy|purchase|checkout|pay|payment)$",
+            re.IGNORECASE,
+        )
+
+        while time.monotonic() < deadline:
+            active, controls = self._active_ui_controls(allowed)
+            candidates: list[tuple[float, Any, str, str]] = []
+            for control, kind, name, metadata in controls:
+                label = re.sub(r"\s+", " ", name).strip()
+                if not label or excluded.fullmatch(label):
+                    continue
+                if len(label) < 2 or len(label) > 240:
+                    continue
+                normalized = label.casefold()
+                if target_text:
+                    label_tokens = {token for token in re.findall(r"[a-z0-9]+", normalized) if len(token) > 1}
+                    overlap = len(target_tokens & label_tokens) / max(1, len(target_tokens))
+                    score = 100.0 if target_text in normalized else overlap * 70.0
+                    if score < 35:
+                        continue
+                else:
+                    score = 0.0
+                # Prefer semantic list rows over generic buttons or links.
+                score += {"ListItem": 28, "DataItem": 26, "TreeItem": 20, "Hyperlink": 12, "Button": 5}.get(kind, 0)
+                candidates.append((score, control, label, kind))
+
+            if candidates:
+                candidates.sort(key=lambda item: item[0], reverse=True)
+                best_score = candidates[0][0]
+                close = [item for item in candidates if abs(item[0] - best_score) < 0.5]
+                # For an explicitly named result, selecting the first exact/highest match is deterministic;
+                # for an unspecified result, only choose the first semantic row rather than a random button.
+                if target_text and len(close) > 1 and candidates[0][0] < 125:
+                    names = [item[2] for item in close[:3]]
+                    raise DesktopAgentError("Several visible results match that text: " + "; ".join(names) + ". Name the exact result.")
+                chosen = candidates[0]
+                if not target_text and chosen[3] not in {"ListItem", "DataItem", "TreeItem"}:
+                    raise DesktopAgentError(
+                        "I couldn't identify a result row in this app. Name the result or use the app's visible result list."
+                    )
+                return chosen[1], chosen[2]
+            time.sleep(0.35)
+
+        if target_text:
+            raise DesktopAgentError("I couldn't find a visible result matching " + repr(target) + ". No result was clicked.")
+        raise DesktopAgentError("I couldn't identify a visible result row in the active app. No result was clicked.")
+
     def execute(self, actions: list[dict[str, Any]]) -> dict[str, Any]:
         backend = self._get_backend()
         completed: list[dict[str, Any]] = []
