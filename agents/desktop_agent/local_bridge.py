@@ -503,7 +503,7 @@ def allowed_origins() -> set[str]:
 
 
 class DesktopActionExecutor:
-    """Execute only the actions returned by parse_task; all side effects are approved first."""
+    """Execute parsed desktop actions with risk-based approval handled by the bridge."""
 
     def __init__(self, backend: Any | None = None) -> None:
         self._backend = backend
@@ -753,6 +753,7 @@ class DesktopActionExecutor:
     def execute(self, actions: list[dict[str, Any]]) -> dict[str, Any]:
         backend = self._get_backend()
         completed: list[dict[str, Any]] = []
+        last_search_query = ""
         for index, action in enumerate(actions, 1):
             kind = action.get("type")
             try:
@@ -800,6 +801,45 @@ class DesktopActionExecutor:
                             except Exception:
                                 pass
                     detail = "Typed " + str(len(value)) + " characters"
+                elif kind in {"smart_type", "focus_search"}:
+                    # Inspect the active app through Windows UI Automation and select
+                    # the best accessible search field; never blindly tab/type into UI.
+                    _, control, field_name = self._find_search_field()
+                    control.click_input()
+                    if kind == "smart_type":
+                        value = str(action.get("text", ""))
+                        if not value or len(value) > 8_000:
+                            raise DesktopAgentError("Search text must be between 1 and 8,000 characters.")
+                        backend.hotkey("ctrl", "a")
+                        if value.isascii():
+                            backend.write(value, interval=0)
+                        else:
+                            try:
+                                import pyperclip
+                            except ImportError as exc:
+                                raise DesktopAgentError("Unicode search text needs pyperclip; run run_desktop_agent.bat to install it.") from exc
+                            original_clipboard = None
+                            try:
+                                original_clipboard = pyperclip.paste()
+                            except Exception:
+                                pass
+                            pyperclip.copy(value)
+                            backend.hotkey("ctrl", "v")
+                            time.sleep(0.15)
+                            if original_clipboard is not None:
+                                try:
+                                    pyperclip.copy(original_clipboard)
+                                except Exception:
+                                    pass
+                        last_search_query = value
+                        detail = "Found " + repr(field_name) + " and entered the search text"
+                    else:
+                        detail = "Focused " + repr(field_name)
+                elif kind in {"click_result", "click_first_result"}:
+                    target = str(action.get("target", "") or last_search_query).strip()
+                    control, result_name = self._find_result_control(target)
+                    control.click_input()
+                    detail = "Selected result " + repr(result_name)
                 elif kind in {"click", "double_click"}:
                     size = backend.size()
                     x, y = int(action.get("x", -1)), int(action.get("y", -1))
