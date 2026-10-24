@@ -6,6 +6,7 @@ on:
       - publish/jarvis-multiagent
     paths:
       - "agents/desktop_agent/**"
+      - "dashboard/**"
       - "tests/test_desktop_bridge.py"
       - "pyproject.toml"
       - ".env.example"
@@ -13,6 +14,7 @@ on:
   pull_request:
     paths:
       - "agents/desktop_agent/**"
+      - "dashboard/**"
       - "tests/test_desktop_bridge.py"
       - "pyproject.toml"
       - ".env.example"
