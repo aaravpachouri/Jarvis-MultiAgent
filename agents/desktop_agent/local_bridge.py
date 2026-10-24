@@ -369,7 +369,10 @@ def parse_task(value: Any) -> list[dict[str, Any]]:
     for segment in segments:
         step_actions = _parse_one(segment, app_context=app_context)
         for action in step_actions:
-            if action.get("type") == "open_app":
+            if action.get("type") in {"open_app", "open_url"}:
+                # After opening a site, subsequent "search for ..." instructions
+                # should search inside that page instead of opening a second tab
+                # with a separate Google search.
                 app_context = True
             elif action.get("type") == "smart_type" and action.get("target") == "search":
                 last_search_query = str(action.get("text", ""))
@@ -665,23 +668,28 @@ class DesktopActionExecutor:
                 if re.search(r"\b(password|passcode|one.time.code|username|email address|credit card|security code)\b", metadata):
                     continue
                 generic.append((control, kind, name))
+                # Browser omniboxes often contain the word "search" in their
+                # accessible label ("Address and search bar"). Do not let those
+                # outrank or tie with the current website's own search field.
+                is_browser_address = bool(
+                    re.search(r"\b(address bar|address and search bar|url bar|web address|omnibox)\b", metadata)
+                )
                 score = 0
-                if re.search(r"\b(search|find)\b", metadata):
-                    score += 100
-                if re.search(r"\b(query|lookup)\b", metadata):
-                    score += 85
-                if re.search(r"\b(filter)\b", metadata):
-                    score += 65
-                if re.search(r"\b(address bar|address and search bar|url bar|web address)\b", metadata):
-                    score += 95
-                if "url" in metadata or "omnibox" in metadata:
-                    score += 55
-                if kind == "ComboBox":
-                    score += 5
-                if kind == "Edit":
-                    score += 3
-                if score > 0:
-                    scored.append((score, control, name, kind))
+                if not is_browser_address:
+                    if re.search(r"\b(search|find)\b", metadata):
+                        score += 100
+                    if re.search(r"\b(query|lookup)\b", metadata):
+                        score += 85
+                    if re.search(r"\b(filter)\b", metadata):
+                        score += 65
+                    if "url" in metadata:
+                        score += 55
+                    if kind == "ComboBox":
+                        score += 5
+                    if kind == "Edit":
+                        score += 3
+                    if score > 0:
+                        scored.append((score, control, name, kind))
 
             if scored:
                 scored.sort(key=lambda item: item[0], reverse=True)
