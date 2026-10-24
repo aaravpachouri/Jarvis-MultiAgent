@@ -34,6 +34,7 @@ APPROVAL_TIMEOUT_SECONDS = 120
 DEFAULT_ORIGINS = {
     "https://jarvis-multiagent-dashboard.vercel.app",
     "https://jarvis-multiagent-dashboard-aaravpachouri.vercel.app",
+    "https://jarvis-multiagent-dashboard-git-publish-ja-77d6ea-aaravpachouri.vercel.app",
 }
 APP_ALIASES = {
     "notepad": "notepad",
