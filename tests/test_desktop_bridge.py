@@ -347,16 +347,40 @@ def test_youtube_search_falls_back_to_results_url_when_page_search_is_not_access
 
 def test_youtube_page_never_uses_address_bar_as_generic_search_field(monkeypatch):
     # The browser's address bar must not be accepted as the page's only text field.
+    class Rect:
+        def width(self):
+            return 120
+        def height(self):
+            return 24
+
     class Control:
         def __init__(self, name, kind="Edit"):
-            self.name = name
-            self.kind = kind
+            self.element_info = type(
+                "ElementInfo",
+                (),
+                {
+                    "name": name,
+                    "automation_id": "",
+                    "help_text": "",
+                    "class_name": "",
+                    "control_type": kind,
+                },
+            )()
+
+        def is_visible(self):
+            return True
+
+        def is_enabled(self):
+            return True
+
+        def rectangle(self):
+            return Rect()
+
         def window_text(self):
-            return self.name
+            return self.element_info.name
 
     executor = DesktopActionExecutor(backend=FakeKeyboardBackend())
-    address = (Control("Address and search bar"), "Edit", "Address and search bar",
-               "address and search bar address and search bar")
+    address = Control("Address and search bar")
     monkeypatch.setattr(executor, "_active_ui_controls", lambda allowed: (object(), [address]))
     with pytest.raises(DesktopAgentError, match="No accessible search field"):
         executor._find_search_field(timeout_seconds=0.01)
