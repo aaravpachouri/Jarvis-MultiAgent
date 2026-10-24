@@ -7,6 +7,24 @@ from agents.voice_agent.model_client import OpenAICompatibleClient
 
 
 @pytest.mark.asyncio
+async def test_underspecified_mission_prompt_asks_for_goal_without_calling_model():
+    class MustNotCallModel:
+        configured = True
+
+        def answer_chat(self, messages):
+            raise AssertionError("an incomplete planning prompt should not call the model")
+
+    agent = VoiceAgent(model_client=MustNotCallModel())
+    task = type("Task", (), {"prompt": "plan a mission"})()
+
+    response = await agent(task, object())
+
+    assert "mission's objective" in response
+    assert "deadline" in response
+    assert "Nothing will be executed" in response
+
+
+@pytest.mark.asyncio
 async def test_native_sync_chat_client_receives_messages(monkeypatch):
     monkeypatch.setenv("JARVIS_LLM_API_KEY", "test-key")
     monkeypatch.setenv("JARVIS_LLM_MODEL", "test-model")
