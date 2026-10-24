@@ -206,3 +206,14 @@ def test_general_mouse_actions_are_parsed():
     assert parse_task("drag 100, 200 to 300, 400") == [
         {"type": "drag", "x1": 100, "y1": 200, "x2": 300, "y2": 400}
     ]
+
+
+def test_right_click_and_generic_app_browser_search():
+    assert parse_task("right click 210, 120") == [
+        {"type": "click", "x": 210, "y": 120, "button": "right"}
+    ]
+    actions = parse_task("open Spotify and search for focus music")
+    assert actions == [
+        {"type": "open_app", "app": "Spotify"},
+        {"type": "open_url", "url": "https://www.google.com/search?q=focus+music"},
+    ]
