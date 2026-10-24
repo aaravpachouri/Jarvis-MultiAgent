@@ -216,7 +216,7 @@ def test_right_click_and_generic_app_browser_search():
     actions = parse_task("open Spotify and search for focus music")
     assert actions == [
         {"type": "open_app", "app": "Spotify"},
-        {"type": "open_url", "url": "https://www.google.com/search?q=focus+music"},
+        {"type": "smart_type", "text": "focus music", "target": "search"},
     ]
 
 
