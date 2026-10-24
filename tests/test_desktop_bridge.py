@@ -37,6 +37,13 @@ def test_common_desktop_actions_are_parsed_without_shell():
     assert parse_task("wait 1 second") == [{"type": "wait", "seconds": 1.0}]
 
 
+def test_text_can_be_typed_into_a_named_allowlisted_app():
+    assert parse_task("type Hello from JARVIS into Notepad") == [
+        {"type": "open_app", "app": "notepad"},
+        {"type": "type_text", "text": "Hello from JARVIS"},
+    ]
+
+
 def test_named_button_click_targets_allowlisted_app():
     assert parse_task("click button Save in Notepad") == [
         {"type": "open_app", "app": "notepad"},
