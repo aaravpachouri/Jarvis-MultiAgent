@@ -24,8 +24,8 @@
       <div class="hero-grid">
         <div>
           <h1>Your PC.<br><em>Under your command.</em></h1>
-          <p class="hero-copy">Open approved apps, type text, click screen coordinates and use safe keyboard shortcuts. Every task is reviewed in a native Windows permission dialog before the first action runs.</p>
-          <div class="hero-badges"><span><i class="led good"></i> LOOPBACK ONLY</span><span><i class="led good"></i> USER APPROVAL</span><span><i class="led good"></i> NO REMOTE SHELL</span></div>
+          <p class="hero-copy">Control your Windows desktop across installed apps. Routine actions run instantly; sensitive operations pause for native approval on your PC.</p>
+          <div class="hero-badges"><span><i class="led good"></i> LOOPBACK ONLY</span><span><i class="led good"></i> RISK-BASED APPROVAL</span><span><i class="led good"></i> NO REMOTE SHELL</span></div>
         </div>
         <div class="orbit-card" aria-hidden="true">
           <div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><div class="orbit orbit-three"></div>
@@ -55,16 +55,17 @@
         <form id="task-form">
           <label class="sr-only" for="task-input">Desktop task instruction</label>
           <textarea id="task-input" maxlength="3000" rows="4" placeholder="Example: Open Notepad and type Hello from JARVIS"></textarea>
-          <div class="task-meta"><span>Plain-language tasks · allowlisted actions only</span><span id="char-count">0 / 3000</span></div>
+          <div class="task-meta"><span>Plain-language tasks · whole desktop · sensitive actions pause</span><span id="char-count">0 / 3000</span></div>
           <div class="example-row" aria-label="Example tasks">
             <button class="example" data-example="open notepad" type="button">Open Notepad</button>
-            <button class="example" data-example="open calculator" type="button">Calculator</button>
+            <button class="example" data-example="open Spotify" type="button">Open any app</button>
             <button class="example" data-example="open notepad and type Hello from JARVIS" type="button">Type a message</button>
+            <button class="example" data-example="scroll down" type="button">Scroll screen</button>
             <button class="example" data-example="search for Python 3.12 release notes" type="button">Search web</button>
           </div>
           <div class="task-actions">
             <button id="preview-button" class="button secondary" type="button">PREVIEW PLAN</button>
-            <button id="execute-button" class="button primary" type="submit" disabled>REQUEST APPROVAL <span>↗</span></button>
+            <button id="execute-button" class="button primary" type="submit" disabled>RUN TASK <span>↗</span></button>
           </div>
         </form>
         <div id="plan-output" class="result-block hidden" aria-live="polite"></div>
@@ -86,8 +87,8 @@
     </section>
 
     <footer class="safety-footer">
-      <span><i class="led good"></i> LOCAL APPROVAL ALWAYS REQUIRED</span>
-      <span>NO SHELL · NO FILE DELETION · NO PAYMENTS OR EXTERNAL SENDS</span>
+      <span><i class="led good"></i> LOCAL APPROVAL FOR SENSITIVE ACTIONS</span>
+      <span>NO ARBITRARY SHELL · REVIEW DESTRUCTIVE OR EXTERNAL ACTIONS</span>
       <a href="/">BACK TO JARVIS ↗</a>
     </footer>
     <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
