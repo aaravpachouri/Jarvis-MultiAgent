@@ -66,6 +66,18 @@ class VoiceAgent:
             self._remember(prompt, quick_reply)
             return quick_reply
 
+        # A vague mission-planning command needs clarification, not an LLM call
+        # that may fail when no hosted provider has been configured.
+        if self._is_underspecified_mission_planning_request(prompt):
+            response = (
+                "Absolutely. What is the mission's objective? Share the outcome you want, "
+                "any deadline, and important constraints or resources. I'll turn that into "
+                "a step-by-step plan with dependencies and verification checks. Nothing "
+                "will be executed until you explicitly ask."
+            )
+            self._remember(prompt, response)
+            return response
+
         # Domain-specific market research outranks cross-cutting mentions of
         # agents, handoffs, tests, and reports. A Quant mission may mention the
         # agent network in its execution/evidence requirements; that does not
@@ -222,6 +234,13 @@ class VoiceAgent:
         and fall back to a concise explanation rather than hallucinating actions.
         """
         if not getattr(self.model_client, "configured", False):
+            if os.getenv("RENDER", "").strip().casefold() == "true":
+                return (
+                    "JARVIS is online, but no cloud chat model is configured for this hosted "
+                    "service. Add a valid JARVIS_LLM_API_KEY to the Render Environment settings "
+                    "(Gemini; default model gemini-3.8-flash), then redeploy. Local Ollama on "
+                    "your PC cannot be reached from Render. No action has been taken."
+                )
             return (
                 "I couldn't match this request to an active specialist. For open-ended "
                 "conversation and more flexible task planning, configure a chat model in the "
@@ -514,6 +533,18 @@ class VoiceAgent:
         }:
             return "Yes — my suggestion is to make the voice experience feel natural first: Kokoro for expressive speech, short conversational follow-ups, and then connect the specialist agents one by one."
         return None
+
+    @staticmethod
+    def _is_underspecified_mission_planning_request(prompt: str) -> bool:
+        """Recognize mission-plan prompts that lack an actual goal."""
+        normalized = re.sub(r"\s+", " ", str(prompt or "").casefold()).strip(" \t\r\n.!?")
+        return normalized in {
+            "plan a mission",
+            "plan mission",
+            "help me plan a mission",
+            "create a mission plan",
+            "make a mission plan",
+        }
 
     @staticmethod
     def _is_exit_command(prompt: str) -> bool:
