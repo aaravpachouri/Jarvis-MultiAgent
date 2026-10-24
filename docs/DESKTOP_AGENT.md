@@ -26,10 +26,11 @@ Examples for the Desktop Agent page:
 - `open https://www.wikipedia.org`
 - `search for Python 3.12 release notes`
 - `click 620, 420` (screen coordinates are also available by approving a screen capture, then clicking the displayed screenshot)
+- `click button Save in Notepad` or `click the Save button in Notepad` to target a named Windows UI Automation button
 - `press ctrl+l`
 - `wait 1 second`
 
-Allowlisted applications are Notepad, Calculator, File Explorer, Paint, Chrome, Edge, Firefox and VS Code where installed. Each task can contain up to eight simple actions, written on separate lines or separated by semicolons. The parser refuses unknown action types and does not accept shell commands.
+Allowlisted applications are Notepad, Calculator, File Explorer, Paint, Chrome, Edge, Firefox and VS Code where installed. Named button/link targeting uses Windows UI Automation through pywinauto; the application must be installed and the control must be exposed by the active window. Each task can contain up to eight simple actions, written on separate lines or separated by semicolons. The parser refuses unknown action types and does not accept shell commands.
 
 ## Permission and safety model
 
