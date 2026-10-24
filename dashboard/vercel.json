@@ -7,6 +7,14 @@
     {
       "source": "/quant",
       "destination": "/quant.html"
+    },
+    {
+      "source": "/desktop",
+      "destination": "/desktop.html"
+    },
+    {
+      "source": "/desktop/",
+      "destination": "/desktop.html"
     }
   ],
   "headers": [
