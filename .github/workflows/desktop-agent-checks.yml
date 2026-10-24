@@ -8,12 +8,14 @@ on:
       - "agents/desktop_agent/**"
       - "tests/test_desktop_bridge.py"
       - "pyproject.toml"
+      - ".env.example"
       - ".github/workflows/desktop-agent-checks.yml"
   pull_request:
     paths:
       - "agents/desktop_agent/**"
       - "tests/test_desktop_bridge.py"
       - "pyproject.toml"
+      - ".env.example"
       - ".github/workflows/desktop-agent-checks.yml"
 
 permissions:
