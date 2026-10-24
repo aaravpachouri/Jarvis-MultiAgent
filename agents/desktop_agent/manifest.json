@@ -2,7 +2,7 @@
   "agent_id": "desktop.atlas",
   "name": "Atlas",
   "role": "Local desktop and file-system specialist",
-  "description": "Works with explicitly authorized local folders, file inspection and artifact saving; may later operate approved desktop applications through a local bridge.",
+  "description": "Windows desktop control through the separately running local Atlas companion. The hosted runtime never directly controls the operator's PC; local actions require a native approval dialog.",
   "capabilities": [
     "desktop.inspect",
     "filesystem.read",
@@ -20,7 +20,15 @@
     "file explorer",
     "open app",
     "desktop",
-    "download to my computer"
+    "download to my computer",
+    "type text on my computer",
+    "click on my screen",
+    "click screen coordinates",
+    "press a keyboard shortcut",
+    "take a screenshot",
+    "control windows",
+    "desktop agent",
+    "atlas desktop"
   ],
   "tags": [
     "local",
@@ -40,6 +48,8 @@
   "enabled": true,
   "metadata": {
     "profile_only": true,
-    "folder": "desktop_agent"
+    "folder": "desktop_agent",
+    "execution_mode": "profile_only",
+    "local_companion": "agents.desktop_agent.local_bridge"
   }
 }
