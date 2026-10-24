@@ -240,6 +240,26 @@ def test_generic_app_search_and_result_workflow_is_sequenced():
     ]
 
 
+def test_browser_url_then_search_uses_the_open_page_not_a_second_google_tab():
+    actions = parse_task(
+        "open https://www.youtube.com then search for The Weeknd Blinding Lights official music video "
+        "then press Enter then click the first result"
+    )
+    assert actions == [
+        {"type": "open_url", "url": "https://www.youtube.com"},
+        {
+            "type": "smart_type",
+            "text": "The Weeknd Blinding Lights official music video",
+            "target": "search",
+        },
+        {"type": "hotkey", "keys": ["enter"]},
+        {
+            "type": "click_first_result",
+            "target": "The Weeknd Blinding Lights official music video",
+        },
+    ]
+
+
 def test_search_box_instructions_use_adaptive_ui_automation():
     assert parse_task("type Blinding Lights into the search bar") == [
         {"type": "smart_type", "text": "Blinding Lights", "target": "search"}
