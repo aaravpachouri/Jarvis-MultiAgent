@@ -259,16 +259,16 @@ def _parse_one(task: str) -> list[dict[str, Any]]:
         return actions
 
     click_match = re.fullmatch(
-        r"click(?:\s+(?:at|on))?\s+(\d{1,5})\s*(?:,|\s)\s*(\d{1,5})(?:\s+(left|right))?",
-        text,
-        re.IGNORECASE,
+        r"(?:click(?:\s+(?:at|on))?|right\s+click(?:\s+(?:at|on))?)\s+(\d{1,5})\s*(?:,|\s)\s*(\d{1,5})(?:\s+(left|right))?",
+        text, re.IGNORECASE,
     )
     if click_match:
+        right_prefix = text.casefold().startswith("right click")
         return [{
             "type": "click",
             "x": int(click_match.group(1)),
             "y": int(click_match.group(2)),
-            "button": (click_match.group(3) or "left").casefold(),
+            "button": ("right" if right_prefix else (click_match.group(3) or "left")).casefold(),
         }]
 
     scroll_match = re.fullmatch(r"scroll\s+(up|down)(?:\s+(\d{1,4}))?", text, re.IGNORECASE)
@@ -308,19 +308,17 @@ def _parse_one(task: str) -> list[dict[str, Any]]:
 def parse_task(value: Any) -> list[dict[str, Any]]:
     """Translate a small, explicit command grammar into allowlisted actions."""
     task = _normalise_task(value)
-    # Recognise a common browser workflow without allowing arbitrary shell text.
     browser_search = re.fullmatch(
-        rf"(?:open|launch|start)\s+({APP_PATTERN})\s+(?:and\s+then|then|and)\s+(?:search|google)\s+(?:for\s+)?(.+)",
-        task,
-        flags=re.IGNORECASE,
+        r"(?:open|launch|start)\s+(.+?)\s+(?:and\s+then|then|and)\s+(?:search|google)\s+(?:for\s+)?(.+)",
+        task, re.IGNORECASE,
     )
     if browser_search:
-        app = APP_ALIASES[browser_search.group(1).casefold()]
+        app = browser_search.group(1).strip().strip("'\"")
         query = browser_search.group(2).strip().strip("'\"")
-        if not query:
-            raise DesktopAgentError("Enter a search query.")
+        if not app or not query or len(app) > 100 or re.search(r"[\x00-\x1f/\\;&|<>]", app):
+            raise DesktopAgentError("Use a valid app name and a non-empty search query.")
         return [
-            {"type": "open_app", "app": app},
+            {"type": "open_app", "app": APP_ALIASES.get(app.casefold(), app)},
             {"type": "open_url", "url": "https://www.google.com/search?q=" + quote_plus(query)},
         ]
 
