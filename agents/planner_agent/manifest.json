@@ -1,0 +1,52 @@
+{
+  "agent_id": "planning.planner",
+  "name": "Planner",
+  "role": "Goal decomposition, task sequencing and execution planning specialist",
+  "description": "Turns user goals and supplied constraints into ordered, dependency-aware plans, checklists, validation gates and risk notes without requiring web search or code execution.",
+  "capabilities": [
+    "planning.breakdown",
+    "planning.prioritize",
+    "planning.dependencies",
+    "planning.checklist",
+    "planning.milestones"
+  ],
+  "routing_keywords": [
+    "plan a mission",
+    "plan mission",
+    "make a plan",
+    "plan this",
+    "planning",
+    "break this down",
+    "breakdown",
+    "step by step",
+    "action plan",
+    "roadmap",
+    "checklist",
+    "prioritize tasks",
+    "what should i do first",
+    "organize these tasks",
+    "step-by-step",
+    "test plan",
+    "testing plan",
+    "plan to test",
+    "create a plan",
+    "test the agent network"
+  ],
+  "tags": [
+    "planning",
+    "productivity",
+    "offline-capable"
+  ],
+  "requires_approval_for": [],
+  "max_concurrency": 3,
+  "timeout_seconds": 60,
+  "version": "0.1.0",
+  "enabled": true,
+  "metadata": {
+    "profile_only": false,
+    "folder": "planner_agent",
+    "execution_mode": "local_structured_planning",
+    "requires_web_search": false,
+    "requires_code_execution": false
+  }
+}

@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#080b12">
+  <meta name="description" content="Local-first JARVIS Quant market research dashboard">
+  <title>JARVIS Quant // Market Intelligence</title>
+  <link rel="stylesheet" href="/assets/quant.css">
+  <script src="/assets/quant.js" defer></script>
+</head>
+<body class="quant-body">
+  <div class="quant-app">
+    <aside class="q-sidebar">
+      <a class="q-brand" href="/" aria-label="Return to JARVIS command center">
+        <span class="q-mark"><i></i><i></i><i></i></span>
+        <span><b>JARVIS<span>/X</span></b><small>QUANT INTELLIGENCE</small></span>
+      </a>
+      <div class="q-side-kicker">WORKSPACES</div>
+      <nav class="q-side-nav" aria-label="Workspace navigation">
+        <a href="/"><span>◈</span> Command center</a>
+        <a class="active" href="/quant" aria-current="page"><span>⌁</span> Quant desk <b>LIVE</b></a>
+      </nav>
+      <section class="q-sidebar-status">
+        <div class="q-overline">DATA PIPELINE</div>
+        <div class="q-side-state"><i id="q-sidebar-led" class="q-led amber"></i><strong id="q-sidebar-status">WAITING FOR DATA</strong></div>
+        <p id="q-sidebar-source">No saved Quant report loaded.</p>
+        <div class="q-side-foot"><span>LOCAL ONLY</span><span>NO ORDER ROUTE</span></div>
+      </section>
+      <div class="q-side-bottom">
+        <div class="q-safe-icon">⬡</div>
+        <div><strong>Research mode</strong><small>Read-only · No trades placed</small></div>
+      </div>
+    </aside>
+
+    <main class="q-main">
+      <header class="q-topbar">
+        <div class="q-breadcrumb"><span>JARVIS /X</span><b>/</b><strong>QUANT DESK</strong></div>
+        <div class="q-top-actions">
+          <span class="q-loopback"><i></i> LOOPBACK SESSION</span>
+          <button class="q-button primary" id="q-refresh" type="button"><span class="q-refresh-glyph">↻</span> REFRESH MARKET DATA</button>
+        </div>
+      </header>
+
+      <div class="q-content">
+        <section class="q-hero">
+          <div>
+            <div class="q-eyebrow"><span></span> MARKET INTELLIGENCE / INDIA</div>
+            <h1>Quant <em>research desk.</em></h1>
+            <p>Price action, market context and a ranked watchlist — grounded in provider data, freshness checks and explainable signals.</p>
+          </div>
+          <div class="q-hero-state">
+            <div class="q-state-pill" id="q-market-state"><i class="q-led amber"></i><span>DATA NOT LOADED</span></div>
+            <small>REPORT GENERATED <b id="q-generated-at">—</b></small>
+            <small>SOURCE SESSION <b id="q-latest-session">—</b></small>
+          </div>
+        </section>
+
+        <div class="q-free-banner" role="note">
+          <span class="q-free-symbol">0</span>
+          <div><strong>Zero-cost-first data stack</strong><p>Uses official NSE MCP for a live snapshot where available, plus free historical chart data. No paid feed or broker account is required in the default mode. Availability and data permissions depend on provider terms and network access.</p></div>
+          <span class="q-free-tag">NO API KEY BY DEFAULT</span>
+        </div>
+
+        <section class="q-panel q-stock-finder" aria-labelledby="q-stock-finder-title">
+          <div class="q-panel-head q-stock-finder-head">
+            <div><div class="q-overline">COMPANY / TICKER LOOKUP</div><h2 id="q-stock-finder-title">Find a share price</h2><p>Search a company or ticker, select a listing, and inspect the latest available provider price with its source timestamp and history.</p></div>
+            <span class="q-mini-tag">FREE · NO API KEY</span>
+          </div>
+          <form id="q-stock-search-form" class="q-stock-search-form" autocomplete="off">
+            <label class="sr-only" for="q-stock-query">Company name or ticker</label>
+            <input id="q-stock-query" name="q" type="search" minlength="2" maxlength="80" placeholder="Try Reliance, TCS, Apple, Microsoft, INFY.NS…" required>
+            <label class="sr-only" for="q-stock-region">Search market</label>
+            <select id="q-stock-region" name="region" aria-label="Search market">
+              <option value="IN">India · NSE / BSE</option><option value="US">United States</option><option value="GB">United Kingdom</option><option value="AU">Australia</option><option value="CA">Canada</option><option value="SG">Singapore</option><option value="HK">Hong Kong</option>
+            </select>
+            <button id="q-stock-search-button" class="q-button primary" type="submit">SEARCH SHARES ↗</button>
+          </form>
+          <div id="q-stock-search-status" class="q-stock-status" role="status" aria-live="polite">Search a company name or ticker to look up its latest available price.</div>
+          <div id="q-stock-search-results" class="q-stock-results" aria-label="Stock search results"></div>
+          <section id="q-stock-selected" class="q-stock-selected" aria-live="polite" hidden>
+            <div class="q-stock-quote-header">
+              <div class="q-stock-identity"><span class="q-stock-symbol" id="q-stock-symbol">—</span><div><h3 id="q-stock-name">Select a company</h3><p id="q-stock-exchange">Choose a search result above.</p></div></div>
+              <div class="q-stock-price-block"><strong id="q-stock-price">—</strong><span id="q-stock-change">Change unavailable</span><small id="q-stock-currency">—</small></div>
+            </div>
+            <div class="q-stock-provenance"><span id="q-stock-freshness" class="q-mini-tag">TIMESTAMP UNAVAILABLE</span><span>Source time <b id="q-stock-source-time">—</b></span><span>Retrieved <b id="q-stock-retrieved">—</b></span><a id="q-stock-source-link" href="https://finance.yahoo.com/" target="_blank" rel="noopener noreferrer">Open provider ↗</a></div>
+            <div class="q-stock-chart-head"><div><div class="q-overline">SHARE PRICE / PROVIDER HISTORY</div><h3 id="q-stock-chart-title">Price history</h3></div><div class="q-range-buttons q-stock-ranges" role="group" aria-label="Share price history range"><button data-stock-range="1d" type="button">1D</button><button data-stock-range="5d" type="button">5D</button><button data-stock-range="1mo" type="button">1M</button><button data-stock-range="3mo" type="button" class="active">3M</button><button data-stock-range="1y" type="button">1Y</button></div></div>
+            <div class="q-stock-chart-wrap"><canvas id="q-stock-chart" role="img" aria-label="Selected company's share price chart"></canvas><div id="q-stock-chart-empty" class="q-stock-chart-empty">Select a search result to load price history.</div></div>
+            <div class="q-stock-foot"><span id="q-stock-candle-count">0 price points</span><span id="q-stock-window-change">Window change —</span><span id="q-stock-data-mode">Provider timing unverified</span></div>
+            <p class="q-stock-disclaimer" id="q-stock-disclaimer">Free provider lookup; quote freshness and delay are not guaranteed. Informational research only; no orders are placed.</p>
+          </section>
+        </section>
+
+        <section class="q-metrics" aria-label="Market overview">
+          <article class="q-metric-card main-metric">
+            <div class="q-card-top"><span>NIFTY 50</span><i>INDEX / NSE</i></div>
+            <strong id="q-nifty-value">—</strong>
+            <div class="q-metric-foot"><span id="q-nifty-change">Change unavailable</span><span id="q-nifty-session">—</span></div>
+            <div class="q-microline cyan" aria-hidden="true"></div>
+          </article>
+          <article class="q-metric-card">
+            <div class="q-card-top"><span>SENSEX</span><i>INDEX / BSE</i></div>
+            <strong id="q-sensex-value">—</strong>
+            <div class="q-metric-foot"><span id="q-sensex-change">Change unavailable</span><span id="q-sensex-session">—</span></div>
+            <div class="q-microline red" aria-hidden="true"></div>
+          </article>
+          <article class="q-metric-card">
+            <div class="q-card-top"><span>MONITORED BREADTH</span><i>SCREENER SCOPE</i></div>
+            <strong id="q-breadth-value">—</strong>
+            <div class="q-breadth-bar" aria-label="Advance decline ratio"><span id="q-breadth-adv"></span><span id="q-breadth-dec"></span></div>
+            <div class="q-metric-foot"><span id="q-advances">Advances —</span><span id="q-declines">Declines —</span></div>
+          </article>
+          <article class="q-metric-card">
+            <div class="q-card-top"><span>RESEARCH SETUPS</span><i>CONDITIONAL</i></div>
+            <strong id="q-candidate-count">—</strong>
+            <div class="q-metric-foot"><span>Passed current filters</span><span id="q-universe-count">Universe —</span></div>
+            <div class="q-microline violet" aria-hidden="true"></div>
+          </article>
+        </section>
+
+        <section class="q-layout-grid">
+          <article class="q-panel q-chart-panel">
+            <div class="q-panel-head">
+              <div><div class="q-overline">PRICE HISTORY / VERIFIED CANDLES</div><h2>Market trajectory</h2></div>
+              <div class="q-chart-controls"><label class="sr-only" for="q-chart-symbol">Chart symbol</label><select id="q-chart-symbol"><option>Nifty 50</option></select></div>
+            </div>
+            <div class="q-chart-legend"><span class="q-legend-line"></span><span id="q-chart-name">Nifty 50</span><span id="q-chart-range" class="q-chart-range">HISTORICAL SERIES</span></div>
+            <div class="q-chart-wrap"><canvas id="q-price-chart" role="img" aria-label="Selected market price history line chart"></canvas><div class="q-chart-empty" id="q-chart-empty">No verified price history is available yet. Refresh Quant data to request a report.</div></div>
+            <div class="q-chart-foot"><span id="q-chart-points">0 verified price points</span><span id="q-chart-change">Window change —</span><div class="q-range-buttons" role="group" aria-label="Chart range"><button data-range="5" type="button">5D</button><button data-range="20" type="button">1M</button><button data-range="60" type="button" class="active">3M</button><button data-range="all" type="button">ALL</button></div></div>
+          </article>
+
+          <article class="q-panel q-live-panel">
+            <div class="q-panel-head"><div><div class="q-overline">EXCHANGE CONNECTOR</div><h2>Live snapshot</h2></div><span class="q-live-label" id="q-live-badge"><i class="q-led amber"></i> CHECKING</span></div>
+            <p class="q-muted" id="q-live-provider">No snapshot has been retrieved in this session.</p>
+            <div class="q-live-stats"><div><span>SNAPSHOT STATUS</span><strong id="q-live-status">NOT AVAILABLE</strong></div><div><span>RETRIEVED</span><strong id="q-live-retrieved">—</strong></div><div><span>TOOLS FOUND</span><strong id="q-live-tools">—</strong></div><div><span>MAX QUOTE AGE</span><strong id="q-live-age">UNKNOWN</strong></div></div>
+            <div class="q-live-quote-head"><span>PARSED QUOTES</span><span id="q-live-quote-count">0</span></div>
+            <div id="q-live-quotes" class="q-live-quotes"><div class="q-empty-inline">No quote records could be normalized from the provider payload. The raw tool summary below is retained for transparency.</div></div>
+            <div class="q-provider-results" id="q-provider-results"></div>
+            <div class="q-provider-errors" id="q-provider-errors"></div>
+          </article>
+        </section>
+
+        <section class="q-panel q-candidate-panel">
+          <div class="q-panel-head q-candidate-heading"><div><div class="q-overline">QUANT / SIGNAL SCREEN</div><h2>Today's ranked research watchlist</h2><p>Momentum candidates are starting points for research, not commands to buy. Fresh quote confirmation and event/risk checks are mandatory.</p></div><div class="q-watchlist-count"><strong id="q-watch-count">0</strong><span>CONDITIONAL<br>SETUPS</span></div></div>
+          <div id="q-candidates" class="q-candidates"><div class="q-empty-large">No candidate has passed the current screen. Do not force a trade. Refresh market data to rerun the screen.</div></div>
+        </section>
+
+        <section class="q-layout-grid q-lower-grid">
+          <article class="q-panel">
+            <div class="q-panel-head"><div><div class="q-overline">PRICE ACTION / MONITORED UNIVERSE</div><h2>Market movers</h2></div><span class="q-mini-tag">DATA-BASED</span></div>
+            <div class="q-table-scroll"><table class="q-table"><thead><tr><th>SYMBOL</th><th>LAST</th><th>1D</th><th>5D</th><th>20D</th><th>RSI 14</th></tr></thead><tbody id="q-movers-body"><tr><td colspan="6" class="q-table-empty">No saved historical stock rows.</td></tr></tbody></table></div>
+          </article>
+          <article class="q-panel">
+            <div class="q-panel-head"><div><div class="q-overline">QUANT / OPERATOR TRACE</div><h2>Live agent activity</h2></div><span class="q-mini-tag">RUNTIME EVENTS</span></div>
+            <div class="q-activity-list" id="q-activity"><div class="q-empty-inline">Waiting for Quant actions. The feed only shows recorded runtime events.</div></div>
+          </article>
+        </section>
+
+        <section class="q-bottom-grid">
+          <article class="q-panel q-data-panel"><div class="q-panel-head"><div><div class="q-overline">PROVENANCE / COVERAGE</div><h2>Data quality</h2></div></div><dl class="q-provenance"><div><dt>Historical provider</dt><dd id="q-history-provider">—</dd></div><div><dt>Report age</dt><dd id="q-report-age">—</dd></div><div><dt>Historical session</dt><dd id="q-session-detail">—</dd></div><div><dt>Chart series</dt><dd id="q-chart-count">—</dd></div><div><dt>Source limitations</dt><dd id="q-limitations">Provider coverage and freshness have not been established yet.</dd></div><div><dt>Market pulse</dt><dd id="q-market-pulse">—</dd></div></dl></article>
+          <article class="q-panel q-disclaimer-panel"><div class="q-panel-head"><div><div class="q-overline">RISK / SAFETY</div><h2>Before acting on a setup</h2></div><span class="q-safe-pill">NO ORDER ROUTE</span></div><ul><li>Historic momentum is not a forecast and cannot establish a good buy on its own.</li><li>Freshness depends on each quote's source timestamp. Retrieval time is not the same as quote time.</li><li>Check company filings, earnings/events, valuation, liquidity, spreads, and a predefined risk limit.</li><li>Quant is read-only. It does not place orders or provide personalized financial advice.</li></ul><p id="q-disclaimer">Research and education only. No trades placed.</p></article>
+        </section>
+        <footer class="q-footer"><span>JARVIS/X · QUANT DESK · LOCAL-FIRST</span><span id="q-last-updated">Never refreshed</span><a href="/">← Return to Command Center</a></footer>
+      </div>
+    </main>
+  </div>
+  <div class="q-toast" id="q-toast" role="status" aria-live="polite"></div>
+</body>
+</html>

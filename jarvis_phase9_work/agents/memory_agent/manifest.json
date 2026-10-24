@@ -1,0 +1,62 @@
+{
+  "agent_id": "memory.notes",
+  "name": "Memory & Notes",
+  "role": "User-controlled local notes and explicit memory recall",
+  "description": "Stores, lists, searches, and deletes user-requested notes in a local JSON file. Saves only on explicit requests, avoids credential-like content, and never claims to remember unsaved information.",
+  "capabilities": [
+    "memory.save",
+    "memory.recall",
+    "memory.search",
+    "memory.delete",
+    "notes.manage"
+  ],
+  "routing_keywords": [
+    "remember that",
+    "remember this",
+    "remember for later",
+    "save this note",
+    "save a note",
+    "add a note",
+    "note this",
+    "make a note",
+    "write this down",
+    "store this note",
+    "show my notes",
+    "list my notes",
+    "my saved notes",
+    "what have you remembered",
+    "what do you remember about",
+    "recall my note",
+    "find my note",
+    "search my notes",
+    "forget this note",
+    "forget that",
+    "forget note",
+    "delete my note",
+    "delete note",
+    "remove my note",
+    "remove note",
+    "memory and notes",
+    "saved memory",
+    "retrieve my notes"
+  ],
+  "tags": [
+    "memory",
+    "notes",
+    "local-first",
+    "user-controlled"
+  ],
+  "requires_approval_for": [],
+  "max_concurrency": 1,
+  "timeout_seconds": 30,
+  "version": "0.1.0",
+  "enabled": true,
+  "metadata": {
+    "profile_only": false,
+    "folder": "memory_agent",
+    "storage": "local_json",
+    "default_store": "data/memory_notes.json",
+    "explicit_save_required": true,
+    "external_sync": false
+  }
+}

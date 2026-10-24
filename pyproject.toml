@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jarvis-agent-network"
+version = "0.1.0"
+description = "Standalone expandable multi-agent network with fast interconnection"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Proprietary - project owner to choose final license" }
+authors = [{ name = "JARVIS X Project" }]
+dependencies = ["requests>=2.31.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
+desktop = [
+    'pyautogui>=0.9.54; platform_system == "Windows"',
+    'pygetwindow>=0.0.9; platform_system == "Windows"',
+    'pyperclip>=1.8.2; platform_system == "Windows"',
+    'pywinauto>=0.6.9; platform_system == "Windows"',
+]
+voice = [
+    "SpeechRecognition>=3.10.0",
+    "pyttsx3>=2.90",
+    'PyAudio>=0.2.14; platform_system == "Windows"',
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-ra"
+
+[tool.setuptools]
+py-modules = ["main"]
+packages = { find = { include = ["core*", "agents*"] } }

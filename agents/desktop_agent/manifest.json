@@ -1,0 +1,55 @@
+{
+  "agent_id": "desktop.atlas",
+  "name": "Atlas",
+  "role": "Local desktop and file-system specialist",
+  "description": "Windows desktop control through the separately running local Atlas companion. The hosted runtime never directly controls the operator's PC; local actions require a native approval dialog.",
+  "capabilities": [
+    "desktop.inspect",
+    "filesystem.read",
+    "filesystem.write",
+    "desktop.automation",
+    "artifact.save"
+  ],
+  "routing_keywords": [
+    "on my computer",
+    "on my pc",
+    "local file",
+    "save the file",
+    "save a report",
+    "folder",
+    "file explorer",
+    "open app",
+    "desktop",
+    "download to my computer",
+    "type text on my computer",
+    "click on my screen",
+    "click screen coordinates",
+    "press a keyboard shortcut",
+    "take a screenshot",
+    "control windows",
+    "desktop agent",
+    "atlas desktop"
+  ],
+  "tags": [
+    "local",
+    "desktop",
+    "filesystem"
+  ],
+  "requires_approval_for": [
+    "filesystem.delete",
+    "system.shutdown",
+    "external_send",
+    "filesystem.write",
+    "desktop.automation"
+  ],
+  "max_concurrency": 1,
+  "timeout_seconds": 120,
+  "version": "0.1.0",
+  "enabled": true,
+  "metadata": {
+    "profile_only": true,
+    "folder": "desktop_agent",
+    "execution_mode": "profile_only",
+    "local_companion": "agents.desktop_agent.local_bridge"
+  }
+}
