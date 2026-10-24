@@ -522,6 +522,7 @@ class DesktopActionExecutor:
         # Preserve search context across separate dashboard submissions in the same session.
         self._last_search_query = ""
         self._last_app_name = ""
+        self._last_opened_url = ""
 
     def _get_backend(self):
         if self._backend is not None:
@@ -667,13 +668,14 @@ class DesktopActionExecutor:
                 # Never use a lone credential/payment field as a fallback search field.
                 if re.search(r"\b(password|passcode|one.time.code|username|email address|credit card|security code)\b", metadata):
                     continue
-                generic.append((control, kind, name))
-                # Browser omniboxes often contain the word "search" in their
-                # accessible label ("Address and search bar"). Do not let those
-                # outrank or tie with the current website's own search field.
+                # Browser omniboxes are not the current website's search field.
+                # Do not use an address bar as a generic fallback; it can receive text
+                # without actually submitting a search on the current page.
                 is_browser_address = bool(
                     re.search(r"\b(address bar|address and search bar|url bar|web address|omnibox)\b", metadata)
                 )
+                if not is_browser_address:
+                    generic.append((control, kind, name))
                 score = 0
                 if not is_browser_address:
                     if re.search(r"\b(search|find)\b", metadata):
@@ -801,6 +803,10 @@ class DesktopActionExecutor:
                     url = validate_url(str(action.get("url", "")))
                     if not webbrowser.open_new_tab(url):
                         raise DesktopAgentError("Windows did not accept the request to open the website.")
+                    self._last_opened_url = url
+                    # Give the browser a moment to bring the new tab to the foreground
+                    # before any following search/type action inspects its UI tree.
+                    time.sleep(0.8)
                     detail = "Opened " + url
                 elif kind == "type_text":
                     value = str(action.get("text", ""))
@@ -828,40 +834,64 @@ class DesktopActionExecutor:
                                 pass
                     detail = "Typed " + str(len(value)) + " characters"
                 elif kind in {"smart_type", "focus_search"}:
-                    # Inspect the active app through Windows UI Automation and select
-                    # the best accessible search field; never blindly tab/type into UI.
-                    _, control, field_name = self._find_search_field()
-                    control.click_input()
-                    if kind == "smart_type":
-                        value = str(action.get("text", ""))
-                        if not value or len(value) > 8_000:
-                            raise DesktopAgentError("Search text must be between 1 and 8,000 characters.")
-                        backend.hotkey("ctrl", "a")
-                        if value.isascii():
-                            backend.write(value, interval=0)
-                        else:
-                            try:
-                                import pyperclip
-                            except ImportError as exc:
-                                raise DesktopAgentError("Unicode search text needs pyperclip; run run_desktop_agent.bat to install it.") from exc
-                            original_clipboard = None
-                            try:
-                                original_clipboard = pyperclip.paste()
-                            except Exception:
-                                pass
-                            pyperclip.copy(value)
-                            backend.hotkey("ctrl", "v")
-                            time.sleep(0.15)
-                            if original_clipboard is not None:
-                                try:
-                                    pyperclip.copy(original_clipboard)
-                                except Exception:
-                                    pass
+                    value = str(action.get("text", ""))
+                    if kind == "smart_type" and (not value or len(value) > 8_000):
+                        raise DesktopAgentError("Search text must be between 1 and 8,000 characters.")
+
+                    try:
+                        # Discover a real in-page search field, not the browser omnibox.
+                        _, control, field_name = self._find_search_field()
+                        control.click_input()
+                    except Exception as field_exc:
+                        opened_host = (urlparse(self._last_opened_url).hostname or "").casefold()
+                        # YouTube exposes different accessibility trees across browsers
+                        # and versions. If its page search input cannot be reached, use
+                        # YouTube's documented search-results URL shape via the browser
+                        # address bar instead of typing an unsubmitted query somewhere.
+                        if kind != "smart_type" or not (opened_host == "youtube.com" or opened_host.endswith(".youtube.com")):
+                            if isinstance(field_exc, DesktopAgentError):
+                                raise
+                            raise DesktopAgentError(
+                                "Could not focus the app's search field: " + str(field_exc)
+                            ) from field_exc
+
+                        search_url = "https://www.youtube.com/results?search_query=" + quote_plus(value)
+                        backend.hotkey("ctrl", "l")
+                        time.sleep(0.1)
+                        backend.write(search_url, interval=0)
+                        backend.press("enter")
+                        time.sleep(1.2)
                         last_search_query = value
                         self._last_search_query = value
-                        detail = "Found " + repr(field_name) + " and entered the search text"
+                        detail = "Opened YouTube search results for " + repr(value) + " because its in-page search control was inaccessible"
                     else:
-                        detail = "Focused " + repr(field_name)
+                        if kind == "smart_type":
+                            backend.hotkey("ctrl", "a")
+                            if value.isascii():
+                                backend.write(value, interval=0)
+                            else:
+                                try:
+                                    import pyperclip
+                                except ImportError as exc:
+                                    raise DesktopAgentError("Unicode search text needs pyperclip; run run_desktop_agent.bat to install it.") from exc
+                                original_clipboard = None
+                                try:
+                                    original_clipboard = pyperclip.paste()
+                                except Exception:
+                                    pass
+                                pyperclip.copy(value)
+                                backend.hotkey("ctrl", "v")
+                                time.sleep(0.15)
+                                if original_clipboard is not None:
+                                    try:
+                                        pyperclip.copy(original_clipboard)
+                                    except Exception:
+                                        pass
+                            last_search_query = value
+                            self._last_search_query = value
+                            detail = "Found " + repr(field_name) + " and entered the search text"
+                        else:
+                            detail = "Focused " + repr(field_name)
                 elif kind in {"click_result", "click_first_result"}:
                     target = str(action.get("target", "") or last_search_query).strip()
                     control, result_name = self._find_result_control(target)
