@@ -239,6 +239,25 @@ def _parse_one(task: str) -> list[dict[str, Any]]:
     if drag:
         return [{"type": "drag", "x1": int(drag.group(1)), "y1": int(drag.group(2)), "x2": int(drag.group(3)), "y2": int(drag.group(4))}]
 
+    # Generic named controls are available in any foreground app, not only the original app list.
+    named_control = re.fullmatch(
+        r"click\s+(?:the\s+)?(button|link)\s+(.+?)(?:\s+in\s+(.+))?",
+        text, re.IGNORECASE,
+    )
+    if named_control:
+        control = named_control.group(1).casefold()
+        label = named_control.group(2).strip().strip("'\"")
+        app_name = (named_control.group(3) or "").strip().strip("'\"")
+        if not label or len(label) > 100:
+            raise DesktopAgentError("UI control names must be between 1 and 100 characters.")
+        actions = []
+        if app_name:
+            if len(app_name) > 100 or re.search(r"[\x00-\x1f/\\;&|<>]", app_name):
+                raise DesktopAgentError("Use a simple app name.")
+            actions.append({"type": "open_app", "app": APP_ALIASES.get(app_name.casefold(), app_name)})
+        actions.append({"type": "click_ui", "control": control, "text": label})
+        return actions
+
     click_match = re.fullmatch(
         r"click(?:\s+(?:at|on))?\s+(\d{1,5})\s*(?:,|\s)\s*(\d{1,5})(?:\s+(left|right))?",
         text,
@@ -332,8 +351,13 @@ def action_summary(actions: list[dict[str, Any]], active_window: str = "") -> st
             value = str(action.get("text", ""))
             preview = value if len(value) <= 420 else value[:420] + " … [text truncated in preview]"
             label = "Type text: " + repr(preview)
-        elif kind == "click":
-            label = "Click screen position (" + str(action.get("x")) + ", " + str(action.get("y")) + "), " + str(action.get("button", "left")) + " button"
+        elif kind in {"click", "double_click"}:
+            label = ("Double-click" if kind == "double_click" else "Click") + " screen position (" + str(action.get("x")) + ", " + str(action.get("y")) + ")"
+        elif kind == "drag":
+            label = "Drag from (" + str(action.get("x1")) + ", " + str(action.get("y1")) + ") to (" + str(action.get("x2")) + ", " + str(action.get("y2")) + ")"
+        elif kind == "scroll":
+            amount = int(action.get("amount", 0))
+            label = "Scroll " + ("up " if amount > 0 else "down ") + str(abs(amount)) + " units"
         elif kind == "click_ui":
             label = "Click " + str(action.get("control", "button")) + " named " + repr(str(action.get("text", ""))) + " in the foreground app"
         elif kind == "screenshot":
@@ -360,7 +384,13 @@ def approval_reason(task: str, actions: list[dict[str, Any]], active_window: str
     )
     sensitive_window = re.compile(
         r"\b(?:powershell|command prompt|windows terminal|terminal|registry|credential|"
-        r"windows security|administrator|sign in|login|password|checkout|payment|banking|wallet)\b",
+        r"windows security|administrator|admin tools|task manager|sign in|login|password|"
+        r"checkout|payment|banking|wallet)\b",
+        re.IGNORECASE,
+    )
+    sensitive_control = re.compile(
+        r"\b(?:send|submit|publish|post|delete|remove|erase|purchase|buy|pay|checkout|"
+        r"transfer|confirm|allow|install|uninstall|share|upload|grant|revoke|reset)\b",
         re.IGNORECASE,
     )
     if any(action.get("type") == "screenshot" for action in actions):
@@ -373,9 +403,9 @@ def approval_reason(task: str, actions: list[dict[str, Any]], active_window: str
         kind = action.get("type")
         if kind == "open_app" and sensitive_window.search(str(action.get("app", ""))):
             return "Opening a system or administrative utility needs approval."
-        if kind == "click":
-            return "Coordinate clicks have an ambiguous target and need approval."
-        if kind == "click_ui" and sensitive.search(str(action.get("text", ""))):
+        if kind in {"click", "double_click", "drag"}:
+            return "Coordinate input has an ambiguous target and needs approval."
+        if kind == "click_ui" and sensitive_control.search(str(action.get("text", ""))):
             return "This named control may perform a consequential action."
         if kind == "type_text":
             value = str(action.get("text", ""))
