@@ -16,6 +16,7 @@ from agents.desktop_agent.local_bridge import (
     parse_task,
     validate_url,
     approval_reason,
+    allowed_origins,
 )
 
 
@@ -217,3 +218,10 @@ def test_right_click_and_generic_app_browser_search():
         {"type": "open_app", "app": "Spotify"},
         {"type": "open_url", "url": "https://www.google.com/search?q=focus+music"},
     ]
+
+
+def test_default_dashboard_origins_include_production_and_feature_preview(monkeypatch):
+    monkeypatch.delenv("JARVIS_DESKTOP_ALLOWED_ORIGINS", raising=False)
+    origins = allowed_origins()
+    assert "https://jarvis-multiagent-dashboard.vercel.app" in origins
+    assert "https://jarvis-multiagent-dashboard-git-publish-ja-77d6ea-aaravpachouri.vercel.app" in origins
