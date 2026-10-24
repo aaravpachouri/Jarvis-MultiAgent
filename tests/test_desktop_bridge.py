@@ -225,3 +225,35 @@ def test_default_dashboard_origins_include_production_and_feature_preview(monkey
     origins = allowed_origins()
     assert "https://jarvis-multiagent-dashboard.vercel.app" in origins
     assert "https://jarvis-multiagent-dashboard-git-publish-ja-77d6ea-aaravpachouri.vercel.app" in origins
+
+
+def test_generic_app_search_and_result_workflow_is_sequenced():
+    actions = parse_task(
+        "open Spotify then search for Blinding Lights then press Enter then click the result"
+    )
+    assert actions == [
+        {"type": "open_app", "app": "Spotify"},
+        {"type": "smart_type", "text": "Blinding Lights", "target": "search"},
+        {"type": "hotkey", "keys": ["enter"]},
+        {"type": "click_first_result", "target": "Blinding Lights"},
+    ]
+
+
+def test_search_box_instructions_use_adaptive_ui_automation():
+    assert parse_task("type Blinding Lights into the search bar") == [
+        {"type": "smart_type", "text": "Blinding Lights", "target": "search"}
+    ]
+    assert parse_task("focus the search bar") == [{"type": "focus_search"}]
+    assert parse_task("click result Blinding Lights") == [
+        {"type": "click_result", "target": "Blinding Lights"}
+    ]
+
+
+def test_sequencing_accepts_commas_and_and_connectors():
+    actions = parse_task(
+        "open Spotify and search for Blinding Lights, press Enter, and click first result"
+    )
+    assert [action["type"] for action in actions] == [
+        "open_app", "smart_type", "hotkey", "click_first_result"
+    ]
+    assert actions[-1]["target"] == "Blinding Lights"
