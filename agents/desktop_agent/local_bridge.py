@@ -1,8 +1,7 @@
-"""Permission-gated Windows desktop companion for the JARVIS web dashboard.
+"""Local Windows desktop companion with risk-based approval for JARVIS Atlas.
 
-Run with: python -m agents.desktop_agent.local_bridge
-The service binds to loopback only. Every task is parsed into an allowlisted action
-sequence and approved in a local Windows dialog before any input is sent.
+Routine tasks run directly. Sensitive actions pause for a native Windows approval
+dialog. The service remains loopback-only and accepts structured actions only.
 """
 from __future__ import annotations
 
@@ -158,6 +157,25 @@ def _parse_one(task: str) -> list[dict[str, Any]]:
     if url_match:
         return [{"type": "open_url", "url": validate_url(url_match.group(1))}]
 
+    # Any installed app discoverable through Windows Start can be launched by name.
+    generic_open = re.fullmatch(
+        r"(?:open|launch|start|switch to|focus|bring up)\s+(.+?)(?:\s+(?:and then|then|and)\s+(?:type|write|enter)\s+(.+))?",
+        text, re.IGNORECASE | re.DOTALL,
+    )
+    if generic_open:
+        app, typed = generic_open.group(1).strip().strip("'\""), generic_open.group(2)
+        if not app or len(app) > 100 or re.search(r"[\x00-\x1f/\\;&|<>]", app):
+            raise DesktopAgentError("Use a simple installed application name, not a command or file path.")
+        actions = [{"type": "open_app", "app": APP_ALIASES.get(app.casefold(), app)}]
+        if typed is not None:
+            typed = typed.strip()
+            if len(typed) >= 2 and typed[0] == typed[-1] and typed[0] in {"'", '"'}:
+                typed = typed[1:-1]
+            if not typed:
+                raise DesktopAgentError("There is no text to type.")
+            actions.append({"type": "type_text", "text": typed})
+        return actions
+
     type_into_match = re.fullmatch(
         r"(?:type|write|enter)(?:\s+text)?\s+(.+?)\s+into\s+(" + APP_PATTERN + ")",
         text,
@@ -174,6 +192,18 @@ def _parse_one(task: str) -> list[dict[str, Any]]:
             {"type": "open_app", "app": app},
             {"type": "type_text", "text": value},
         ]
+
+    type_into_any = re.fullmatch(
+        r"(?:type|write|enter)(?:\s+text)?\s+(.+?)\s+into\s+(.+)",
+        text, re.IGNORECASE | re.DOTALL,
+    )
+    if type_into_any:
+        value, app = type_into_any.group(1).strip(), type_into_any.group(2).strip().strip("'\"")
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        if not value or not app or len(app) > 100 or re.search(r"[\x00-\x1f/\\;&|<>]", app):
+            raise DesktopAgentError("Use a simple app name and non-empty text.")
+        return [{"type": "open_app", "app": app}, {"type": "type_text", "text": value}]
 
     type_match = re.fullmatch(r"(?:type|write|enter)(?:\s+text)?\s+(.+)", text, re.IGNORECASE | re.DOTALL)
     if type_match:
@@ -304,6 +334,41 @@ def action_summary(actions: list[dict[str, Any]], active_window: str = "") -> st
     return target + "\n\n" + "\n".join(rows) + "\n\nApprove this exact sequence? No action will run unless you approve on this computer."
 
 
+def approval_reason(task: str, actions: list[dict[str, Any]], active_window: str = "") -> str | None:
+    """Classify whether a task needs a native Windows approval prompt."""
+    sensitive = re.compile(
+        r"\b(?:send|submit|publish|post|purchase|buy|pay|payment|transfer|delete|erase|remove|"
+        r"format|shutdown|restart|reboot|uninstall|install software|powershell|command prompt|"
+        r"terminal|cmd\.exe|registry|credential|password|passcode|otp|api key|secret|bank|"
+        r"credit card|debit card|upload|share|grant access|disable firewall|turn off antivirus)\b",
+        re.IGNORECASE,
+    )
+    sensitive_window = re.compile(
+        r"\b(?:powershell|command prompt|windows terminal|terminal|registry|credential|"
+        r"windows security|administrator|sign in|login|password|checkout|payment|banking|wallet)\b",
+        re.IGNORECASE,
+    )
+    if any(action.get("type") == "screenshot" for action in actions):
+        return "Screen capture can expose private information."
+    if sensitive.search(task):
+        return "The instruction contains a sensitive or consequential operation."
+    if sensitive_window.search(active_window or ""):
+        return "The foreground window appears sensitive."
+    for action in actions:
+        kind = action.get("type")
+        if kind == "open_app" and sensitive_window.search(str(action.get("app", ""))):
+            return "Opening a system or administrative utility needs approval."
+        if kind == "click":
+            return "Coordinate clicks have an ambiguous target and need approval."
+        if kind == "click_ui" and sensitive.search(str(action.get("text", ""))):
+            return "This named control may perform a consequential action."
+        if kind == "type_text":
+            value = str(action.get("text", ""))
+            if len(value) > 1000 or sensitive.search(value):
+                return "Long or sensitive text entry needs approval."
+    return None
+
+
 def _config_dir() -> Path:
     base = os.getenv("LOCALAPPDATA")
     if base:
@@ -392,8 +457,7 @@ class DesktopActionExecutor:
 
     @staticmethod
     def _find_app(app: str) -> str:
-        if app not in set(APP_ALIASES.values()):
-            raise DesktopAgentError("Application is not on the allowlist.")
+        app = APP_ALIASES.get(str(app).casefold(), str(app))
         simple = {
             "notepad": "notepad.exe",
             "calculator": "calc.exe",
@@ -431,7 +495,7 @@ class DesktopActionExecutor:
         found = shutil.which(binary) if binary else None
         if found:
             return found
-        raise DesktopAgentError("Could not find " + app + " on this PC. Install it or use one of the built-in Windows apps.")
+        return None
 
     def execute(self, actions: list[dict[str, Any]]) -> dict[str, Any]:
         backend = self._get_backend()
@@ -442,9 +506,17 @@ class DesktopActionExecutor:
                 if kind == "open_app":
                     app = str(action.get("app", ""))
                     executable = self._find_app(app)
-                    subprocess.Popen([executable], shell=False, close_fds=True)
+                    if executable:
+                        subprocess.Popen([executable], shell=False, close_fds=True)
+                        detail = "Launched " + app
+                    else:
+                        backend.press("win")
+                        time.sleep(0.25)
+                        backend.write(app, interval=0)
+                        time.sleep(0.7)
+                        backend.press("enter")
+                        detail = "Searched Windows Start and launched " + app
                     time.sleep(0.45)
-                    detail = "Launched " + app
                 elif kind == "open_url":
                     url = validate_url(str(action.get("url", "")))
                     if not webbrowser.open_new_tab(url):
@@ -695,12 +767,14 @@ class BridgeHandler(BaseHTTPRequestHandler):
             task = _normalise_task(payload.get("task"))
             actions = parse_task(task)
             if self.path == "/v1/preview":
+                status = self.state.executor.status()
+                active_window = str(status.get("active_window", "Unknown"))
+                reason = approval_reason(task, actions, active_window)
                 self._send_json(200, {
-                    "ok": True,
-                    "task": task,
-                    "actions": actions,
-                    "summary": action_summary(actions),
-                    "approval_required": True,
+                    "ok": True, "task": task, "actions": actions,
+                    "summary": action_summary(actions, active_window),
+                    "approval_required": bool(reason), "approval_reason": reason,
+                    "execution_mode": "local_approval" if reason else "routine_auto_run",
                 })
                 return
             status = self.state.executor.status()
@@ -708,11 +782,17 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 self._send_json(503, {"ok": False, "error": status.get("message", "Desktop controls are unavailable.")})
                 return
             active_window = str(status.get("active_window", "Unknown"))
-            approved = self.state.approvals.request(task, actions, active_window)
-            if not approved:
-                self._send_json(403, {"ok": False, "error": "Task was denied or approval timed out. Nothing was executed."})
-                return
+            reason = approval_reason(task, actions, active_window)
+            if reason:
+                approved = self.state.approvals.request(task, actions, active_window)
+                if not approved:
+                    self._send_json(403, {"ok": False, "error": "Task was denied or approval timed out. Nothing was executed.", "approval_required": True, "approval_reason": reason})
+                    return
             result = self.state.executor.execute(actions)
+            result["approval_required"] = bool(reason)
+            result["approval_reason"] = reason
+            if result.get("ok") and not reason:
+                result["message"] = "Routine task completed without a permission prompt."
             self._send_json(200 if result.get("ok") else 409, result)
         except DesktopAgentError as exc:
             self._send_json(400, {"ok": False, "error": str(exc)})
@@ -734,7 +814,7 @@ def _run_tk_app(state: BridgeState, server: BridgeHTTPServer) -> None:
 
     title = tk.Label(root, text="JARVIS / DESKTOP COMPANION", bg="#07111b", fg="#6be7ff", font=("Consolas", 16, "bold"))
     title.pack(anchor="w", padx=22, pady=(20, 4))
-    subtitle = tk.Label(root, text="Local Windows control · loopback only · approval required for every task", bg="#07111b", fg="#a8bac9", font=("Segoe UI", 9))
+    subtitle = tk.Label(root, text="Local Windows control · routine actions run directly · sensitive actions require approval", bg="#07111b", fg="#a8bac9", font=("Segoe UI", 9))
     subtitle.pack(anchor="w", padx=22, pady=(0, 14))
     status = tk.Label(root, text="RUNNING ON 127.0.0.1:8766", bg="#0c2732", fg="#72f3d4", font=("Consolas", 10, "bold"), padx=10, pady=8)
     status.pack(fill="x", padx=22, pady=(0, 14))
@@ -768,7 +848,7 @@ def _run_tk_app(state: BridgeState, server: BridgeHTTPServer) -> None:
             details = action_summary(ticket.actions, ticket.active_window)
             ticket.approved = bool(messagebox.askyesno(
                 "JARVIS permission required",
-                "Review the exact requested actions:\n\n" + details,
+                "This action was classified as sensitive. Review the exact sequence:\n\n" + details,
                 icon="warning",
                 parent=root,
             ))
