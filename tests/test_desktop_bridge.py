@@ -11,6 +11,7 @@ from agents.desktop_agent.local_bridge import (
     BridgeHandler,
     BridgeHTTPServer,
     BridgeState,
+    DesktopActionExecutor,
     DesktopAgentError,
     action_summary,
     parse_task,
@@ -270,3 +271,53 @@ def test_named_result_can_be_described_as_called_or_named():
     assert parse_task("click the result named Blinding Lights") == [
         {"type": "click_result", "target": "Blinding Lights"}
     ]
+
+
+class FakeKeyboardBackend:
+    def __init__(self):
+        self.events = []
+
+    def hotkey(self, *keys):
+        self.events.append(("hotkey", keys))
+
+    def write(self, value, interval=0):
+        self.events.append(("write", value))
+
+
+class FakeUIControl:
+    def __init__(self):
+        self.clicked = 0
+
+    def click_input(self):
+        self.clicked += 1
+
+
+def test_search_query_is_remembered_for_a_follow_up_result_click(monkeypatch):
+    backend = FakeKeyboardBackend()
+    executor = DesktopActionExecutor(backend=backend)
+    search_field = FakeUIControl()
+    chosen_results = []
+    result_control = FakeUIControl()
+
+    monkeypatch.setattr(
+        executor, "_find_search_field",
+        lambda timeout_seconds=8.0: (object(), search_field, "Search"),
+    )
+
+    first = executor.execute([
+        {"type": "smart_type", "text": "Blinding Lights", "target": "search"}
+    ])
+    assert first["ok"] is True
+    assert executor._last_search_query == "Blinding Lights"
+    assert search_field.clicked == 1
+    assert ("write", "Blinding Lights") in backend.events
+
+    def select_result(target="", timeout_seconds=8.0):
+        chosen_results.append(target)
+        return result_control, "Blinding Lights — The Weeknd"
+
+    monkeypatch.setattr(executor, "_find_result_control", select_result)
+    second = executor.execute([{"type": "click_first_result"}])
+    assert second["ok"] is True
+    assert chosen_results == ["Blinding Lights"]
+    assert result_control.clicked == 1
