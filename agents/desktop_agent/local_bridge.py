@@ -158,6 +158,23 @@ def _parse_one(task: str) -> list[dict[str, Any]]:
     if url_match:
         return [{"type": "open_url", "url": validate_url(url_match.group(1))}]
 
+    type_into_match = re.fullmatch(
+        r"(?:type|write|enter)(?:\s+text)?\s+(.+?)\s+into\s+(" + APP_PATTERN + ")",
+        text,
+        re.IGNORECASE | re.DOTALL,
+    )
+    if type_into_match:
+        value = type_into_match.group(1).strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        app = APP_ALIASES[type_into_match.group(2).casefold()]
+        if not value:
+            raise DesktopAgentError("There is no text to type.")
+        return [
+            {"type": "open_app", "app": app},
+            {"type": "type_text", "text": value},
+        ]
+
     type_match = re.fullmatch(r"(?:type|write|enter)(?:\s+text)?\s+(.+)", text, re.IGNORECASE | re.DOTALL)
     if type_match:
         value = type_match.group(1).strip()
@@ -175,6 +192,7 @@ def _parse_one(task: str) -> list[dict[str, Any]]:
     if ui_click_match:
         control = (ui_click_match.group(1) or ui_click_match.group(4)).casefold()
         label = (ui_click_match.group(2) or ui_click_match.group(3)).strip().strip("'\\\"")
+        label = re.sub(r"^the\s+", "", label, flags=re.IGNORECASE)
         app = APP_ALIASES[ui_click_match.group(5).casefold()]
         if not label or len(label) > 100:
             raise DesktopAgentError("UI control names must be between 1 and 100 characters.")
