@@ -1537,8 +1537,11 @@ class BridgeHandler(BaseHTTPRequestHandler):
             executor = self.state.executor
             actions = parse_task(
                 task,
-                app_context=bool(executor._last_opened_url or executor._last_app_name),
-                last_search_query=executor._last_search_query,
+                app_context=bool(
+                    getattr(executor, "_last_opened_url", "")
+                    or getattr(executor, "_last_app_name", "")
+                ),
+                last_search_query=getattr(executor, "_last_search_query", ""),
             )
             if self.path == "/v1/preview":
                 status = self.state.executor.status()
