@@ -691,8 +691,8 @@ class DesktopActionExecutor:
 
         executable = os.getenv("TESSERACT_CMD", "").strip() or shutil.which("tesseract")
         if not executable:
-            program_files = os.getenv("PROGRAMFILES", r"C:\\Program Files")
-            program_files_x86 = os.getenv("PROGRAMFILES(X86)", r"C:\\Program Files (x86)")
+            program_files = os.getenv("PROGRAMFILES", r"C:\Program Files")
+            program_files_x86 = os.getenv("PROGRAMFILES(X86)", r"C:\Program Files (x86)")
             for candidate in (
                 Path(program_files) / "Tesseract-OCR" / "tesseract.exe",
                 Path(program_files_x86) / "Tesseract-OCR" / "tesseract.exe",
@@ -727,12 +727,12 @@ class DesktopActionExecutor:
         # Known search placeholders are useful across many apps without tying the
         # implementation to Spotify, a browser, or any vendor-specific selector.
         search_phrase = re.compile(
-            r"\\b(search|search for|search songs|search artists|search albums|"
+            r"\b(search|search for|search songs|search artists|search albums|"
             r"find|filter|what do you want to play|search across)\\b",
             re.IGNORECASE,
         )
         for index, raw in enumerate(texts):
-            label = re.sub(r"\\s+", " ", str(raw or "")).strip()
+            label = re.sub(r"\s+", " ", str(raw or "")).strip()
             if not label or not search_phrase.search(label):
                 continue
             try:
@@ -745,7 +745,7 @@ class DesktopActionExecutor:
                 continue
             if confidence < 35 or width < 8 or height < 6:
                 continue
-            if re.search(r"\\b(password|passcode|payment|credit card|security code)\\b", label, re.IGNORECASE):
+            if re.search(r"\b(password|passcode|payment|credit card|security code)\\b", label, re.IGNORECASE):
                 continue
             candidates.append((
                 int(top * scale_y), int(left * scale_x),
