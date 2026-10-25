@@ -645,6 +645,7 @@ def test_open_url_opens_a_separate_tab_when_current_tab_is_the_dashboard(monkeyp
         {"get_value": lambda self: "https://jarvis-multiagent-dashboard.vercel.app/desktop"},
     )()
     tab = FakeResultWrapper("YouTube", "TabItem")
+    tab.element_info.runtime_id = (17,)
     tab.iface_selection_item = type(
         "Selection", (), {"CurrentIsSelected": True}
     )()
