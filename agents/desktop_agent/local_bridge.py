@@ -834,7 +834,16 @@ class DesktopActionExecutor:
             except Exception:
                 time.sleep(0.25)
                 continue
-            if current != before:
+            if before[0] and current[0]:
+                # In a browser, unrelated page content may change while a click is
+                # still doing nothing (ads, recommendations, loading indicators).
+                # Count only navigational evidence: window title, address/URL value,
+                # or browser tab list. This avoids false-positive "clicked" reports.
+                before_navigation = before[1][:3]
+                current_navigation = current[1][:3]
+                if current_navigation != before_navigation:
+                    return True
+            elif current != before:
                 return True
             time.sleep(min(0.25, max(0.01, deadline - time.monotonic())))
         return False
