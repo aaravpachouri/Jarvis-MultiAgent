@@ -1856,8 +1856,8 @@ class DesktopActionExecutor:
             "I couldn't identify a stable, visible result in the active app. No result was clicked."
         )
 
-    def _click_result_control(self, control: Any) -> str:
-        """Activate a result semantically first, then verify and use a physical fallback."""
+    def _click_result_control(self, control: Any, target: str = "") -> str:
+        """Activate a result, verify navigation, then retry at OCR-verified visible title bounds."""
         actionable = {"Hyperlink", "ListItem", "DataItem", "TreeItem", "Button"}
         current = control
         selected = control
@@ -1957,9 +1957,54 @@ class DesktopActionExecutor:
         if browser_context:
             if self._wait_for_active_page_change(before_state, timeout_seconds=8.0):
                 return selected_name
+
+            # A UI Automation node can match the right title but expose an oversized
+            # or non-clickable rectangle. Re-scan the actual screen and try the visible
+            # title's OCR-confirmed bounding box before giving up. This is generic across
+            # browsers/apps and only clicks a fresh, text-matched on-screen rectangle.
+            visual_note = ""
+            if target.strip():
+                visual = self._find_visual_result_control(target)
+                if visual is not None:
+                    visual_control, visual_label = visual
+                    try:
+                        visual_rect = visual_control.rectangle()
+                        visual_left = int(visual_rect.left)
+                        visual_top = int(visual_rect.top)
+                        visual_right = int(visual_rect.right)
+                        visual_bottom = int(visual_rect.bottom)
+                        visual_x = int((visual_left + visual_right) / 2)
+                        visual_y = int((visual_top + visual_bottom) / 2)
+                        screen = self._get_backend().size()
+                        if (
+                            visual_right - visual_left < 8
+                            or visual_bottom - visual_top < 8
+                            or not (0 <= visual_x < int(screen.width) and 0 <= visual_y < int(screen.height))
+                        ):
+                            raise DesktopAgentError("OCR result bounds are outside the clickable screen.")
+                        # Take a new state immediately before the visual click; this
+                        # avoids comparing it against a pre-UIA-click page snapshot.
+                        try:
+                            visual_before = self._capture_active_page_state()
+                        except Exception:
+                            visual_before = before_state
+                        backend = self._get_backend()
+                        backend.moveTo(visual_x, visual_y, duration=0.12)
+                        backend.click(x=visual_x, y=visual_y)
+                        if self._wait_for_active_page_change(visual_before, timeout_seconds=8.0):
+                            return selected_name + " (OCR-verified visible title " + repr(visual_label) + ")"
+                        visual_note = (
+                            " OCR found " + repr(visual_label) +
+                            " and clicked its visible bounds, but the browser still showed no verified navigation."
+                        )
+                    except Exception as visual_error:
+                        visual_note = " OCR fallback could not activate a visible result: " + str(visual_error)
+                else:
+                    visual_note = " OCR fallback: " + (self._last_ocr_fallback_status or "no matching visible title found.")
+
             raise DesktopAgentError(
-                "The result was targeted, but the browser showed no observable navigation, tab, title, or page-content change after two activation methods. "
-                "I won't report the click as successful."
+                "The result was targeted with accessibility and verified-bounds clicks, but the browser showed no observable navigation, title, URL, or tab change. "
+                "I won't report the click as successful." + visual_note
             )
 
         # Non-browser list selections need not navigate, so a successful UIA/physical
@@ -2167,7 +2212,7 @@ class DesktopActionExecutor:
                 elif kind in {"click_result", "click_first_result"}:
                     target = str(action.get("target", "") or last_search_query).strip()
                     control, result_name = self._find_result_control(target)
-                    activated_name = self._click_result_control(control)
+                    activated_name = self._click_result_control(control, target=target)
                     self._last_result_snapshot = None
                     self._last_search_submitted_at = 0.0
                     self._search_navigation_completed = False
