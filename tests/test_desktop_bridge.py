@@ -414,6 +414,9 @@ class FakeKeyboardBackend:
         from types import SimpleNamespace
         return SimpleNamespace(width=1920, height=1080)
 
+    def moveTo(self, x, y, duration=0):
+        self.events.append(("move", x, y))
+
     def click(self, x, y, button="left"):
         self.events.append(("click", x, y, button))
         if callable(self.on_click):
@@ -808,6 +811,48 @@ def test_result_click_uses_verified_bounds_if_semantic_click_has_no_effect(monke
     assert name == "Blinding Lights"
     assert link.clicked == 1
     assert ("click", 300, 160, "left") in backend.events
+
+
+def test_result_click_retries_with_ocr_title_bounds_when_uia_target_does_not_navigate(monkeypatch):
+    from types import SimpleNamespace
+
+    backend = FakeKeyboardBackend()
+    executor = DesktopActionExecutor(backend=backend)
+    executor._last_target_browser_url = "https://example.test/search"
+    link = FakeResultWrapper("Blinding Lights", "Hyperlink")
+    visual_rect = SimpleNamespace(left=820, top=600, right=1020, bottom=660)
+    visual = SimpleNamespace(
+        element_info=SimpleNamespace(name="Blinding Lights", control_type="Custom"),
+        rectangle=lambda: visual_rect,
+        parent=lambda: None,
+    )
+    monkeypatch.setattr(
+        executor,
+        "_capture_active_page_state",
+        lambda: (True, ("search results", ("https://example.test/search",), ("tab",), ())),
+    )
+    waits = iter([False, False, True])
+    monkeypatch.setattr(
+        executor,
+        "_wait_for_active_page_change",
+        lambda before, timeout_seconds=6.0: next(waits),
+    )
+    monkeypatch.setattr(
+        executor,
+        "_find_visual_result_control",
+        lambda target: (visual, "Blinding Lights"),
+    )
+
+    result = executor._click_result_control(
+        link,
+        target="The Weeknd Blinding Lights official music video",
+    )
+
+    assert "OCR-verified visible title" in result
+    assert link.clicked == 1
+    assert ("click", 300, 160, "left") in backend.events
+    assert ("move", 920, 630) in backend.events
+    assert ("click", 920, 630, "left") in backend.events
 
 
 def test_result_click_promotes_title_text_to_its_clickable_ancestor(monkeypatch):
