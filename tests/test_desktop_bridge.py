@@ -650,6 +650,59 @@ def test_result_finder_matches_short_browser_title_against_long_query(monkeypatc
     assert label == "Blinding Lights"
 
 
+def test_result_finder_uses_ocr_when_weak_uia_match_blocks_visual_fallback(monkeypatch):
+    from types import SimpleNamespace
+
+    # A deterministic clock makes the long loading/stability windows cheap to test.
+    clock = {"now": 100.0}
+    def fake_monotonic():
+        return clock["now"]
+    def fake_sleep(seconds):
+        clock["now"] += max(0.01, seconds)
+
+    monkeypatch.setattr(desktop_bridge.time, "monotonic", fake_monotonic)
+    monkeypatch.setattr(desktop_bridge.time, "sleep", fake_sleep)
+
+    executor = DesktopActionExecutor(backend=FakeKeyboardBackend())
+    weak = FakeResultWrapper(
+        "Blinding Lights extra related context terms not matching",
+        "Custom",
+    )
+    active = SimpleNamespace(window_text=lambda: "Search results")
+    controls = [
+        (weak, "Custom", weak.element_info.name, weak.element_info.name.casefold())
+    ]
+    monkeypatch.setattr(executor, "_active_ui_controls", lambda allowed: (active, controls))
+    executor._last_result_snapshot = executor._result_tree_signature(active, controls)
+
+    visual_rect = SimpleNamespace(left=820, top=600, right=1020, bottom=660)
+    visual = SimpleNamespace(
+        element_info=SimpleNamespace(
+            name="Blinding Lights", control_type="Custom",
+            automation_id="ocr-result", help_text="OCR-visible result text",
+            class_name="VisualResultTarget",
+        ),
+        rectangle=lambda: visual_rect,
+        parent=lambda: None,
+    )
+    visual_calls = []
+    monkeypatch.setattr(
+        executor,
+        "_find_visual_result_control",
+        lambda target: visual_calls.append(target) or (visual, "Blinding Lights"),
+    )
+
+    found, label = executor._find_result_control(
+        "The Weeknd Blinding Lights official music video",
+        timeout_seconds=8.0,
+    )
+
+    assert found is visual
+    assert label == "Blinding Lights"
+    assert len(visual_calls) >= 2
+    assert clock["now"] >= 107.0
+
+
 def test_result_finder_does_not_click_a_matching_stale_tree_after_enter(monkeypatch):
     from types import SimpleNamespace
 
