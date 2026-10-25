@@ -976,14 +976,32 @@ class DesktopActionExecutor:
             active, address_control, _ = self._find_browser_address_bar(timeout_seconds=0.6)
             current_url = self._control_value(address_control)
             if self._browser_url_matches(expected_url, current_url):
+                current_tab_runtime_id = None
                 try:
-                    title = str(getattr(active, "window_text", lambda: "")() or "").strip()
+                    _, visible_tabs = self._active_ui_controls({"TabItem"})
+                    selected_tabs = [
+                        control for control, _, _, _ in visible_tabs
+                        if self._control_is_selected(control)
+                    ]
+                    if selected_tabs:
+                        current_tab_runtime_id = self._control_runtime_id(selected_tabs[0])
                 except Exception:
-                    title = ""
-                if title:
-                    self._last_target_window_title = title
-                self._remember_active_browser_tab()
-                return
+                    current_tab_runtime_id = None
+                # The same site can have multiple open tabs. A hostname match alone
+                # isn't enough when we have the runtime identity of the intended tab.
+                if (
+                    self._last_target_tab_runtime_id is None
+                    or current_tab_runtime_id is None
+                    or current_tab_runtime_id == self._last_target_tab_runtime_id
+                ):
+                    try:
+                        title = str(getattr(active, "window_text", lambda: "")() or "").strip()
+                    except Exception:
+                        title = ""
+                    if title:
+                        self._last_target_window_title = title
+                    self._remember_active_browser_tab()
+                    return
             _, tabs = self._active_ui_controls({"TabItem"})
         except Exception as exc:
             raise DesktopAgentError(
