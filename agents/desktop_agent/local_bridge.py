@@ -1546,6 +1546,16 @@ class DesktopActionExecutor:
         for index, action in enumerate(actions, 1):
             kind = action.get("type")
             try:
+                if (
+                    kind in {"smart_type", "focus_search", "type_text", "click_result", "click_first_result"}
+                    or (
+                        kind == "hotkey"
+                        and tuple(str(key).casefold() for key in action.get("keys", [])) == ("enter",)
+                        and last_search_query
+                    )
+                ):
+                    self._ensure_last_target_tab_active()
+
                 if kind == "open_app":
                     app = str(action.get("app", "")).strip()
                     app_key = APP_ALIASES.get(app.casefold(), app.casefold())
@@ -1671,15 +1681,19 @@ class DesktopActionExecutor:
                         self._search_navigation_completed = True
                         last_search_query = value
                         self._last_search_query = value
+                        # The omnibox fallback submits immediately. Wait for an actual
+                        # stable matching result so the caller cannot race page loading.
+                        self._find_result_control(value, timeout_seconds=20.0)
+                        self._update_target_context_from_foreground()
                         if fallback_query != value:
                             detail = (
                                 "Submitted a site-restricted browser search for " + repr(value) +
-                                " on " + current_host + " because the page's in-app search field was inaccessible"
+                                " on " + current_host + " and waited for a stable result"
                             )
                         else:
                             detail = (
                                 "Submitted " + repr(value) +
-                                " through the browser's default search because the page's search field was inaccessible"
+                                " through the browser's default search and waited for a stable result"
                             )
                     else:
                         if kind == "smart_type":
@@ -1719,6 +1733,7 @@ class DesktopActionExecutor:
                     self._last_result_snapshot = None
                     self._last_search_submitted_at = 0.0
                     self._search_navigation_completed = False
+                    self._update_target_context_from_foreground()
                     detail = "Clicked result " + repr(result_name) + " using " + repr(activated_name)
                 elif kind in {"click", "double_click"}:
                     size = backend.size()
@@ -1774,11 +1789,10 @@ class DesktopActionExecutor:
                         # Capture the pre-submit accessibility tree, so result-clicking
                         # can tell whether the page reacted to the search submission.
                         if self._search_navigation_completed:
-                            # The generic omnibox fallback already pressed Enter. Keep
-                            # the baseline snapshot so result selection can prove the
-                            # interface changed after the search was submitted.
+                            # The generic omnibox fallback already pressed Enter and
+                            # waited for a stable result. Do not submit the same query twice.
                             self._search_navigation_completed = False
-                            detail = "Search was already submitted; waiting for fresh result controls"
+                            detail = "Search was already submitted and its result became stable"
                             completed.append({"step": index, "status": "succeeded", "detail": detail})
                             continue
                         self._last_result_snapshot = self._capture_result_snapshot()
@@ -1788,6 +1802,12 @@ class DesktopActionExecutor:
                     else:
                         backend.hotkey(*keys)
                     detail = "Pressed " + "+".join(keys)
+                    if keys == ("enter",) and last_search_query:
+                        # Wait on the same executor request until the UI exposes a stable
+                        # match. Separate follow-up commands therefore don't race the page.
+                        self._find_result_control(last_search_query, timeout_seconds=20.0)
+                        self._update_target_context_from_foreground()
+                        detail += " and waited for a stable matching result"
                 elif kind == "wait":
                     seconds = float(action.get("seconds", 0))
                     if not 0 < seconds <= 5:
