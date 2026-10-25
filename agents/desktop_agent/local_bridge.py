@@ -974,7 +974,7 @@ class DesktopActionExecutor:
                 # tree, not merely a changed spinner/title elsewhere on the page. This
                 # prevents a stale result from being clicked during a slow navigation.
                 baseline_labels = set(baseline[1]) if baseline is not None and len(baseline) > 1 else set()
-                normalized_candidate = (chosen[3], re.sub(r"\\s+", " ", chosen[2]).casefold().strip())
+                normalized_candidate = (chosen[3], re.sub(r"\s+", " ", chosen[2]).casefold().strip())
                 candidate_is_fresh = baseline is None or normalized_candidate not in baseline_labels
                 tree_is_stable = now - tree_stable_since >= stable_for
                 if (
