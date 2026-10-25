@@ -1430,18 +1430,40 @@ class DesktopActionExecutor:
                         self._last_result_snapshot = self._capture_result_snapshot()
                         self._last_search_submitted_at = time.monotonic()
                         self._search_navigation_completed = False
+                        # If the current page's own search isn't accessible, constrain
+                        # the browser's search to the current site instead of accidentally
+                        # searching the entire web. This is derived from the current URL,
+                        # not a provider- or site-specific selector.
+                        fallback_query = value
+                        current_host = (urlparse(self._last_opened_url).hostname or "").casefold().removeprefix("www.")
+                        search_engine_hosts = {
+                            "google.com", "bing.com", "duckduckgo.com", "yahoo.com",
+                            "search.yahoo.com", "search.brave.com", "ecosia.org", "baidu.com",
+                        }
+                        is_search_engine = any(
+                            current_host == host or current_host.endswith("." + host)
+                            for host in search_engine_hosts
+                        )
+                        if current_host and not is_search_engine:
+                            fallback_query = "site:" + current_host + " " + value
                         backend.hotkey("ctrl", "l")
                         time.sleep(0.15)
-                        backend.write(value, interval=0)
+                        backend.write(fallback_query, interval=0)
                         time.sleep(0.1)
                         backend.press("enter")
                         self._search_navigation_completed = True
                         last_search_query = value
                         self._last_search_query = value
-                        detail = (
-                            "Submitted " + repr(value) +
-                            " through the browser's default search because the page's search field was inaccessible"
-                        )
+                        if fallback_query != value:
+                            detail = (
+                                "Submitted a site-restricted browser search for " + repr(value) +
+                                " on " + current_host + " because the page's in-app search field was inaccessible"
+                            )
+                        else:
+                            detail = (
+                                "Submitted " + repr(value) +
+                                " through the browser's default search because the page's search field was inaccessible"
+                            )
                     else:
                         if kind == "smart_type":
                             backend.hotkey("ctrl", "a")
