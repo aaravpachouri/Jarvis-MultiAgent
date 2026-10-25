@@ -553,6 +553,11 @@ def test_browser_search_falls_back_to_default_omnibox_without_site_specific_urls
         lambda timeout_seconds=1.5: (object(), object(), "Address and search bar"),
     )
     monkeypatch.setattr(executor, "_capture_result_snapshot", lambda: ("pre-search",))
+    monkeypatch.setattr(
+        executor,
+        "_find_result_control",
+        lambda target="", timeout_seconds=20.0: (FakeUIControl(), "Universal search query"),
+    )
 
     # This represents a browser that was already open, not one opened by
     # this command: fallback must detect the omnibox from accessibility metadata.
@@ -562,6 +567,7 @@ def test_browser_search_falls_back_to_default_omnibox_without_site_specific_urls
 
     assert result["ok"] is True
     assert "default search" in result["completed"][0]["detail"]
+    assert "stable result" in result["completed"][0]["detail"]
     assert ("hotkey", ("ctrl", "l")) in backend.events
     assert ("write", "Universal search query") in backend.events
     assert ("press", "enter") in backend.events
@@ -583,6 +589,10 @@ def test_browser_url_identity_matches_normalized_host_and_path():
     assert not executor._browser_url_matches(
         "https://example.test/watch/123",
         "https://example.test/watch/456",
+    )
+    assert executor._browser_url_matches(
+        "https://example.test/search?q=one",
+        "https://example.test/search?q=one&client=desktop",
     )
     assert not executor._browser_url_matches(
         "https://example.test/search?q=one",
@@ -623,6 +633,95 @@ def test_open_url_reuses_current_browser_tab_and_confirms_navigation(monkeypatch
     assert ("press", "enter") in backend.events
 
 
+def test_open_url_opens_a_separate_tab_when_current_tab_is_the_dashboard(monkeypatch):
+    backend = FakeKeyboardBackend()
+    executor = DesktopActionExecutor(backend=backend)
+    executor._controller_origin = "https://jarvis-multiagent-dashboard.vercel.app"
+    opened = []
+    controller = type("ActiveWindow", (), {"window_text": lambda self: "JARVIS Desktop"})()
+    address_bar = type(
+        "AddressBar",
+        (),
+        {"get_value": lambda self: "https://jarvis-multiagent-dashboard.vercel.app/desktop"},
+    )()
+    tab = FakeResultWrapper("YouTube", "TabItem")
+    tab.iface_selection_item = type(
+        "Selection", (), {"CurrentIsSelected": True}
+    )()
+    monkeypatch.setattr(
+        executor,
+        "_find_browser_address_bar",
+        lambda timeout_seconds=1.5: (controller, address_bar, "Address and search bar"),
+    )
+    monkeypatch.setattr(
+        executor,
+        "_wait_for_browser_url",
+        lambda url, timeout_seconds=25.0, stable_seconds=0.8: (controller, "YouTube"),
+    )
+    monkeypatch.setattr(
+        executor,
+        "_wait_for_active_window_settled",
+        lambda timeout_seconds=12.0, stable_seconds=0.8: True,
+    )
+    monkeypatch.setattr(executor, "_active_ui_controls", lambda allowed: (controller, [
+        (tab, "TabItem", "YouTube", "youtube tab")
+    ]))
+    monkeypatch.setattr(
+        desktop_bridge.webbrowser, "open_new_tab",
+        lambda url: opened.append(url) or True,
+    )
+    monkeypatch.setattr(desktop_bridge.time, "sleep", lambda seconds: None)
+
+    detail = executor._navigate_browser_to_url("https://www.youtube.com/", backend)
+
+    assert opened == ["https://www.youtube.com/"]
+    assert "preserve the JARVIS dashboard" in detail
+    assert not any(event[:2] == ("hotkey", ("ctrl", "l")) for event in backend.events)
+    assert executor._last_target_browser_url == "https://www.youtube.com/"
+    assert executor._last_target_window_title == "YouTube"
+    assert executor._last_target_tab_runtime_id is not None
+
+
+def test_follow_up_action_restores_the_saved_target_tab(monkeypatch):
+    executor = DesktopActionExecutor(backend=FakeKeyboardBackend())
+    executor._last_target_browser_url = "https://www.youtube.com/"
+    executor._last_opened_url = "https://www.youtube.com/"
+    executor._last_target_window_title = "YouTube - Google Chrome"
+    executor._last_target_tab_runtime_id = (42,)
+    dashboard = type("ActiveWindow", (), {"window_text": lambda self: "JARVIS Desktop"})()
+    address_bar = type(
+        "AddressBar",
+        (),
+        {"get_value": lambda self: "https://jarvis-multiagent-dashboard.vercel.app/desktop"},
+    )()
+    target_tab = FakeResultWrapper("YouTube", "TabItem")
+    target_tab.element_info.runtime_id = (42,)
+    target_tab.iface_selection_item = type(
+        "Selection", (), {"CurrentIsSelected": False}
+    )()
+    monkeypatch.setattr(
+        executor, "_find_browser_address_bar",
+        lambda timeout_seconds=1.5: (dashboard, address_bar, "Address and search bar"),
+    )
+    monkeypatch.setattr(executor, "_active_ui_controls", lambda allowed: (dashboard, [
+        (target_tab, "TabItem", "YouTube", "youtube tab"),
+    ]))
+    monkeypatch.setattr(
+        executor, "_wait_for_browser_url",
+        lambda url, timeout_seconds=12.0, stable_seconds=0.35: (dashboard, "YouTube"),
+    )
+    monkeypatch.setattr(
+        executor, "_wait_for_active_window_settled",
+        lambda timeout_seconds=5.0, stable_seconds=0.7: True,
+    )
+    monkeypatch.setattr(desktop_bridge.time, "sleep", lambda seconds: None)
+
+    executor._ensure_last_target_tab_active()
+
+    assert target_tab.clicked == 1
+    assert executor._last_target_window_title == "YouTube"
+
+
 def test_open_url_launches_browser_only_when_no_browser_is_foregrounded(monkeypatch):
     backend = FakeKeyboardBackend()
     executor = DesktopActionExecutor(backend=backend)
@@ -649,7 +748,7 @@ def test_open_url_launches_browser_only_when_no_browser_is_foregrounded(monkeypa
 
     detail = executor._navigate_browser_to_url("https://example.test/", backend)
 
-    assert "opened the website in the browser" in detail
+    assert "opened the target in a new browser tab" in detail
     assert opened == ["https://example.test/"]
     assert not any(event[:2] == ("hotkey", ("ctrl", "l")) for event in backend.events)
 
@@ -672,6 +771,11 @@ def test_inaccessible_in_page_search_scopes_browser_fallback_to_current_host(mon
         lambda timeout_seconds=1.5: (object(), object(), "Address and search bar"),
     )
     monkeypatch.setattr(executor, "_capture_result_snapshot", lambda: ("pre-search",))
+    monkeypatch.setattr(
+        executor,
+        "_find_result_control",
+        lambda target="", timeout_seconds=20.0: (FakeUIControl(), "artist album title"),
+    )
 
     result = executor.execute([
         {"type": "smart_type", "text": "artist album title", "target": "search"},
