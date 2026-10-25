@@ -883,7 +883,7 @@ class DesktopActionExecutor:
         target_tokens = {token for token in re.findall(r"[a-z0-9]+", target_text) if len(token) > 1}
         allowed = {
             "ListItem", "DataItem", "TreeItem", "Hyperlink", "Button",
-            "Text", "Group", "Custom", "Image",
+            "Text", "Group", "Custom", "Image", "Document", "Pane",
         }
         excluded = re.compile(
             r"^(?:home|back|forward|next|previous|play|pause|stop|close|cancel|settings|"
@@ -893,13 +893,14 @@ class DesktopActionExecutor:
         )
         type_bonus = {
             "ListItem": 30, "DataItem": 28, "TreeItem": 25, "Hyperlink": 22,
-            "Group": 14, "Custom": 12, "Button": 8, "Text": 5, "Image": 3,
+            "Group": 14, "Custom": 12, "Document": 10, "Button": 8,
+            "Pane": 6, "Text": 5, "Image": 3,
         }
 
         baseline = self._last_result_snapshot
         submitted_at = self._last_search_submitted_at
         ready_after = max(
-            started + min(3.5, max(1.5, timeout_seconds * 0.175)),
+            started + min(3.5, max(0.5, timeout_seconds * 0.175)),
             submitted_at + 3.0 if submitted_at else started,
         )
         stable_for = min(1.25, max(0.35, timeout_seconds * 0.0625))
@@ -970,19 +971,24 @@ class DesktopActionExecutor:
                     previous_candidate = candidate_signature
                     candidate_since = now
 
-                # Require the matching control itself to be absent from the pre-submit
-                # tree, not merely a changed spinner/title elsewhere on the page. This
-                # prevents a stale result from being clicked during a slow navigation.
-                baseline_labels = set(baseline[1]) if baseline is not None and len(baseline) > 1 else set()
-                normalized_candidate = (chosen[3], re.sub(r"\s+", " ", chosen[2]).casefold().strip())
-                candidate_is_fresh = baseline is None or normalized_candidate not in baseline_labels
+                # Prefer observable page updates, but don't deadlock when the app's
+                # accessibility provider leaves its tree unchanged. After a meaningful
+                # settle window, a strong, stable title match is usable even if the same
+                # title existed before submission (for example, on a recommendations
+                # page). Ambiguous matches still fail closed below.
                 tree_is_stable = now - tree_stable_since >= stable_for
+                stale_tree_timeout = min(5.0, max(0.5, timeout_seconds * 0.25))
+                stable_match_without_tree_update = (
+                    baseline is not None
+                    and not baseline_changed
+                    and now - started >= stale_tree_timeout
+                    and chosen[0] >= 65
+                )
                 if (
                     now >= ready_after
                     and now - candidate_since >= stable_for
                     and tree_is_stable
-                    and baseline_changed
-                    and candidate_is_fresh
+                    and (baseline_changed or stable_match_without_tree_update)
                 ):
                     if ambiguous:
                         names = [item[2] for item in close[:4]]
@@ -1005,8 +1011,8 @@ class DesktopActionExecutor:
 
         if baseline is not None and target_tokens:
             raise DesktopAgentError(
-                "The active interface did not expose a fresh, stable result for " +
-                repr(target) + " after Enter. No click was made; the page may still be loading or its accessibility tree may not expose updates."
+                "I couldn't find a stable, sufficiently strong result for " + repr(target) +
+                " within the wait window. No click was made; the page may still be loading or may not expose matching result controls."
             )
         if target_tokens:
             raise DesktopAgentError(
