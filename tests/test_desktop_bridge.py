@@ -568,6 +568,50 @@ def test_browser_url_change_is_click_success(monkeypatch):
     assert executor._wait_for_active_page_change(before, timeout_seconds=0.1) is True
 
 
+def test_browser_target_without_accessible_omnibox_still_uses_physical_click_fallback(monkeypatch):
+    backend = FakeKeyboardBackend()
+    executor = DesktopActionExecutor(backend=backend)
+    executor._last_target_browser_url = "https://www.youtube.com"
+    link = FakeResultWrapper("Blinding Lights", "Hyperlink")
+
+    # A browser may not expose its omnibox through UI Automation. The known target
+    # URL must still make Atlas verify navigation and try the grounded bounds click.
+    monkeypatch.setattr(
+        executor,
+        "_capture_active_page_state",
+        lambda: (False, ("search results", ("",), ("tab",), (("Hyperlink", "blinding lights"),))),
+    )
+    waits = iter([False, True])
+    monkeypatch.setattr(
+        executor,
+        "_wait_for_active_page_change",
+        lambda before, timeout_seconds=6.0: next(waits),
+    )
+
+    name = executor._click_result_control(link)
+
+    assert name == "Blinding Lights"
+    assert link.clicked == 1
+    assert ("click", 300, 160, "left") in backend.events
+
+
+def test_browser_with_missing_omnibox_does_not_accept_content_churn_as_navigation(monkeypatch):
+    executor = DesktopActionExecutor(backend=FakeKeyboardBackend())
+    executor._last_target_browser_url = "https://www.youtube.com"
+    before = (
+        False,
+        ("search results", ("",), ("YouTube tab",), (("Text", "old content"),)),
+    )
+    after = (
+        False,
+        ("search results", ("",), ("YouTube tab",), (("Text", "new dynamic recommendation"),)),
+    )
+    monkeypatch.setattr(executor, "_capture_active_page_state", lambda: after)
+    monkeypatch.setattr(desktop_bridge.time, "sleep", lambda seconds: None)
+
+    assert executor._wait_for_active_page_change(before, timeout_seconds=0.02) is False
+
+
 def test_result_click_uses_verified_bounds_if_semantic_click_has_no_effect(monkeypatch):
     backend = FakeKeyboardBackend()
     executor = DesktopActionExecutor(backend=backend)
