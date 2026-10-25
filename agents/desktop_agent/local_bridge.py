@@ -899,10 +899,10 @@ class DesktopActionExecutor:
         baseline = self._last_result_snapshot
         submitted_at = self._last_search_submitted_at
         ready_after = max(
-            started + min(2.5, max(0.75, timeout_seconds * 0.125)),
-            submitted_at + 2.0 if submitted_at else started,
+            started + min(3.5, max(1.5, timeout_seconds * 0.175)),
+            submitted_at + 3.0 if submitted_at else started,
         )
-        stable_for = min(1.0, max(0.25, timeout_seconds * 0.05))
+        stable_for = min(1.25, max(0.35, timeout_seconds * 0.0625))
         previous_candidate: tuple[Any, ...] | None = None
         candidate_since = 0.0
         last_tree_signature: tuple[Any, ...] | None = None
@@ -970,11 +970,20 @@ class DesktopActionExecutor:
                     previous_candidate = candidate_signature
                     candidate_since = now
 
-                # Require a fresh tree after Enter (when observable), and require
-                # both the candidate and surrounding result tree to stop changing.
-                # Never click a matching item from the pre-submit page just because time elapsed.
+                # Require the matching control itself to be absent from the pre-submit
+                # tree, not merely a changed spinner/title elsewhere on the page. This
+                # prevents a stale result from being clicked during a slow navigation.
+                baseline_labels = set(baseline[1]) if baseline is not None and len(baseline) > 1 else set()
+                normalized_candidate = (chosen[3], re.sub(r"\\s+", " ", chosen[2]).casefold().strip())
+                candidate_is_fresh = baseline is None or normalized_candidate not in baseline_labels
                 tree_is_stable = now - tree_stable_since >= stable_for
-                if now >= ready_after and now - candidate_since >= stable_for and tree_is_stable and baseline_changed:
+                if (
+                    now >= ready_after
+                    and now - candidate_since >= stable_for
+                    and tree_is_stable
+                    and baseline_changed
+                    and candidate_is_fresh
+                ):
                     if ambiguous:
                         names = [item[2] for item in close[:4]]
                         raise DesktopAgentError(
@@ -994,10 +1003,10 @@ class DesktopActionExecutor:
 
             time.sleep(min(0.25, max(0.01, deadline - now)))
 
-        if baseline is not None and not baseline_changed and target_tokens:
+        if baseline is not None and target_tokens:
             raise DesktopAgentError(
-                "The active interface never showed a fresh result state after Enter for " +
-                repr(target) + ". No click was made; the page may still be loading or its accessibility tree may not expose updates."
+                "The active interface did not expose a fresh, stable result for " +
+                repr(target) + " after Enter. No click was made; the page may still be loading or its accessibility tree may not expose updates."
             )
         if target_tokens:
             raise DesktopAgentError(
