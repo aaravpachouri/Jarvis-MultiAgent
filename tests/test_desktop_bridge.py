@@ -401,7 +401,7 @@ def test_result_click_promotes_title_text_to_its_clickable_ancestor(monkeypatch)
     assert "Clicked result" in result["completed"][0]["detail"]
 
 
-def test_youtube_search_falls_back_to_results_url_when_page_search_is_not_accessible(monkeypatch):
+def test_browser_search_falls_back_to_default_omnibox_without_site_specific_urls(monkeypatch):
     backend = FakeKeyboardBackend()
     executor = DesktopActionExecutor(backend=backend)
     monkeypatch.setattr(desktop_bridge.webbrowser, "open_new_tab", lambda url: True)
@@ -413,21 +413,43 @@ def test_youtube_search_falls_back_to_results_url_when_page_search_is_not_access
             DesktopAgentError("No accessible search field is exposed yet.")
         ),
     )
+    monkeypatch.setattr(
+        executor,
+        "_find_browser_address_bar",
+        lambda timeout_seconds=1.5: (object(), object(), "Address and search bar"),
+    )
+    monkeypatch.setattr(executor, "_capture_result_snapshot", lambda: ("pre-search",))
 
     result = executor.execute([
-        {"type": "open_url", "url": "https://www.youtube.com"},
-        {"type": "smart_type", "text": "The Weeknd Blinding Lights", "target": "search"},
+        {"type": "open_url", "url": "https://www.example.test"},
+        {"type": "smart_type", "text": "Universal search query", "target": "search"},
     ])
 
     assert result["ok"] is True
-    assert "YouTube search results" in result["completed"][1]["detail"]
+    assert "default search" in result["completed"][1]["detail"]
     assert ("hotkey", ("ctrl", "l")) in backend.events
-    assert (
-        "write",
-        "https://www.youtube.com/results?search_query=The+Weeknd+Blinding+Lights",
-    ) in backend.events
+    assert ("write", "Universal search query") in backend.events
     assert ("press", "enter") in backend.events
-    assert executor._last_search_query == "The Weeknd Blinding Lights"
+    assert executor._last_search_query == "Universal search query"
+    assert executor._last_result_snapshot == ("pre-search",)
+    assert executor._last_search_submitted_at > 0
+
+
+def test_redundant_enter_keeps_pre_search_snapshot_for_result_wait(monkeypatch):
+    backend = FakeKeyboardBackend()
+    executor = DesktopActionExecutor(backend=backend)
+    executor._last_search_query = "sample query"
+    executor._last_result_snapshot = ("results-before-query",)
+    executor._last_search_submitted_at = 123.0
+    executor._search_navigation_completed = True
+
+    result = executor.execute([{"type": "hotkey", "keys": ["enter"]}])
+
+    assert result["ok"] is True
+    assert executor._last_result_snapshot == ("results-before-query",)
+    assert executor._last_search_submitted_at == 123.0
+    assert executor._search_navigation_completed is False
+    assert not any(event[0] == "press" and event[1] == "enter" for event in backend.events)
 
 
 def test_youtube_page_never_uses_address_bar_as_generic_search_field(monkeypatch):
