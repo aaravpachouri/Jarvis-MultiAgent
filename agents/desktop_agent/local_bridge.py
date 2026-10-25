@@ -523,6 +523,11 @@ class DesktopActionExecutor:
         self._last_search_query = ""
         self._last_app_name = ""
         self._last_opened_url = ""
+        # Result clicks wait for the interface to react to submission instead of
+        # selecting a stale result immediately after Enter.
+        self._last_result_snapshot: tuple[Any, ...] | None = None
+        self._last_search_submitted_at = 0.0
+        self._search_navigation_completed = False
 
     def _get_backend(self):
         if self._backend is not None:
@@ -717,9 +722,38 @@ class DesktopActionExecutor:
             last_error + " I won't guess where to type. Click the intended field or use the app's visible search control."
         )
 
+    @staticmethod
+    def _result_tree_signature(active: Any, controls: list[tuple[Any, str, str, str]]) -> tuple[Any, ...]:
+        """Create a lightweight, app-agnostic signature of the active UI tree."""
+        try:
+            window_title = str(getattr(active, "window_text", lambda: "")() or "")
+        except Exception:
+            window_title = ""
+        labels = tuple(sorted(
+            (kind, re.sub(r"\s+", " ", name).casefold().strip())
+            for _, kind, name, _ in controls
+            if name and name.strip()
+        ))
+        return (window_title.casefold().strip(), labels)
+
+    def _capture_result_snapshot(self) -> tuple[Any, ...] | None:
+        """Capture the current accessible result tree before a submit key is sent."""
+        allowed = {
+            "ListItem", "DataItem", "TreeItem", "Hyperlink", "Button",
+            "Text", "Group", "Custom", "Image",
+        }
+        try:
+            active, controls = self._active_ui_controls(allowed)
+            return self._result_tree_signature(active, controls)
+        except Exception:
+            # Some applications expose no UI Automation tree. The time-and-stability
+            # checks in _find_result_control still apply when a snapshot is unavailable.
+            return None
+
     def _find_result_control(self, target: str = "", timeout_seconds: float = 8.0) -> tuple[Any, str]:
-        """Find a visible result across accessible list rows, links, cards, and title text."""
-        deadline = time.monotonic() + timeout_seconds
+        """Wait for result controls to appear and stabilize, then pick a matching result."""
+        started = time.monotonic()
+        deadline = started + timeout_seconds
         target_text = re.sub(r"\s+", " ", target.casefold()).strip()
         target_tokens = {token for token in re.findall(r"[a-z0-9]+", target_text) if len(token) > 1}
         allowed = {
@@ -737,8 +771,29 @@ class DesktopActionExecutor:
             "Group": 14, "Custom": 12, "Button": 8, "Text": 5, "Image": 3,
         }
 
+        baseline = self._last_result_snapshot
+        submitted_at = self._last_search_submitted_at
+        ready_after = max(
+            started + min(1.25, max(0.25, timeout_seconds * 0.2)),
+            submitted_at + 1.25 if submitted_at else started,
+        )
+        stable_for = min(0.5, max(0.15, timeout_seconds * 0.1))
+        previous_candidate: tuple[Any, ...] | None = None
+        candidate_since = 0.0
+        last_tree_signature: tuple[Any, ...] | None = None
+        baseline_unchanged_since: float | None = None
+
         while time.monotonic() < deadline:
-            _, controls = self._active_ui_controls(allowed)
+            active, controls = self._active_ui_controls(allowed)
+            now = time.monotonic()
+            tree_signature = self._result_tree_signature(active, controls)
+            if baseline is not None and tree_signature == baseline:
+                if baseline_unchanged_since is None:
+                    baseline_unchanged_since = now
+            elif tree_signature != last_tree_signature:
+                baseline_unchanged_since = None
+            last_tree_signature = tree_signature
+
             candidates: list[tuple[float, Any, str, str]] = []
             for control, kind, name, metadata in controls:
                 label = re.sub(r"\s+", " ", name).strip()
@@ -755,10 +810,7 @@ class DesktopActionExecutor:
                     }
                     matches = target_tokens & label_tokens
                     required_matches = 1 if len(target_tokens) <= 2 else 2
-                    # Results often expose only their title ("Blinding Lights"), while
-                    # the query contains extra words ("The Weeknd ... official music
-                    # video"). Score both query coverage and label coverage so a short
-                    # but highly relevant title is not incorrectly discarded.
+                    # A result title can be much shorter than the complete query.
                     if len(matches) < required_matches:
                         continue
                     query_coverage = len(matches) / max(1, len(target_tokens))
@@ -769,8 +821,6 @@ class DesktopActionExecutor:
                     if normalized_target and normalized_target in normalized_label:
                         score += 35.0
                 else:
-                    # With no query context, only choose semantic result containers,
-                    # not arbitrary text such as headings, menus, or description labels.
                     if kind not in {"ListItem", "DataItem", "TreeItem", "Hyperlink", "Group", "Custom"}:
                         continue
 
@@ -779,31 +829,64 @@ class DesktopActionExecutor:
 
             if candidates:
                 candidates.sort(key=lambda item: item[0], reverse=True)
-                best_score = candidates[0][0]
-                close = [item for item in candidates if abs(item[0] - best_score) < 0.5]
-                if target_tokens and len(close) > 1 and candidates[0][0] < 125:
-                    names = [item[2] for item in close[:4]]
-                    raise DesktopAgentError(
-                        "Several visible results match that text: " + "; ".join(names) +
-                        ". Name the exact result so I don't click an uncertain item."
-                    )
                 chosen = candidates[0]
-                if not target_tokens and chosen[3] not in {
-                    "ListItem", "DataItem", "TreeItem", "Hyperlink", "Group", "Custom"
-                }:
-                    raise DesktopAgentError(
-                        "I couldn't identify a result container in this app. Name the result instead."
-                    )
-                return chosen[1], chosen[2]
-            time.sleep(0.35)
+                top_score = chosen[0]
+                close = [item for item in candidates if abs(item[0] - top_score) < 0.5]
+                ambiguous = bool(target_tokens and len(close) > 1 and top_score < 125)
+                # Stability is measured by both the best candidate and its matching
+                # score; loading pages may temporarily show different controls in the
+                # same spot. Keep waiting until the likely result stops changing.
+                candidate_signature = (
+                    tuple((item[3], item[2], item[0]) for item in close[:4])
+                    if ambiguous
+                    else (chosen[3], chosen[2], chosen[0])
+                )
+                if candidate_signature != previous_candidate:
+                    previous_candidate = candidate_signature
+                    candidate_since = now
 
+                baseline_changed = baseline is None or tree_signature != baseline
+                # Normally require the submitted page to change, plus a brief stable
+                # period. Some desktop apps don't expose dynamic updates in UIA; if the
+                # tree stays unchanged for 3 seconds, permit a stable query match rather
+                # than waiting forever. This timing policy works across apps/sites.
+                unchanged_long_enough = (
+                    baseline is not None
+                    and baseline_unchanged_since is not None
+                    and now - baseline_unchanged_since >= 3.0
+                )
+                if now >= ready_after and now - candidate_since >= stable_for and (baseline_changed or unchanged_long_enough):
+                    if ambiguous:
+                        names = [item[2] for item in close[:4]]
+                        raise DesktopAgentError(
+                            "Several visible results match that text: " + "; ".join(names) +
+                            ". Name the exact result so I don't click an uncertain item."
+                        )
+                    if not target_tokens and chosen[3] not in {
+                        "ListItem", "DataItem", "TreeItem", "Hyperlink", "Group", "Custom"
+                    }:
+                        raise DesktopAgentError(
+                            "I couldn't identify a result container in this app. Name the result instead."
+                        )
+                    return chosen[1], chosen[2]
+            else:
+                previous_candidate = None
+                candidate_since = 0.0
+
+            time.sleep(min(0.25, max(0.01, deadline - now)))
+
+        if baseline is not None and baseline_unchanged_since is not None and target_tokens:
+            raise DesktopAgentError(
+                "The active interface did not visibly update after Enter, and I couldn't confirm a fresh result for " +
+                repr(target) + ". No click was made; wait for the page to finish loading and retry."
+            )
         if target_tokens:
             raise DesktopAgentError(
-                "I couldn't find an accessible result matching " + repr(target) +
-                ". No result was clicked. Try naming the visible result title."
+                "I couldn't find a stable, accessible result matching " + repr(target) +
+                ". No result was clicked. The app may still be loading or may not expose its result controls."
             )
         raise DesktopAgentError(
-            "I couldn't identify a visible result in the active app. No result was clicked."
+            "I couldn't identify a stable, visible result in the active app. No result was clicked."
         )
 
     def _click_result_control(self, control: Any) -> str:
@@ -866,6 +949,9 @@ class DesktopActionExecutor:
                         self._last_search_query = ""
                     self._last_app_name = app_key
                     self._last_opened_url = ""
+                    self._last_result_snapshot = None
+                    self._last_search_submitted_at = 0.0
+                    self._search_navigation_completed = False
                     executable = self._find_app(app)
                     if executable:
                         subprocess.Popen([executable], shell=False, close_fds=True)
@@ -883,6 +969,9 @@ class DesktopActionExecutor:
                     if not webbrowser.open_new_tab(url):
                         raise DesktopAgentError("Windows did not accept the request to open the website.")
                     self._last_opened_url = url
+                    self._last_result_snapshot = None
+                    self._last_search_submitted_at = 0.0
+                    self._search_navigation_completed = False
                     # Give the browser a moment to bring the new tab to the foreground
                     # before any following search/type action inspects its UI tree.
                     time.sleep(0.8)
@@ -942,6 +1031,9 @@ class DesktopActionExecutor:
                         time.sleep(1.2)
                         last_search_query = value
                         self._last_search_query = value
+                        self._last_result_snapshot = None
+                        self._last_search_submitted_at = time.monotonic() - 1.25
+                        self._search_navigation_completed = True
                         detail = "Opened YouTube search results for " + repr(value) + " because its in-page search control was inaccessible"
                     else:
                         if kind == "smart_type":
@@ -968,6 +1060,9 @@ class DesktopActionExecutor:
                                         pass
                             last_search_query = value
                             self._last_search_query = value
+                            self._last_result_snapshot = None
+                            self._last_search_submitted_at = 0.0
+                            self._search_navigation_completed = False
                             detail = "Found " + repr(field_name) + " and entered the search text"
                         else:
                             detail = "Focused " + repr(field_name)
@@ -975,6 +1070,9 @@ class DesktopActionExecutor:
                     target = str(action.get("target", "") or last_search_query).strip()
                     control, result_name = self._find_result_control(target)
                     activated_name = self._click_result_control(control)
+                    self._last_result_snapshot = None
+                    self._last_search_submitted_at = 0.0
+                    self._search_navigation_completed = False
                     detail = "Clicked result " + repr(result_name) + " using " + repr(activated_name)
                 elif kind in {"click", "double_click"}:
                     size = backend.size()
@@ -1026,6 +1124,20 @@ class DesktopActionExecutor:
                     key_name = next((name for name, key_values in SAFE_HOTKEYS.items() if key_values == keys), None)
                     if not key_name:
                         raise DesktopAgentError("Keyboard shortcut is not on the allowlist.")
+                    if keys == ("enter",) and last_search_query:
+                        # Capture the pre-submit accessibility tree, so result-clicking
+                        # can tell whether the page reacted to the search submission.
+                        if self._search_navigation_completed:
+                            # A URL-based fallback already submitted the search and
+                            # waited for navigation; this Enter is redundant.
+                            self._last_result_snapshot = None
+                            self._last_search_submitted_at = time.monotonic() - 1.25
+                            self._search_navigation_completed = False
+                            detail = "Search was already submitted by navigation; waiting for result controls"
+                            completed.append({"step": index, "status": "succeeded", "detail": detail})
+                            continue
+                        self._last_result_snapshot = self._capture_result_snapshot()
+                        self._last_search_submitted_at = time.monotonic()
                     if len(keys) == 1:
                         backend.press(keys[0])
                     else:
