@@ -525,6 +525,71 @@ def test_visual_result_finder_uses_ocr_text_and_scales_verified_screen_bounds(mo
     assert "found a visible match" in executor._last_ocr_fallback_status
 
 
+def test_visual_search_field_finds_generic_visible_search_placeholder(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    class FakeImage:
+        size = (1000, 500)
+
+    class FakeBackend(FakeKeyboardBackend):
+        def screenshot(self):
+            return FakeImage()
+
+        def size(self):
+            return SimpleNamespace(width=2000, height=1000)
+
+    data = {
+        "text": ["What", "do", "you", "want", "to", "play?"],
+        "left": [50, 100, 125, 160, 210, 235],
+        "top": [90] * 6,
+        "width": [45, 20, 30, 45, 15, 40],
+        "height": [18] * 6,
+        "conf": ["95"] * 6,
+    }
+    fake_module = SimpleNamespace(
+        pytesseract=SimpleNamespace(tesseract_cmd=""),
+        Output=SimpleNamespace(DICT="dict"),
+        image_to_data=lambda image, output_type, config, timeout: data,
+    )
+    monkeypatch.setitem(sys.modules, "pytesseract", fake_module)
+    monkeypatch.setattr(desktop_bridge.shutil, "which", lambda command: "tesseract")
+    monkeypatch.setenv("TESSERACT_CMD", "")
+
+    backend = FakeBackend()
+    executor = DesktopActionExecutor(backend=backend)
+    found = executor._find_visual_search_field()
+
+    assert found is not None
+    control, label = found
+    assert "What" in label
+    assert control.element_info.automation_id == "ocr-search-field"
+    control.click_input()
+    assert ("click", 285, 198, "left") in backend.events
+
+
+def test_smart_type_uses_visual_search_fallback_for_inaccessible_native_app(monkeypatch):
+    backend = FakeKeyboardBackend()
+    executor = DesktopActionExecutor(backend=backend)
+    monkeypatch.setattr(
+        executor,
+        "_find_search_field",
+        lambda: (_ for _ in ()).throw(DesktopAgentError("No accessible search field is exposed yet.")),
+    )
+    visual = FakeResultWrapper("Search songs", "Custom")
+    visual.element_info.automation_id = "ocr-search-field"
+    monkeypatch.setattr(executor, "_find_visual_search_field", lambda: (visual, "Search songs"))
+
+    result = executor.execute([{"type": "smart_type", "text": "Blinding Lights", "target": "search"}])
+
+    assert result["ok"] is True
+    assert visual.clicked == 1
+    assert ("hotkey", ("ctrl", "a")) in backend.events
+    assert ("write", "Blinding Lights", 0) in backend.events
+    assert executor._last_search_query == "Blinding Lights"
+    assert "with OCR" in result["completed"][0]["detail"]
+
+
 def test_result_finder_uses_repeated_ocr_match_when_uia_exposes_no_result(monkeypatch):
     from types import SimpleNamespace
 
