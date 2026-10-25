@@ -1807,7 +1807,7 @@ class DesktopActionExecutor:
                 # This is generic across browsers and native apps, not site-specific.
                 if (
                     now - started >= visual_min_wait
-                    and (baseline_changed or baseline is None or now - started >= 7.0)
+                    and (baseline_changed or baseline is None or now - started >= min(7.0, max(5.0, timeout_seconds * 0.35)))
                     and now - last_visual_attempt >= 0.8
                 ):
                     last_visual_attempt = now
@@ -1844,7 +1844,7 @@ class DesktopActionExecutor:
             if (
                 candidates
                 and now - started >= visual_min_wait
-                and (baseline_changed or baseline is None or now - started >= 7.0)
+                and (baseline_changed or baseline is None or now - started >= min(7.0, max(5.0, timeout_seconds * 0.35)))
                 and now - last_visual_attempt >= 0.8
             ):
                 last_visual_attempt = now
