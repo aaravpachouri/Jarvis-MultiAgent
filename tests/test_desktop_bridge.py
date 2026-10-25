@@ -453,6 +453,27 @@ class FakeResultWrapper:
         return SimpleNamespace(left=100, top=120, right=500, bottom=200)
 
 
+def test_result_finder_never_treats_whole_page_pane_as_a_video_result(monkeypatch):
+    from types import SimpleNamespace
+
+    executor = DesktopActionExecutor(backend=FakeKeyboardBackend())
+    pane = FakeResultWrapper("Blinding Lights Official Video", "Pane")
+    active = SimpleNamespace(window_text=lambda: "YouTube - Search results")
+    controls = [(pane, "Pane", "Blinding Lights Official Video", "blinding lights official video pane")]
+
+    monkeypatch.setattr(
+        executor,
+        "_active_ui_controls",
+        lambda allowed: (active, [entry for entry in controls if entry[1] in allowed]),
+    )
+
+    with pytest.raises(DesktopAgentError, match="couldn't find a stable result matching"):
+        executor._find_result_control(
+            "The Weeknd Blinding Lights official music video",
+            timeout_seconds=0.35,
+        )
+
+
 def test_visual_result_finder_uses_ocr_text_and_scales_verified_screen_bounds(monkeypatch):
     import sys
     from types import SimpleNamespace
