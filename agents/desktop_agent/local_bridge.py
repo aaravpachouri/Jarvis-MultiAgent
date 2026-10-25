@@ -959,6 +959,95 @@ class DesktopActionExecutor:
             time.sleep(min(0.25, max(0.01, deadline - time.monotonic())))
         return False
 
+    def _foreground_window_identity(self) -> tuple[int | None, int | None, str]:
+        """Read foreground process/window identity to avoid acting on the previous app."""
+        try:
+            from pywinauto import Desktop
+            active = Desktop(backend="uia").get_active()
+        except Exception:
+            return None, None, ""
+        try:
+            title = str(getattr(active, "window_text", lambda: "")() or "").strip()
+        except Exception:
+            title = ""
+        try:
+            process_id = active.process_id()
+        except Exception:
+            try:
+                process_id = getattr(getattr(active, "element_info", None), "process_id", None)
+            except Exception:
+                process_id = None
+        try:
+            handle = getattr(active, "handle", None)
+            if callable(handle):
+                handle = handle()
+            if handle is None:
+                handle = getattr(getattr(active, "element_info", None), "handle", None)
+        except Exception:
+            handle = None
+        return process_id, handle, title
+
+    def _wait_for_app_foreground(
+        self,
+        app_name: str,
+        before: tuple[int | None, int | None, str],
+        timeout_seconds: float = 25.0,
+        stable_seconds: float = 1.0,
+    ) -> tuple[int | None, int | None, str]:
+        """Wait until the requested app actually owns the foreground window."""
+        deadline = time.monotonic() + timeout_seconds
+        normalized_app = re.sub(r"[^a-z0-9]+", " ", app_name.casefold()).strip()
+        shell_title = re.compile(
+            r"^(?:start|search|windows search|task switching|program manager|desktop|"
+            r"task view|notification center|quick settings)$",
+            re.IGNORECASE,
+        )
+        last_identity: tuple[int | None, int | None, str] | None = None
+        stable_since = 0.0
+
+        while time.monotonic() < deadline:
+            identity = self._foreground_window_identity()
+            process_id, handle, title = identity
+            normalized_title = re.sub(r"[^a-z0-9]+", " ", title.casefold()).strip()
+            if normalized_title and not shell_title.fullmatch(normalized_title):
+                title_matches = bool(
+                    normalized_app
+                    and (
+                        normalized_app in normalized_title
+                        or all(token in normalized_title for token in normalized_app.split())
+                    )
+                )
+                window_changed = bool(
+                    (before[1] is not None and handle is not None and before[1] != handle)
+                    or (before[0] is not None and process_id is not None and before[0] != process_id)
+                )
+                # Prefer app-name evidence. When a product doesn't put its name in
+                # the title bar, accept a different foreground process/window once it
+                # is stable rather than blindly continuing in the old app.
+                if title_matches or window_changed or not any(before):
+                    if identity != last_identity:
+                        last_identity = identity
+                        stable_since = time.monotonic()
+                    elif time.monotonic() - stable_since >= stable_seconds:
+                        self._wait_for_active_window_settled(
+                            timeout_seconds=4.0,
+                            stable_seconds=0.75,
+                        )
+                        return identity
+                else:
+                    last_identity = None
+                    stable_since = 0.0
+            else:
+                last_identity = None
+                stable_since = 0.0
+            time.sleep(0.25)
+
+        raise DesktopAgentError(
+            "Windows did not bring " + repr(app_name) +
+            " to the foreground within " + str(round(timeout_seconds)) +
+            " seconds. No follow-up actions were run in the previous window."
+        )
+
     def _wait_for_active_window_settled(self, timeout_seconds: float = 12.0, stable_seconds: float = 0.8) -> bool:
         """Wait for the active app/browser accessibility tree to stop changing briefly."""
         if platform.system() != "Windows":
@@ -1255,19 +1344,26 @@ class DesktopActionExecutor:
                     self._last_result_snapshot = None
                     self._last_search_submitted_at = 0.0
                     self._search_navigation_completed = False
+                    before_window = self._foreground_window_identity()
                     executable = self._find_app(app)
                     if executable:
                         subprocess.Popen([executable], shell=False, close_fds=True)
-                        self._wait_for_active_window_settled(timeout_seconds=12.0, stable_seconds=0.8)
-                        detail = "Launched " + app + " (waited for the foreground UI to settle)"
                     else:
                         backend.press("win")
                         time.sleep(0.25)
                         backend.write(app, interval=0)
                         time.sleep(0.7)
                         backend.press("enter")
-                        detail = "Searched Windows Start and launched " + app
-                    time.sleep(0.45)
+                    settled_window = self._wait_for_app_foreground(
+                        app,
+                        before_window,
+                        timeout_seconds=25.0,
+                        stable_seconds=1.0,
+                    )
+                    detail = (
+                        "Launched " + app + " and confirmed foreground window " +
+                        repr(settled_window[2] or app) + " is stable"
+                    )
                 elif kind == "open_url":
                     url = validate_url(str(action.get("url", "")))
                     detail = self._navigate_browser_to_url(url, backend)
