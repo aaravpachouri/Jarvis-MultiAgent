@@ -546,6 +546,9 @@ def test_visual_search_field_finds_generic_visible_search_placeholder(monkeypatc
         "width": [45, 20, 30, 45, 15, 40],
         "height": [18] * 6,
         "conf": ["95"] * 6,
+        "block_num": [1] * 6,
+        "par_num": [1] * 6,
+        "line_num": [1] * 6,
     }
     fake_module = SimpleNamespace(
         pytesseract=SimpleNamespace(tesseract_cmd=""),
@@ -585,7 +588,7 @@ def test_smart_type_uses_visual_search_fallback_for_inaccessible_native_app(monk
     assert result["ok"] is True
     assert visual.clicked == 1
     assert ("hotkey", ("ctrl", "a")) in backend.events
-    assert ("write", "Blinding Lights", 0) in backend.events
+    assert ("write", "Blinding Lights") in backend.events
     assert executor._last_search_query == "Blinding Lights"
     assert "with OCR" in result["completed"][0]["detail"]
 
