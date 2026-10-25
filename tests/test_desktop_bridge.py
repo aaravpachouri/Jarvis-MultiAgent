@@ -723,6 +723,80 @@ def test_follow_up_action_restores_the_saved_target_tab(monkeypatch):
     assert executor._last_target_window_title == "YouTube"
 
 
+def test_target_tab_runtime_identity_wins_over_same_host_tab(monkeypatch):
+    executor = DesktopActionExecutor(backend=FakeKeyboardBackend())
+    executor._last_target_browser_url = "https://www.youtube.com/"
+    executor._last_opened_url = "https://www.youtube.com/"
+    executor._last_target_window_title = "Blinding Lights - YouTube"
+    executor._last_target_tab_runtime_id = (42,)
+    active = type("ActiveWindow", (), {"window_text": lambda self: "YouTube - Home"})()
+    address = type(
+        "AddressBar",
+        (),
+        {"get_value": lambda self: "https://www.youtube.com/"},
+    )()
+    current_tab = FakeResultWrapper("YouTube - Home", "TabItem")
+    current_tab.element_info.runtime_id = (99,)
+    current_tab.iface_selection_item = type(
+        "Selection", (), {"CurrentIsSelected": True}
+    )()
+    target_tab = FakeResultWrapper("Blinding Lights - YouTube", "TabItem")
+    target_tab.element_info.runtime_id = (42,)
+    target_tab.iface_selection_item = type(
+        "Selection", (), {"CurrentIsSelected": False}
+    )()
+    monkeypatch.setattr(
+        executor, "_find_browser_address_bar",
+        lambda timeout_seconds=0.6: (active, address, "Address and search bar"),
+    )
+    monkeypatch.setattr(
+        executor, "_active_ui_controls",
+        lambda allowed: (active, [
+            (current_tab, "TabItem", "YouTube - Home", "youtube home"),
+            (target_tab, "TabItem", "Blinding Lights - YouTube", "youtube video"),
+        ]),
+    )
+    monkeypatch.setattr(
+        executor, "_wait_for_browser_url",
+        lambda url, timeout_seconds=12.0, stable_seconds=0.35: (active, "Blinding Lights - YouTube"),
+    )
+    monkeypatch.setattr(
+        executor, "_wait_for_active_window_settled",
+        lambda timeout_seconds=5.0, stable_seconds=0.7: True,
+    )
+    monkeypatch.setattr(executor, "_remember_active_browser_tab", lambda: None)
+    monkeypatch.setattr(desktop_bridge.time, "sleep", lambda seconds: None)
+
+    executor._ensure_last_target_tab_active()
+
+    assert target_tab.clicked == 1
+    assert current_tab.clicked == 0
+
+
+def test_open_app_waits_for_real_foreground_window_not_start_menu(monkeypatch):
+    executor = DesktopActionExecutor(backend=FakeKeyboardBackend())
+    states = iter([
+        (2, 20, "Start"),
+        (2, 20, "Start"),
+        (3, 30, "Album - Music Player"),
+        (3, 30, "Album - Music Player"),
+    ])
+    monkeypatch.setattr(executor, "_foreground_window_identity", lambda: next(states))
+    monkeypatch.setattr(
+        executor, "_wait_for_active_window_settled",
+        lambda timeout_seconds=4.0, stable_seconds=0.75: True,
+    )
+
+    found = executor._wait_for_app_foreground(
+        "Music Player",
+        (1, 10, "JARVIS Desktop"),
+        timeout_seconds=2.0,
+        stable_seconds=0.1,
+    )
+
+    assert found == (3, 30, "Album - Music Player")
+
+
 def test_open_url_launches_browser_only_when_no_browser_is_foregrounded(monkeypatch):
     backend = FakeKeyboardBackend()
     executor = DesktopActionExecutor(backend=backend)
