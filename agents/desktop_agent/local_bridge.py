@@ -1000,49 +1000,100 @@ class DesktopActionExecutor:
         )
 
     def _click_result_control(self, control: Any) -> str:
-        """Click the result's actionable ancestor when accessibility exposes one."""
+        """Activate a result semantically first, then verify and use a physical fallback."""
         actionable = {"Hyperlink", "ListItem", "DataItem", "TreeItem", "Button"}
         current = control
         selected = control
-        for _ in range(5):
+        for _ in range(8):
             kind = self._control_text(current, "control_type")
             if kind in actionable:
                 selected = current
-                break
+                # Keep climbing only if a direct text/link control has an empty or
+                # implausibly small rectangle; the nearest actionable ancestor is
+                # usually the clickable card/container.
+                try:
+                    rect = current.rectangle()
+                    width = max(0, int(rect.right - rect.left))
+                    height = max(0, int(rect.bottom - rect.top))
+                except Exception:
+                    width, height = 0, 0
+                if width >= 18 and height >= 12:
+                    break
             try:
                 parent = current.parent()
             except Exception:
                 break
             if parent is None or parent is current:
                 break
-            parent_kind = self._control_text(parent, "control_type")
-            if parent_kind in actionable:
-                selected = parent
-                break
             current = parent
 
+        selected_name = (
+            self._control_text(selected, "name")
+            or self._control_text(selected, "control_type")
+            or "result control"
+        )
         try:
-            selected.click_input()
-            return self._control_text(selected, "name") or self._control_text(selected, "control_type") or "result control"
-        except Exception as click_error:
-            # Some custom UIA providers expose a result element but do not implement
-            # Invoke/Click. A physical click at its verified on-screen bounds is a
-            # generic fallback; it is never guessed from arbitrary screen coordinates.
+            before_state = self._capture_active_page_state()
+        except Exception:
+            before_state = None
+
+        invoke_error: Exception | None = None
+        invoked = False
+        try:
+            invoke = getattr(selected, "iface_invoke", None)
+            if invoke is not None:
+                invoke.Invoke()
+                invoked = True
+        except Exception as exc:
+            invoke_error = exc
+
+        if not invoked:
             try:
-                rect = selected.rectangle()
-                center_x = int((rect.left + rect.right) / 2)
-                center_y = int((rect.top + rect.bottom) / 2)
-                backend = self._get_backend()
-                size = backend.size()
-                if not (0 <= center_x < int(size.width) and 0 <= center_y < int(size.height)):
-                    raise DesktopAgentError("The result control is outside the visible screen.")
-                backend.click(x=center_x, y=center_y)
-                return self._control_text(selected, "name") or "result control"
-            except Exception as fallback_error:
-                raise DesktopAgentError(
-                    "I found the result but couldn't activate its accessible control: " +
-                    str(click_error) + "; physical fallback failed: " + str(fallback_error)
-                ) from fallback_error
+                selected.click_input()
+            except Exception as click_error:
+                invoke_error = click_error
+
+        # Browser result clicks should navigate/open a player or tab. Don't call the
+        # click successful just because an input event was issued; wait for title,
+        # URL, tab or accessible page content to change.
+        browser_context = bool(before_state and before_state[0])
+        if browser_context and self._wait_for_active_page_change(before_state, timeout_seconds=5.0):
+            return selected_name
+
+        # If the semantic click was unsupported or had no observable effect, click
+        # the verified bounds of the selected result. This remains grounded in the
+        # actual accessibility element, not a guessed screen coordinate.
+        try:
+            rect = selected.rectangle()
+            left, top = int(rect.left), int(rect.top)
+            right, bottom = int(rect.right), int(rect.bottom)
+            center_x = int((left + right) / 2)
+            center_y = int((top + bottom) / 2)
+            if right - left < 8 or bottom - top < 8:
+                raise DesktopAgentError("The result's accessible bounds are too small to click safely.")
+            backend = self._get_backend()
+            size = backend.size()
+            if not (0 <= center_x < int(size.width) and 0 <= center_y < int(size.height)):
+                raise DesktopAgentError("The result control is outside the visible screen.")
+            backend.click(x=center_x, y=center_y)
+        except Exception as fallback_error:
+            reason = (" Semantic activation error: " + str(invoke_error)) if invoke_error else ""
+            raise DesktopAgentError(
+                "I found the result but could not activate it." + reason +
+                " Physical fallback failed: " + str(fallback_error)
+            ) from fallback_error
+
+        if browser_context:
+            if self._wait_for_active_page_change(before_state, timeout_seconds=8.0):
+                return selected_name
+            raise DesktopAgentError(
+                "The result was targeted, but the browser showed no observable navigation, tab, title, or page-content change after two activation methods. "
+                "I won't report the click as successful."
+            )
+
+        # Non-browser list selections need not navigate, so a successful UIA/physical
+        # activation is sufficient when there's no browser page state to observe.
+        return selected_name
 
     def execute(self, actions: list[dict[str, Any]]) -> dict[str, Any]:
         backend = self._get_backend()
