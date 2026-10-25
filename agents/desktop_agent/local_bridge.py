@@ -2039,108 +2039,79 @@ class DesktopActionExecutor:
                     if kind == "smart_type" and (not value or len(value) > 8_000):
                         raise DesktopAgentError("Search text must be between 1 and 8,000 characters.")
 
+                    field_mode = "uia"
                     try:
-                        # Discover a real in-page search field, not the browser omnibox.
+                        # Discover a real in-app search field first.
                         _, control, field_name = self._find_search_field()
                         control.click_input()
                     except Exception as field_exc:
-                        # First try a visible, explicitly labelled search placeholder
-                        # using OCR for custom-drawn/native apps that expose no UIA field.
-                        # This is app-agnostic and uses the detected text bounds only.
-                        visual_search = self._find_visual_search_field() if kind == "smart_type" else None
+                        if kind != "smart_type":
+                            if isinstance(field_exc, DesktopAgentError):
+                                raise
+                            raise DesktopAgentError(
+                                "Could not focus the app's search field: " + str(field_exc)
+                            ) from field_exc
+
+                        # Custom-drawn/native apps may not expose fields to UI Automation.
+                        # OCR only clicks an explicitly labelled visible search placeholder.
+                        visual_search = self._find_visual_search_field()
                         if visual_search is not None:
                             control, field_name = visual_search
                             control.click_input()
-                            backend.hotkey("ctrl", "a")
-                            if value.isascii():
-                                backend.write(value, interval=0)
-                            else:
-                                try:
-                                    import pyperclip
-                                except ImportError as exc:
-                                    raise DesktopAgentError("Unicode search text needs pyperclip; run run_desktop_agent.bat to install it.") from exc
-                                original_clipboard = None
-                                try:
-                                    original_clipboard = pyperclip.paste()
-                                except Exception:
-                                    pass
-                                pyperclip.copy(value)
-                                backend.hotkey("ctrl", "v")
-                                time.sleep(0.15)
-                                if original_clipboard is not None:
-                                    try:
-                                        pyperclip.copy(original_clipboard)
-                                    except Exception:
-                                        pass
+                            field_mode = "visual"
+                        else:
+                            # Browser-only fallback: use the real omnibox, and scope
+                            # the query to the current host rather than silently switching
+                            # to an unrelated global search.
+                            try:
+                                self._find_browser_address_bar(timeout_seconds=1.5)
+                            except Exception as address_error:
+                                raise DesktopAgentError(
+                                    "The app's search field isn't accessible and no visible search placeholder "
+                                    "or browser address bar could be identified. " +
+                                    "UI Automation: " + str(field_exc) +
+                                    " OCR: " + str(self._last_ocr_fallback_status) +
+                                    " Browser fallback: " + str(address_error)
+                                ) from field_exc
+
+                            self._last_result_snapshot = self._capture_result_snapshot()
+                            self._last_search_submitted_at = time.monotonic()
+                            self._search_navigation_completed = False
+                            fallback_query = value
+                            current_host = (urlparse(self._last_opened_url).hostname or "").casefold().removeprefix("www.")
+                            search_engine_hosts = {
+                                "google.com", "bing.com", "duckduckgo.com", "yahoo.com",
+                                "search.yahoo.com", "search.brave.com", "ecosia.org", "baidu.com",
+                            }
+                            is_search_engine = any(
+                                current_host == host or current_host.endswith("." + host)
+                                for host in search_engine_hosts
+                            )
+                            if current_host and not is_search_engine:
+                                fallback_query = "site:" + current_host + " " + value
+                            backend.hotkey("ctrl", "l")
+                            time.sleep(0.15)
+                            backend.write(fallback_query, interval=0)
+                            time.sleep(0.1)
+                            backend.press("enter")
+                            self._search_navigation_completed = True
                             last_search_query = value
                             self._last_search_query = value
-                            self._last_result_snapshot = None
-                            self._last_search_submitted_at = 0.0
-                            self._search_navigation_completed = False
-                            detail = "Found visible search field " + repr(field_name) + " with OCR and entered the search text"
-                        else:
-                            # Generic fallback for websites whose search boxes aren't
-                            # exposed to UI Automation: use the current browser's normal
-                            # address/omnibox search. No provider-specific URL is assumed.
-                            if kind != "smart_type":
-                                if isinstance(field_exc, DesktopAgentError):
-                                    raise
-                                raise DesktopAgentError(
-                                    "Could not focus the app's search field: " + str(field_exc)
-                                ) from field_exc
-                            try:
-                            # Detect browser context from its accessible omnibox, not
-                            # from a prior "open URL" instruction, so launched browsers
-                            # and already-open browser windows use the same fallback.
-                            self._find_browser_address_bar(timeout_seconds=1.5)
-                        except Exception as address_error:
-                            raise DesktopAgentError(
-                                "The page search field is inaccessible and no browser address bar is exposed. " +
-                                "I couldn't submit the query safely: " + str(address_error)
-                            ) from field_exc
+                            self._find_result_control(value, timeout_seconds=20.0)
+                            self._update_target_context_from_foreground()
+                            if fallback_query != value:
+                                detail = (
+                                    "Submitted a site-restricted browser search for " + repr(value) +
+                                    " on " + current_host + " and waited for a stable result"
+                                )
+                            else:
+                                detail = (
+                                    "Submitted " + repr(value) +
+                                    " through the browser's default search and waited for a stable result"
+                                )
+                            field_mode = "submitted"
 
-                        self._last_result_snapshot = self._capture_result_snapshot()
-                        self._last_search_submitted_at = time.monotonic()
-                        self._search_navigation_completed = False
-                        # If the current page's own search isn't accessible, constrain
-                        # the browser's search to the current site instead of accidentally
-                        # searching the entire web. This is derived from the current URL,
-                        # not a provider- or site-specific selector.
-                        fallback_query = value
-                        current_host = (urlparse(self._last_opened_url).hostname or "").casefold().removeprefix("www.")
-                        search_engine_hosts = {
-                            "google.com", "bing.com", "duckduckgo.com", "yahoo.com",
-                            "search.yahoo.com", "search.brave.com", "ecosia.org", "baidu.com",
-                        }
-                        is_search_engine = any(
-                            current_host == host or current_host.endswith("." + host)
-                            for host in search_engine_hosts
-                        )
-                        if current_host and not is_search_engine:
-                            fallback_query = "site:" + current_host + " " + value
-                        backend.hotkey("ctrl", "l")
-                        time.sleep(0.15)
-                        backend.write(fallback_query, interval=0)
-                        time.sleep(0.1)
-                        backend.press("enter")
-                        self._search_navigation_completed = True
-                        last_search_query = value
-                        self._last_search_query = value
-                        # The omnibox fallback submits immediately. Wait for an actual
-                        # stable matching result so the caller cannot race page loading.
-                        self._find_result_control(value, timeout_seconds=20.0)
-                        self._update_target_context_from_foreground()
-                        if fallback_query != value:
-                            detail = (
-                                "Submitted a site-restricted browser search for " + repr(value) +
-                                " on " + current_host + " and waited for a stable result"
-                            )
-                        else:
-                            detail = (
-                                "Submitted " + repr(value) +
-                                " through the browser's default search and waited for a stable result"
-                            )
-                    else:
+                    if field_mode in {"uia", "visual"}:
                         if kind == "smart_type":
                             backend.hotkey("ctrl", "a")
                             if value.isascii():
@@ -2149,7 +2120,9 @@ class DesktopActionExecutor:
                                 try:
                                     import pyperclip
                                 except ImportError as exc:
-                                    raise DesktopAgentError("Unicode search text needs pyperclip; run run_desktop_agent.bat to install it.") from exc
+                                    raise DesktopAgentError(
+                                        "Unicode search text needs pyperclip; run run_desktop_agent.bat to install it."
+                                    ) from exc
                                 original_clipboard = None
                                 try:
                                     original_clipboard = pyperclip.paste()
@@ -2168,7 +2141,10 @@ class DesktopActionExecutor:
                             self._last_result_snapshot = None
                             self._last_search_submitted_at = 0.0
                             self._search_navigation_completed = False
-                            detail = "Found " + repr(field_name) + " and entered the search text"
+                            if field_mode == "visual":
+                                detail = "Found visible search field " + repr(field_name) + " with OCR and entered the search text"
+                            else:
+                                detail = "Found " + repr(field_name) + " and entered the search text"
                         else:
                             detail = "Focused " + repr(field_name)
                 elif kind in {"click_result", "click_first_result"}:
