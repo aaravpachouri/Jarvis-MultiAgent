@@ -422,6 +422,28 @@ def test_result_finder_waits_for_slow_tree_update_before_returning_result(monkey
     assert time_module.monotonic() - started >= 1.5
 
 
+def test_browser_content_change_without_navigation_is_not_click_success(monkeypatch):
+    executor = DesktopActionExecutor(backend=FakeKeyboardBackend())
+    before = (True, ("search results", ("https://example.test/search",), ("search tab",), (("Text", "old result"),)))
+    content_only_change = (
+        True,
+        ("search results", ("https://example.test/search",), ("search tab",), (("Text", "new dynamic recommendation"),)),
+    )
+    monkeypatch.setattr(executor, "_capture_active_page_state", lambda: content_only_change)
+    monkeypatch.setattr(desktop_bridge.time, "sleep", lambda seconds: None)
+
+    assert executor._wait_for_active_page_change(before, timeout_seconds=0.02) is False
+
+
+def test_browser_url_change_is_click_success(monkeypatch):
+    executor = DesktopActionExecutor(backend=FakeKeyboardBackend())
+    before = (True, ("search results", ("https://example.test/search",), ("search tab",), (("Text", "result"),)))
+    after = (True, ("target title", ("https://example.test/watch/123",), ("target tab",), (("Text", "player"),)))
+    snapshots = iter([after])
+    monkeypatch.setattr(executor, "_capture_active_page_state", lambda: next(snapshots))
+    assert executor._wait_for_active_page_change(before, timeout_seconds=0.1) is True
+
+
 def test_result_click_uses_verified_bounds_if_semantic_click_has_no_effect(monkeypatch):
     backend = FakeKeyboardBackend()
     executor = DesktopActionExecutor(backend=backend)
