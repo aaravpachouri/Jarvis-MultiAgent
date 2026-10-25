@@ -982,7 +982,7 @@ class DesktopActionExecutor:
                     baseline is not None
                     and not baseline_changed
                     and now - started >= stale_tree_timeout
-                    and chosen[0] >= 65
+                    and chosen[0] >= 50
                 )
                 if (
                     now >= ready_after
