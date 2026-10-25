@@ -967,7 +967,9 @@ class DesktopActionExecutor:
 
     def _ensure_last_target_tab_active(self) -> None:
         """Re-activate the previous target tab when the dashboard tab is foregrounded."""
-        expected_url = self._last_target_browser_url or self._last_opened_url
+        # _last_opened_url is the search scope, not proof that we have a tracked
+        # foreground browser tab. Only restore tabs we explicitly opened and verified.
+        expected_url = self._last_target_browser_url
         if not expected_url:
             return
         try:
