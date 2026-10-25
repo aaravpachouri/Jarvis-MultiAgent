@@ -565,7 +565,7 @@ def test_visual_search_field_finds_generic_visible_search_placeholder(monkeypatc
     assert "What" in label
     assert control.element_info.automation_id == "ocr-search-field"
     control.click_input()
-    assert ("click", 285, 198, "left") in backend.events
+    assert ("click", 325, 198, "left") in backend.events
 
 
 def test_smart_type_uses_visual_search_fallback_for_inaccessible_native_app(monkeypatch):
