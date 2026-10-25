@@ -297,6 +297,7 @@ def test_named_result_can_be_described_as_called_or_named():
 class FakeKeyboardBackend:
     def __init__(self):
         self.events = []
+        self.on_click = None
 
     def hotkey(self, *keys):
         self.events.append(("hotkey", keys))
@@ -306,6 +307,15 @@ class FakeKeyboardBackend:
 
     def write(self, value, interval=0):
         self.events.append(("write", value))
+
+    def size(self):
+        from types import SimpleNamespace
+        return SimpleNamespace(width=1920, height=1080)
+
+    def click(self, x, y, button="left"):
+        self.events.append(("click", x, y, button))
+        if callable(self.on_click):
+            self.on_click()
 
 
 class FakeUIControl:
@@ -335,6 +345,10 @@ class FakeResultWrapper:
 
     def click_input(self):
         self.clicked += 1
+
+    def rectangle(self):
+        from types import SimpleNamespace
+        return SimpleNamespace(left=100, top=120, right=500, bottom=200)
 
 
 def test_result_finder_matches_short_browser_title_against_long_query(monkeypatch):
@@ -370,11 +384,67 @@ def test_result_finder_does_not_click_a_matching_stale_tree_after_enter(monkeypa
     executor._last_result_snapshot = executor._result_tree_signature(active, controls)
     executor._last_search_submitted_at = 0.0
 
-    with pytest.raises(DesktopAgentError, match="did not visibly update"):
+    with pytest.raises(DesktopAgentError, match="never showed a fresh result state"):
         executor._find_result_control(
             "The Weeknd Blinding Lights official music video",
             timeout_seconds=0.35,
         )
+
+
+def test_result_finder_waits_for_slow_tree_update_before_returning_result(monkeypatch):
+    from types import SimpleNamespace
+    import time as time_module
+
+    executor = DesktopActionExecutor(backend=FakeKeyboardBackend())
+    old_title = FakeResultWrapper("Old unrelated result", "Text")
+    new_title = FakeResultWrapper("Blinding Lights", "Text")
+    active = SimpleNamespace(window_text=lambda: "Search results")
+    old_controls = [(old_title, "Text", "Old unrelated result", "old unrelated result")]
+    new_controls = [(new_title, "Text", "Blinding Lights", "blinding lights")]
+    started = time_module.monotonic()
+
+    def delayed_tree(_allowed):
+        if time_module.monotonic() - started < 1.2:
+            return active, old_controls
+        return active, new_controls
+
+    monkeypatch.setattr(executor, "_active_ui_controls", delayed_tree)
+    executor._last_result_snapshot = executor._result_tree_signature(active, old_controls)
+    executor._last_search_submitted_at = time_module.monotonic()
+
+    found, label = executor._find_result_control(
+        "The Weeknd Blinding Lights official music video",
+        timeout_seconds=4.0,
+    )
+
+    assert found is new_title
+    assert label == "Blinding Lights"
+    assert time_module.monotonic() - started >= 1.5
+
+
+def test_result_click_uses_verified_bounds_if_semantic_click_has_no_effect(monkeypatch):
+    backend = FakeKeyboardBackend()
+    executor = DesktopActionExecutor(backend=backend)
+    link = FakeResultWrapper("Blinding Lights", "Hyperlink")
+    state = {"changed": False}
+    backend.on_click = lambda: state.update(changed=True)
+    monkeypatch.setattr(
+        executor,
+        "_capture_active_page_state",
+        lambda: (True, ("after",) if state["changed"] else ("before",)),
+    )
+    waits = iter([False, True])
+    monkeypatch.setattr(
+        executor,
+        "_wait_for_active_page_change",
+        lambda before, timeout_seconds=6.0: next(waits),
+    )
+
+    name = executor._click_result_control(link)
+
+    assert name == "Blinding Lights"
+    assert link.clicked == 1
+    assert ("click", 300, 160, "left") in backend.events
 
 
 def test_result_click_promotes_title_text_to_its_clickable_ancestor(monkeypatch):
