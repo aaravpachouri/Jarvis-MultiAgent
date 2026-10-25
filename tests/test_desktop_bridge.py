@@ -351,11 +351,30 @@ def test_result_finder_matches_short_browser_title_against_long_query(monkeypatc
 
     found, label = executor._find_result_control(
         "The Weeknd Blinding Lights official music video",
-        timeout_seconds=0.01,
+        timeout_seconds=2.0,
     )
 
     assert found is title
     assert label == "Blinding Lights"
+
+
+def test_result_finder_does_not_click_a_matching_stale_tree_after_enter(monkeypatch):
+    from types import SimpleNamespace
+
+    executor = DesktopActionExecutor(backend=FakeKeyboardBackend())
+    title = FakeResultWrapper("Blinding Lights", "Text")
+    controls = [(title, "Text", "Blinding Lights", "blinding lights text")]
+    active = SimpleNamespace(window_text=lambda: "Search results")
+    monkeypatch.setattr(executor, "_active_ui_controls", lambda allowed: (active, controls))
+
+    executor._last_result_snapshot = executor._result_tree_signature(active, controls)
+    executor._last_search_submitted_at = 0.0
+
+    with pytest.raises(DesktopAgentError, match="did not visibly update"):
+        executor._find_result_control(
+            "The Weeknd Blinding Lights official music video",
+            timeout_seconds=0.35,
+        )
 
 
 def test_result_click_promotes_title_text_to_its_clickable_ancestor(monkeypatch):
