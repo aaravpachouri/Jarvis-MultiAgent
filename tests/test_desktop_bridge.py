@@ -384,11 +384,33 @@ def test_result_finder_does_not_click_a_matching_stale_tree_after_enter(monkeypa
     executor._last_result_snapshot = executor._result_tree_signature(active, controls)
     executor._last_search_submitted_at = 0.0
 
-    with pytest.raises(DesktopAgentError, match="did not expose a fresh, stable result"):
+    with pytest.raises(DesktopAgentError, match="within the wait window"):
         executor._find_result_control(
             "The Weeknd Blinding Lights official music video",
             timeout_seconds=0.35,
         )
+
+
+def test_result_finder_allows_strong_stable_match_when_accessibility_tree_is_stale(monkeypatch):
+    from types import SimpleNamespace
+
+    executor = DesktopActionExecutor(backend=FakeKeyboardBackend())
+    title = FakeResultWrapper("Blinding Lights", "Text")
+    controls = [(title, "Text", "Blinding Lights", "blinding lights text")]
+    active = SimpleNamespace(window_text=lambda: "Search results")
+    monkeypatch.setattr(executor, "_active_ui_controls", lambda allowed: (active, controls))
+
+    # Some browser/app accessibility providers don't refresh their tree after Enter.
+    executor._last_result_snapshot = executor._result_tree_signature(active, controls)
+    executor._last_search_submitted_at = 0.0
+
+    found, label = executor._find_result_control(
+        "The Weeknd Blinding Lights official music video",
+        timeout_seconds=2.0,
+    )
+
+    assert found is title
+    assert label == "Blinding Lights"
 
 
 def test_result_finder_waits_for_slow_tree_update_before_returning_result(monkeypatch):
