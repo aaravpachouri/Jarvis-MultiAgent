@@ -1117,7 +1117,7 @@ class DesktopActionExecutor:
                     if executable:
                         subprocess.Popen([executable], shell=False, close_fds=True)
                         self._wait_for_active_window_settled(timeout_seconds=12.0, stable_seconds=0.8)
-                        detail = "Launched " + app + " (waited for the foreground UI to settle)
+                        detail = "Launched " + app + " (waited for the foreground UI to settle)"
                     else:
                         backend.press("win")
                         time.sleep(0.25)
@@ -1137,7 +1137,7 @@ class DesktopActionExecutor:
                     # Wait for the browser's foreground accessibility tree to settle;
                     # webbrowser.open_new_tab itself returns before navigation is complete.
                     self._wait_for_active_window_settled(timeout_seconds=15.0, stable_seconds=1.0)
-                    detail = "Opened " + url + " (waited for the browser UI to settle)
+                    detail = "Opened " + url + " (waited for the browser UI to settle)"
                 elif kind == "type_text":
                     value = str(action.get("text", ""))
                     if not value or len(value) > 8_000:
