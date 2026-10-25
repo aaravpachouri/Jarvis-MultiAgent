@@ -352,8 +352,12 @@ def _parse_one(task: str, app_context: bool = False) -> list[dict[str, Any]]:
     )
 
 
-def parse_task(value: Any) -> list[dict[str, Any]]:
-    """Translate a small, explicit command grammar into allowlisted actions."""
+def parse_task(
+    value: Any,
+    app_context: bool = False,
+    last_search_query: str = "",
+) -> list[dict[str, Any]]:
+    """Translate a command into actions, optionally continuing an existing app workflow."""
     task = _normalise_task(value)
     # Split a natural-language request into sequential commands while leaving words such
     # as "rock and roll" inside search text untouched.
@@ -364,8 +368,11 @@ def parse_task(value: Any) -> list[dict[str, Any]]:
         if part.strip(" ,\t") and re.sub(r"^(?:and\s+then|and)\s+", "", part.strip(" ,\t"), flags=re.IGNORECASE)
     ]
     actions: list[dict[str, Any]] = []
-    app_context = False
-    last_search_query = ""
+    # A new dashboard submission may continue a prior command. The caller supplies
+    # the live desktop context so "search for X" after "open YouTube" stays in that
+    # browser/app instead of silently opening a separate Google tab.
+    app_context = bool(app_context)
+    last_search_query = str(last_search_query or "")
     for segment in segments:
         step_actions = _parse_one(segment, app_context=app_context)
         for action in step_actions:
@@ -1527,7 +1534,12 @@ class BridgeHandler(BaseHTTPRequestHandler):
 
             payload = self._read_json()
             task = _normalise_task(payload.get("task"))
-            actions = parse_task(task)
+            executor = self.state.executor
+            actions = parse_task(
+                task,
+                app_context=bool(executor._last_opened_url or executor._last_app_name),
+                last_search_query=executor._last_search_query,
+            )
             if self.path == "/v1/preview":
                 status = self.state.executor.status()
                 active_window = str(status.get("active_window", "Unknown"))
