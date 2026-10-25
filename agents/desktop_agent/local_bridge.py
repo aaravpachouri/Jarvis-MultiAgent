@@ -675,6 +675,113 @@ class DesktopActionExecutor:
             found.append((control, kind, name.strip(), metadata))
         return active, found
 
+    def _find_visual_search_field(self) -> tuple[Any, str] | None:
+        """Locate a clearly labelled visible search placeholder with local OCR.
+
+        This is a fallback for native/custom-drawn apps whose search input is not
+        exposed through Windows UI Automation. It only clicks text that explicitly
+        identifies a search/find/filter field; it never guesses a screen coordinate.
+        """
+        self._last_ocr_fallback_status = ""
+        try:
+            import pytesseract
+        except ImportError:
+            self._last_ocr_fallback_status = "Visual search fallback is unavailable because pytesseract is not installed."
+            return None
+
+        executable = os.getenv("TESSERACT_CMD", "").strip() or shutil.which("tesseract")
+        if not executable:
+            program_files = os.getenv("PROGRAMFILES", r"C:\\Program Files")
+            program_files_x86 = os.getenv("PROGRAMFILES(X86)", r"C:\\Program Files (x86)")
+            for candidate in (
+                Path(program_files) / "Tesseract-OCR" / "tesseract.exe",
+                Path(program_files_x86) / "Tesseract-OCR" / "tesseract.exe",
+            ):
+                if candidate.is_file():
+                    executable = str(candidate)
+                    break
+        if not executable or (os.path.isabs(executable) and not Path(executable).is_file()):
+            self._last_ocr_fallback_status = "Visual search fallback is unavailable because Tesseract OCR was not found."
+            return None
+
+        try:
+            pytesseract.pytesseract.tesseract_cmd = executable
+            backend = self._get_backend()
+            screenshot = backend.screenshot()
+            screen_size = backend.size()
+            image_width, image_height = screenshot.size
+            if image_width <= 0 or image_height <= 0:
+                return None
+            scale_x = float(screen_size.width) / float(image_width)
+            scale_y = float(screen_size.height) / float(image_height)
+            data = pytesseract.image_to_data(
+                screenshot, output_type=pytesseract.Output.DICT,
+                config="--psm 11", timeout=5.0,
+            )
+        except Exception as exc:
+            self._last_ocr_fallback_status = "Visual search detection failed: " + type(exc).__name__ + ": " + str(exc)[:160]
+            return None
+
+        texts = data.get("text", [])
+        candidates: list[tuple[int, int, int, int, int, str]] = []
+        # Known search placeholders are useful across many apps without tying the
+        # implementation to Spotify, a browser, or any vendor-specific selector.
+        search_phrase = re.compile(
+            r"\\b(search|search for|search songs|search artists|search albums|"
+            r"find|filter|what do you want to play|search across)\\b",
+            re.IGNORECASE,
+        )
+        for index, raw in enumerate(texts):
+            label = re.sub(r"\\s+", " ", str(raw or "")).strip()
+            if not label or not search_phrase.search(label):
+                continue
+            try:
+                confidence = float(data.get("conf", [100] * len(texts))[index])
+                left = int(data["left"][index])
+                top = int(data["top"][index])
+                width = int(data["width"][index])
+                height = int(data["height"][index])
+            except (TypeError, ValueError, IndexError, KeyError):
+                continue
+            if confidence < 35 or width < 8 or height < 6:
+                continue
+            if re.search(r"\\b(password|passcode|payment|credit card|security code)\\b", label, re.IGNORECASE):
+                continue
+            candidates.append((
+                int(top * scale_y), int(left * scale_x),
+                int((left + width) * scale_x), int((top + height) * scale_y),
+                int(confidence), label,
+            ))
+
+        if not candidates:
+            self._last_ocr_fallback_status = "OCR found no clearly labelled visible search field."
+            return None
+
+        # Multiple search fields are ambiguous; don't type into the first arbitrary one.
+        candidates.sort(key=lambda item: (-item[4], item[0], item[1]))
+        if len(candidates) > 1 and candidates[0][4] - candidates[1][4] < 8:
+            self._last_ocr_fallback_status = "OCR found multiple similarly plausible search fields."
+            return None
+
+        top, left, right, bottom, _, label = candidates[0]
+        if right - left < 8 or bottom - top < 6:
+            return None
+        from types import SimpleNamespace
+        rect = SimpleNamespace(left=left, top=top, right=right, bottom=bottom)
+        visual_control = SimpleNamespace(
+            element_info=SimpleNamespace(
+                name=label, control_type="Custom", automation_id="ocr-search-field",
+                help_text="OCR-visible search placeholder", class_name="VisualSearchTarget",
+            ),
+            rectangle=lambda: rect,
+            parent=lambda: None,
+            click_input=lambda: backend.click(
+                x=int((left + right) / 2), y=int((top + bottom) / 2)
+            ),
+        )
+        self._last_ocr_fallback_status = "OCR found a visible search placeholder: " + repr(label) + "."
+        return visual_control, label
+
     def _find_search_field(self, timeout_seconds: float = 8.0) -> tuple[Any, Any, str]:
         """Discover a search/address field from its accessibility metadata, app-agnostically."""
         deadline = time.monotonic() + timeout_seconds
@@ -1937,16 +2044,51 @@ class DesktopActionExecutor:
                         _, control, field_name = self._find_search_field()
                         control.click_input()
                     except Exception as field_exc:
-                        # Generic fallback for websites whose search boxes aren't
-                        # exposed to UI Automation: use the current browser's normal
-                        # address/omnibox search. No provider-specific URL is assumed.
-                        if kind != "smart_type":
-                            if isinstance(field_exc, DesktopAgentError):
-                                raise
-                            raise DesktopAgentError(
-                                "Could not focus the app's search field: " + str(field_exc)
-                            ) from field_exc
-                        try:
+                        # First try a visible, explicitly labelled search placeholder
+                        # using OCR for custom-drawn/native apps that expose no UIA field.
+                        # This is app-agnostic and uses the detected text bounds only.
+                        visual_search = self._find_visual_search_field() if kind == "smart_type" else None
+                        if visual_search is not None:
+                            control, field_name = visual_search
+                            control.click_input()
+                            backend.hotkey("ctrl", "a")
+                            if value.isascii():
+                                backend.write(value, interval=0)
+                            else:
+                                try:
+                                    import pyperclip
+                                except ImportError as exc:
+                                    raise DesktopAgentError("Unicode search text needs pyperclip; run run_desktop_agent.bat to install it.") from exc
+                                original_clipboard = None
+                                try:
+                                    original_clipboard = pyperclip.paste()
+                                except Exception:
+                                    pass
+                                pyperclip.copy(value)
+                                backend.hotkey("ctrl", "v")
+                                time.sleep(0.15)
+                                if original_clipboard is not None:
+                                    try:
+                                        pyperclip.copy(original_clipboard)
+                                    except Exception:
+                                        pass
+                            last_search_query = value
+                            self._last_search_query = value
+                            self._last_result_snapshot = None
+                            self._last_search_submitted_at = 0.0
+                            self._search_navigation_completed = False
+                            detail = "Found visible search field " + repr(field_name) + " with OCR and entered the search text"
+                        else:
+                            # Generic fallback for websites whose search boxes aren't
+                            # exposed to UI Automation: use the current browser's normal
+                            # address/omnibox search. No provider-specific URL is assumed.
+                            if kind != "smart_type":
+                                if isinstance(field_exc, DesktopAgentError):
+                                    raise
+                                raise DesktopAgentError(
+                                    "Could not focus the app's search field: " + str(field_exc)
+                                ) from field_exc
+                            try:
                             # Detect browser context from its accessible omnibox, not
                             # from a prior "open URL" instruction, so launched browsers
                             # and already-open browser windows use the same fallback.
