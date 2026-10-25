@@ -773,6 +773,110 @@ class DesktopActionExecutor:
         raise DesktopAgentError("The current window doesn't expose a browser address bar.")
 
     @staticmethod
+    def _url_identity(value: str) -> tuple[str, str, str] | None:
+        """Return normalized host/path/query identity for a browser address bar value."""
+        candidate = str(value or "").strip()
+        if not candidate:
+            return None
+        if "://" not in candidate:
+            candidate = "https://" + candidate
+        try:
+            parsed = urlparse(candidate)
+        except Exception:
+            return None
+        if not parsed.hostname:
+            return None
+        host = parsed.hostname.casefold().removeprefix("www.")
+        path = parsed.path.rstrip("/") or "/"
+        return host, path, parsed.query
+
+    @classmethod
+    def _browser_url_matches(cls, expected_url: str, observed_value: str) -> bool:
+        """Compare the expected URL to the actual browser omnibox value."""
+        expected = cls._url_identity(expected_url)
+        observed = cls._url_identity(observed_value)
+        if expected is None or observed is None or expected[0] != observed[0]:
+            return False
+        expected_path = expected[1]
+        observed_path = observed[1]
+        if expected_path != "/" and observed_path != expected_path:
+            return False
+        if expected[2] and observed[2] != expected[2]:
+            return False
+        return True
+
+    def _wait_for_browser_url(
+        self,
+        expected_url: str,
+        timeout_seconds: float = 25.0,
+        stable_seconds: float = 0.8,
+    ) -> tuple[Any, str]:
+        """Don't continue until the foreground browser confirms the requested location."""
+        deadline = time.monotonic() + timeout_seconds
+        last_state: tuple[str, str] | None = None
+        stable_since = 0.0
+        last_observed = ""
+        while time.monotonic() < deadline:
+            try:
+                active, control, _ = self._find_browser_address_bar(timeout_seconds=0.35)
+                observed = self._control_value(control)
+                last_observed = observed
+                try:
+                    title = str(getattr(active, "window_text", lambda: "")() or "").strip()
+                except Exception:
+                    title = ""
+                if self._browser_url_matches(expected_url, observed):
+                    state = (observed.casefold().strip(), title.casefold().strip())
+                    if state != last_state:
+                        last_state = state
+                        stable_since = time.monotonic()
+                    elif time.monotonic() - stable_since >= stable_seconds:
+                        return active, title
+                else:
+                    last_state = None
+                    stable_since = 0.0
+            except Exception:
+                last_state = None
+                stable_since = 0.0
+            time.sleep(0.2)
+        raise DesktopAgentError(
+            "The browser did not confirm navigation to " + repr(expected_url) +
+            " within " + str(round(timeout_seconds)) + " seconds. " +
+            "Last visible address: " + repr(last_observed or "(not exposed by the browser)") +
+            ". No later actions were run to avoid typing or clicking the wrong page."
+        )
+
+    def _navigate_browser_to_url(self, url: str, backend: Any) -> str:
+        """Navigate the active browser tab; open one only when no browser is foregrounded."""
+        reused_tab = False
+        try:
+            self._find_browser_address_bar(timeout_seconds=0.6)
+            reused_tab = True
+        except Exception:
+            reused_tab = False
+
+        if reused_tab:
+            backend.hotkey("ctrl", "l")
+            time.sleep(0.12)
+            backend.write(url, interval=0)
+            time.sleep(0.1)
+            backend.press("enter")
+            mode = "navigated the current browser tab to "
+        else:
+            if not webbrowser.open_new_tab(url):
+                raise DesktopAgentError("Windows did not accept the request to open the website.")
+            mode = "opened the website in the browser and waited for its address to update: "
+
+        # Confirm the target URL and allow the accessible page tree to settle before
+        # another action can inspect or focus a control. The browser call alone only
+        # queues a request; it is not proof that navigation has completed.
+        self._wait_for_browser_url(url, timeout_seconds=25.0, stable_seconds=0.75)
+        self._wait_for_active_window_settled(timeout_seconds=10.0, stable_seconds=1.0)
+        # Re-check the URL in case the shell or another window took foreground.
+        self._wait_for_browser_url(url, timeout_seconds=5.0, stable_seconds=0.35)
+        return mode + url + " (navigation confirmed)"
+
+    @staticmethod
     def _control_value(control: Any) -> str:
         """Read an accessible control value when its provider supports it."""
         try:
@@ -1166,16 +1270,12 @@ class DesktopActionExecutor:
                     time.sleep(0.45)
                 elif kind == "open_url":
                     url = validate_url(str(action.get("url", "")))
-                    if not webbrowser.open_new_tab(url):
-                        raise DesktopAgentError("Windows did not accept the request to open the website.")
+                    detail = self._navigate_browser_to_url(url, backend)
                     self._last_opened_url = url
+                    self._last_app_name = ""
                     self._last_result_snapshot = None
                     self._last_search_submitted_at = 0.0
                     self._search_navigation_completed = False
-                    # Wait for the browser's foreground accessibility tree to settle;
-                    # webbrowser.open_new_tab itself returns before navigation is complete.
-                    self._wait_for_active_window_settled(timeout_seconds=15.0, stable_seconds=1.0)
-                    detail = "Opened " + url + " (waited for the browser UI to settle)"
                 elif kind == "type_text":
                     value = str(action.get("text", ""))
                     if not value or len(value) > 8_000:
