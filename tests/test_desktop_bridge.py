@@ -570,6 +570,119 @@ def test_browser_search_falls_back_to_default_omnibox_without_site_specific_urls
     assert executor._last_search_submitted_at > 0
 
 
+def test_browser_url_identity_matches_normalized_host_and_path():
+    executor = DesktopActionExecutor(backend=FakeKeyboardBackend())
+    assert executor._browser_url_matches(
+        "https://youtube.com/",
+        "https://www.youtube.com/",
+    )
+    assert executor._browser_url_matches(
+        "https://example.test/watch/123",
+        "https://www.example.test/watch/123",
+    )
+    assert not executor._browser_url_matches(
+        "https://example.test/watch/123",
+        "https://example.test/watch/456",
+    )
+    assert not executor._browser_url_matches(
+        "https://example.test/search?q=one",
+        "https://example.test/search?q=two",
+    )
+
+
+def test_open_url_reuses_current_browser_tab_and_confirms_navigation(monkeypatch):
+    backend = FakeKeyboardBackend()
+    executor = DesktopActionExecutor(backend=backend)
+    opened = []
+    waited = []
+    monkeypatch.setattr(
+        executor, "_find_browser_address_bar",
+        lambda timeout_seconds=1.5: (object(), object(), "Address and search bar"),
+    )
+    monkeypatch.setattr(
+        executor, "_wait_for_browser_url",
+        lambda url, timeout_seconds=25.0, stable_seconds=0.8: waited.append(url) or (object(), "Example"),
+    )
+    monkeypatch.setattr(
+        executor, "_wait_for_active_window_settled",
+        lambda timeout_seconds=12.0, stable_seconds=0.8: True,
+    )
+    monkeypatch.setattr(
+        desktop_bridge.webbrowser, "open_new_tab",
+        lambda url: opened.append(url) or True,
+    )
+    monkeypatch.setattr(desktop_bridge.time, "sleep", lambda seconds: None)
+
+    detail = executor._navigate_browser_to_url("https://example.test/watch/123", backend)
+
+    assert "current browser tab" in detail
+    assert opened == []
+    assert waited == ["https://example.test/watch/123", "https://example.test/watch/123"]
+    assert ("hotkey", ("ctrl", "l")) in backend.events
+    assert ("write", "https://example.test/watch/123") in backend.events
+    assert ("press", "enter") in backend.events
+
+
+def test_open_url_launches_browser_only_when_no_browser_is_foregrounded(monkeypatch):
+    backend = FakeKeyboardBackend()
+    executor = DesktopActionExecutor(backend=backend)
+    opened = []
+    monkeypatch.setattr(
+        executor, "_find_browser_address_bar",
+        lambda timeout_seconds=1.5: (_ for _ in ()).throw(
+            DesktopAgentError("No browser window is foregrounded")
+        ),
+    )
+    monkeypatch.setattr(
+        executor, "_wait_for_browser_url",
+        lambda url, timeout_seconds=25.0, stable_seconds=0.8: (object(), "Example"),
+    )
+    monkeypatch.setattr(
+        executor, "_wait_for_active_window_settled",
+        lambda timeout_seconds=12.0, stable_seconds=0.8: True,
+    )
+    monkeypatch.setattr(
+        desktop_bridge.webbrowser, "open_new_tab",
+        lambda url: opened.append(url) or True,
+    )
+    monkeypatch.setattr(desktop_bridge.time, "sleep", lambda seconds: None)
+
+    detail = executor._navigate_browser_to_url("https://example.test/", backend)
+
+    assert "opened the website in the browser" in detail
+    assert opened == ["https://example.test/"]
+    assert not any(event[:2] == ("hotkey", ("ctrl", "l")) for event in backend.events)
+
+
+def test_inaccessible_in_page_search_scopes_browser_fallback_to_current_host(monkeypatch):
+    backend = FakeKeyboardBackend()
+    executor = DesktopActionExecutor(backend=backend)
+    executor._last_opened_url = "https://music.example.test/library"
+    monkeypatch.setattr(desktop_bridge.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(
+        executor,
+        "_find_search_field",
+        lambda timeout_seconds=8.0: (_ for _ in ()).throw(
+            DesktopAgentError("No accessible search field is exposed yet.")
+        ),
+    )
+    monkeypatch.setattr(
+        executor,
+        "_find_browser_address_bar",
+        lambda timeout_seconds=1.5: (object(), object(), "Address and search bar"),
+    )
+    monkeypatch.setattr(executor, "_capture_result_snapshot", lambda: ("pre-search",))
+
+    result = executor.execute([
+        {"type": "smart_type", "text": "artist album title", "target": "search"},
+    ])
+
+    assert result["ok"] is True
+    assert ("write", "site:music.example.test artist album title") in backend.events
+    assert executor._last_search_query == "artist album title"
+    assert "site-restricted" in result["completed"][0]["detail"]
+
+
 def test_redundant_enter_keeps_pre_search_snapshot_for_result_wait(monkeypatch):
     backend = FakeKeyboardBackend()
     executor = DesktopActionExecutor(backend=backend)
