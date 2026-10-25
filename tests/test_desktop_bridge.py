@@ -229,6 +229,26 @@ def test_default_dashboard_origins_include_production_and_feature_preview(monkey
     assert "https://jarvis-multiagent-dashboard-git-publish-ja-77d6ea-aaravpachouri.vercel.app" in origins
 
 
+def test_follow_up_search_preserves_existing_app_context_between_submissions():
+    assert parse_task("search for Blinding Lights", app_context=True) == [
+        {"type": "smart_type", "text": "Blinding Lights", "target": "search"}
+    ]
+
+
+def test_follow_up_search_stays_web_search_without_existing_app_context():
+    actions = parse_task("search for Blinding Lights", app_context=False)
+    assert actions[0]["type"] == "open_url"
+    assert "google.com/search" in actions[0]["url"]
+
+
+def test_follow_up_first_result_inherits_previous_search_context():
+    assert parse_task(
+        "click the first result",
+        app_context=True,
+        last_search_query="Blinding Lights",
+    ) == [{"type": "click_first_result", "target": "Blinding Lights"}]
+
+
 def test_generic_app_search_and_result_workflow_is_sequenced():
     actions = parse_task(
         "open Spotify then search for Blinding Lights then press Enter then click the result"
