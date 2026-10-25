@@ -750,7 +750,123 @@ class DesktopActionExecutor:
             # checks in _find_result_control still apply when a snapshot is unavailable.
             return None
 
-    def _find_result_control(self, target: str = "", timeout_seconds: float = 8.0) -> tuple[Any, str]:
+    def _find_browser_address_bar(self, timeout_seconds: float = 1.5) -> tuple[Any, Any, str]:
+        """Find a browser's address/omnibox control by accessibility metadata."""
+        deadline = time.monotonic() + timeout_seconds
+        address_pattern = re.compile(
+            r"\b(address bar|address and search bar|url bar|web address|omnibox|location bar)\b",
+            re.IGNORECASE,
+        )
+        while time.monotonic() < deadline:
+            active, controls = self._active_ui_controls({"Edit", "ComboBox", "TextBox"})
+            for control, kind, name, metadata in controls:
+                if address_pattern.search(metadata):
+                    return active, control, name or "browser address bar"
+            time.sleep(0.2)
+        raise DesktopAgentError("The current window doesn't expose a browser address bar.")
+
+    @staticmethod
+    def _control_value(control: Any) -> str:
+        """Read an accessible control value when its provider supports it."""
+        try:
+            getter = getattr(control, "get_value", None)
+            if callable(getter):
+                value = getter()
+                if value:
+                    return str(value)
+        except Exception:
+            pass
+        try:
+            value = control.iface_value.CurrentValue
+            if value:
+                return str(value)
+        except Exception:
+            pass
+        try:
+            properties = control.legacy_properties()
+            if isinstance(properties, dict) and properties.get("Value"):
+                return str(properties["Value"])
+        except Exception:
+            pass
+        return ""
+
+    def _capture_active_page_state(self) -> tuple[bool, tuple[Any, ...]]:
+        """Capture title, URL/omnibox value, tabs, and accessible content state."""
+        allowed = {
+            "Edit", "ComboBox", "TextBox", "TabItem", "Document", "Pane",
+            "ListItem", "DataItem", "TreeItem", "Hyperlink", "Button",
+            "Text", "Group", "Custom", "Image",
+        }
+        active, controls = self._active_ui_controls(allowed)
+        try:
+            title = str(getattr(active, "window_text", lambda: "")() or "").strip().casefold()
+        except Exception:
+            title = ""
+        addresses: list[str] = []
+        tabs: list[str] = []
+        content: list[tuple[str, str]] = []
+        browser = False
+        address_pattern = re.compile(
+            r"\b(address bar|address and search bar|url bar|web address|omnibox|location bar)\b",
+            re.IGNORECASE,
+        )
+        for control, kind, name, metadata in controls:
+            if address_pattern.search(metadata):
+                browser = True
+                addresses.append(self._control_value(control).casefold().strip())
+            if kind == "TabItem" and name:
+                tabs.append(re.sub(r"\s+", " ", name).casefold().strip())
+            elif kind in {"ListItem", "DataItem", "TreeItem", "Hyperlink", "Button", "Document"} and name:
+                content.append((kind, re.sub(r"\s+", " ", name).casefold().strip()))
+        signature = (title, tuple(sorted(addresses)), tuple(sorted(tabs)), tuple(sorted(content)))
+        return browser, signature
+
+    def _wait_for_active_page_change(
+        self,
+        before: tuple[bool, tuple[Any, ...]],
+        timeout_seconds: float = 6.0,
+    ) -> bool:
+        """Wait for navigation/result state change after activating a browser result."""
+        deadline = time.monotonic() + timeout_seconds
+        while time.monotonic() < deadline:
+            try:
+                current = self._capture_active_page_state()
+            except Exception:
+                time.sleep(0.25)
+                continue
+            if current != before:
+                return True
+            time.sleep(min(0.25, max(0.01, deadline - time.monotonic())))
+        return False
+
+    def _wait_for_active_window_settled(self, timeout_seconds: float = 12.0, stable_seconds: float = 0.8) -> bool:
+        """Wait for the active app/browser accessibility tree to stop changing briefly."""
+        if platform.system() != "Windows":
+            time.sleep(1.0)
+            return False
+        allowed = {
+            "Edit", "ComboBox", "TextBox", "TabItem", "Document", "Pane",
+            "ListItem", "DataItem", "TreeItem", "Hyperlink", "Button",
+            "Text", "Group", "Custom", "Image",
+        }
+        deadline = time.monotonic() + timeout_seconds
+        last_signature: tuple[Any, ...] | None = None
+        stable_since = 0.0
+        while time.monotonic() < deadline:
+            try:
+                active, controls = self._active_ui_controls(allowed)
+                signature = self._result_tree_signature(active, controls)
+                if signature != last_signature:
+                    last_signature = signature
+                    stable_since = time.monotonic()
+                elif signature[0] and time.monotonic() - stable_since >= stable_seconds:
+                    return True
+            except Exception:
+                pass
+            time.sleep(0.25)
+        return False
+
+    def _find_result_control(self, target: str = "", timeout_seconds: float = 20.0) -> tuple[Any, str]:
         """Wait for result controls to appear and stabilize, then pick a matching result."""
         started = time.monotonic()
         deadline = started + timeout_seconds
@@ -774,24 +890,24 @@ class DesktopActionExecutor:
         baseline = self._last_result_snapshot
         submitted_at = self._last_search_submitted_at
         ready_after = max(
-            started + min(1.25, max(0.25, timeout_seconds * 0.2)),
-            submitted_at + 1.25 if submitted_at else started,
+            started + min(2.5, max(0.75, timeout_seconds * 0.125)),
+            submitted_at + 2.0 if submitted_at else started,
         )
-        stable_for = min(0.5, max(0.15, timeout_seconds * 0.1))
+        stable_for = min(1.0, max(0.25, timeout_seconds * 0.05))
         previous_candidate: tuple[Any, ...] | None = None
         candidate_since = 0.0
         last_tree_signature: tuple[Any, ...] | None = None
-        baseline_unchanged_since: float | None = None
+        tree_stable_since = 0.0
+        baseline_changed = baseline is None
 
         while time.monotonic() < deadline:
             active, controls = self._active_ui_controls(allowed)
             now = time.monotonic()
             tree_signature = self._result_tree_signature(active, controls)
-            if baseline is not None and tree_signature == baseline:
-                if baseline_unchanged_since is None:
-                    baseline_unchanged_since = now
-            elif tree_signature != last_tree_signature:
-                baseline_unchanged_since = None
+            if tree_signature != last_tree_signature:
+                tree_stable_since = now
+            if baseline is not None and tree_signature != baseline:
+                baseline_changed = True
             last_tree_signature = tree_signature
 
             candidates: list[tuple[float, Any, str, str]] = []
@@ -845,17 +961,11 @@ class DesktopActionExecutor:
                     previous_candidate = candidate_signature
                     candidate_since = now
 
-                baseline_changed = baseline is None or tree_signature != baseline
-                # Normally require the submitted page to change, plus a brief stable
-                # period. Some desktop apps don't expose dynamic updates in UIA; if the
-                # tree stays unchanged for 3 seconds, permit a stable query match rather
-                # than waiting forever. This timing policy works across apps/sites.
-                unchanged_long_enough = (
-                    baseline is not None
-                    and baseline_unchanged_since is not None
-                    and now - baseline_unchanged_since >= 3.0
-                )
-                if now >= ready_after and now - candidate_since >= stable_for and (baseline_changed or unchanged_long_enough):
+                # Require a fresh tree after Enter (when observable), and require
+                # both the candidate and surrounding result tree to stop changing.
+                # Never click a matching item from the pre-submit page just because time elapsed.
+                tree_is_stable = now - tree_stable_since >= stable_for
+                if now >= ready_after and now - candidate_since >= stable_for and tree_is_stable and baseline_changed:
                     if ambiguous:
                         names = [item[2] for item in close[:4]]
                         raise DesktopAgentError(
@@ -875,10 +985,10 @@ class DesktopActionExecutor:
 
             time.sleep(min(0.25, max(0.01, deadline - now)))
 
-        if baseline is not None and baseline_unchanged_since is not None and target_tokens:
+        if baseline is not None and not baseline_changed and target_tokens:
             raise DesktopAgentError(
-                "The active interface did not visibly update after Enter, and I couldn't confirm a fresh result for " +
-                repr(target) + ". No click was made; wait for the page to finish loading and retry."
+                "The active interface never showed a fresh result state after Enter for " +
+                repr(target) + ". No click was made; the page may still be loading or its accessibility tree may not expose updates."
             )
         if target_tokens:
             raise DesktopAgentError(
@@ -955,7 +1065,8 @@ class DesktopActionExecutor:
                     executable = self._find_app(app)
                     if executable:
                         subprocess.Popen([executable], shell=False, close_fds=True)
-                        detail = "Launched " + app
+                        self._wait_for_active_window_settled(timeout_seconds=12.0, stable_seconds=0.8)
+                        detail = "Launched " + app + " (waited for the foreground UI to settle)
                     else:
                         backend.press("win")
                         time.sleep(0.25)
@@ -972,10 +1083,10 @@ class DesktopActionExecutor:
                     self._last_result_snapshot = None
                     self._last_search_submitted_at = 0.0
                     self._search_navigation_completed = False
-                    # Give the browser a moment to bring the new tab to the foreground
-                    # before any following search/type action inspects its UI tree.
-                    time.sleep(0.8)
-                    detail = "Opened " + url
+                    # Wait for the browser's foreground accessibility tree to settle;
+                    # webbrowser.open_new_tab itself returns before navigation is complete.
+                    self._wait_for_active_window_settled(timeout_seconds=15.0, stable_seconds=1.0)
+                    detail = "Opened " + url + " (waited for the browser UI to settle)
                 elif kind == "type_text":
                     value = str(action.get("text", ""))
                     if not value or len(value) > 8_000:
@@ -1011,30 +1122,38 @@ class DesktopActionExecutor:
                         _, control, field_name = self._find_search_field()
                         control.click_input()
                     except Exception as field_exc:
-                        opened_host = (urlparse(self._last_opened_url).hostname or "").casefold()
-                        # YouTube exposes different accessibility trees across browsers
-                        # and versions. If its page search input cannot be reached, use
-                        # YouTube's documented search-results URL shape via the browser
-                        # address bar instead of typing an unsubmitted query somewhere.
-                        if kind != "smart_type" or not (opened_host == "youtube.com" or opened_host.endswith(".youtube.com")):
+                        # Generic fallback for websites whose search boxes aren't
+                        # exposed to UI Automation: use the current browser's normal
+                        # address/omnibox search. No provider-specific URL is assumed.
+                        if kind != "smart_type" or not self._last_opened_url:
                             if isinstance(field_exc, DesktopAgentError):
                                 raise
                             raise DesktopAgentError(
                                 "Could not focus the app's search field: " + str(field_exc)
                             ) from field_exc
+                        try:
+                            self._find_browser_address_bar(timeout_seconds=1.5)
+                        except Exception as address_error:
+                            raise DesktopAgentError(
+                                "The page search field is inaccessible and no browser address bar is exposed. " +
+                                "I couldn't submit the query safely: " + str(address_error)
+                            ) from field_exc
 
-                        search_url = "https://www.youtube.com/results?search_query=" + quote_plus(value)
+                        self._last_result_snapshot = self._capture_result_snapshot()
+                        self._last_search_submitted_at = time.monotonic()
+                        self._search_navigation_completed = False
                         backend.hotkey("ctrl", "l")
+                        time.sleep(0.15)
+                        backend.write(value, interval=0)
                         time.sleep(0.1)
-                        backend.write(search_url, interval=0)
                         backend.press("enter")
-                        time.sleep(1.2)
+                        self._search_navigation_completed = True
                         last_search_query = value
                         self._last_search_query = value
-                        self._last_result_snapshot = None
-                        self._last_search_submitted_at = time.monotonic() - 1.25
-                        self._search_navigation_completed = True
-                        detail = "Opened YouTube search results for " + repr(value) + " because its in-page search control was inaccessible"
+                        detail = (
+                            "Submitted " + repr(value) +
+                            " through the browser's default search because the page's search field was inaccessible"
+                        )
                     else:
                         if kind == "smart_type":
                             backend.hotkey("ctrl", "a")
@@ -1128,12 +1247,11 @@ class DesktopActionExecutor:
                         # Capture the pre-submit accessibility tree, so result-clicking
                         # can tell whether the page reacted to the search submission.
                         if self._search_navigation_completed:
-                            # A URL-based fallback already submitted the search and
-                            # waited for navigation; this Enter is redundant.
-                            self._last_result_snapshot = None
-                            self._last_search_submitted_at = time.monotonic() - 1.25
+                            # The generic omnibox fallback already pressed Enter. Keep
+                            # the baseline snapshot so result selection can prove the
+                            # interface changed after the search was submitted.
                             self._search_navigation_completed = False
-                            detail = "Search was already submitted by navigation; waiting for result controls"
+                            detail = "Search was already submitted; waiting for fresh result controls"
                             completed.append({"step": index, "status": "succeeded", "detail": detail})
                             continue
                         self._last_result_snapshot = self._capture_result_snapshot()
