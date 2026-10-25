@@ -1838,6 +1838,43 @@ class DesktopActionExecutor:
                         pending_visual = visual
                         pending_visual_since = now
 
+            # Also try OCR when UI Automation returns *some* weak/stale text
+            # candidates but none qualifies as a stable clickable target. Previously,
+            # any partial UIA match suppressed visual fallback entirely.
+            if (
+                candidates
+                and now - started >= visual_min_wait
+                and (baseline_changed or baseline is None or now - started >= 7.0)
+                and now - last_visual_attempt >= 0.8
+            ):
+                last_visual_attempt = now
+                visual = self._find_visual_result_control(target_text)
+                if visual is not None:
+                    visual_control, visual_label = visual
+                    if pending_visual is not None:
+                        previous_control, previous_label = pending_visual
+                        previous_rect = previous_control.rectangle()
+                        current_rect = visual_control.rectangle()
+                        previous_tokens = {
+                            token for token in re.findall(r"[a-z0-9]+", previous_label.casefold())
+                            if len(token) > 1
+                        }
+                        current_tokens = {
+                            token for token in re.findall(r"[a-z0-9]+", visual_label.casefold())
+                            if len(token) > 1
+                        }
+                        shared = len(previous_tokens & current_tokens) / max(
+                            1, len(previous_tokens | current_tokens)
+                        )
+                        same_position = (
+                            abs(int(previous_rect.left) - int(current_rect.left)) <= 55
+                            and abs(int(previous_rect.top) - int(current_rect.top)) <= 55
+                        )
+                        if shared >= 0.5 and same_position and now - pending_visual_since >= 0.7:
+                            return visual_control, visual_label
+                    pending_visual = visual
+                    pending_visual_since = now
+
             time.sleep(min(0.25, max(0.01, deadline - now)))
 
         if baseline is not None and target_tokens:
