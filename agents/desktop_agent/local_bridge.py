@@ -1176,13 +1176,16 @@ class DesktopActionExecutor:
                         # Generic fallback for websites whose search boxes aren't
                         # exposed to UI Automation: use the current browser's normal
                         # address/omnibox search. No provider-specific URL is assumed.
-                        if kind != "smart_type" or not self._last_opened_url:
+                        if kind != "smart_type":
                             if isinstance(field_exc, DesktopAgentError):
                                 raise
                             raise DesktopAgentError(
                                 "Could not focus the app's search field: " + str(field_exc)
                             ) from field_exc
                         try:
+                            # Detect browser context from its accessible omnibox, not
+                            # from a prior "open URL" instruction, so launched browsers
+                            # and already-open browser windows use the same fallback.
                             self._find_browser_address_bar(timeout_seconds=1.5)
                         except Exception as address_error:
                             raise DesktopAgentError(
