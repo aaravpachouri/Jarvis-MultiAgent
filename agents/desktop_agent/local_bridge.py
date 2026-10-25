@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse, quote_plus
+from urllib.parse import parse_qsl, urlparse, quote_plus
 
 
 HOST = "127.0.0.1"
@@ -530,6 +530,12 @@ class DesktopActionExecutor:
         self._last_search_query = ""
         self._last_app_name = ""
         self._last_opened_url = ""
+        # The allowed dashboard origin tells Atlas when the foreground tab is the
+        # controller itself; target sites must open in a separate tab in that case.
+        self._controller_origin = ""
+        self._last_target_browser_url = ""
+        self._last_target_window_title = ""
+        self._last_target_tab_runtime_id: tuple[Any, ...] | None = None
         # Result clicks wait for the interface to react to submission instead of
         # selecting a stale result immediately after Enter.
         self._last_result_snapshot: tuple[Any, ...] | None = None
@@ -801,8 +807,11 @@ class DesktopActionExecutor:
         observed_path = observed[1]
         if expected_path != "/" and observed_path != expected_path:
             return False
-        if expected[2] and observed[2] != expected[2]:
-            return False
+        if expected[2]:
+            expected_params = set(parse_qsl(expected[2], keep_blank_values=True))
+            observed_params = set(parse_qsl(observed[2], keep_blank_values=True))
+            if not expected_params.issubset(observed_params):
+                return False
         return True
 
     def _wait_for_browser_url(
@@ -846,35 +855,239 @@ class DesktopActionExecutor:
             ". No later actions were run to avoid typing or clicking the wrong page."
         )
 
-    def _navigate_browser_to_url(self, url: str, backend: Any) -> str:
-        """Navigate the active browser tab; open one only when no browser is foregrounded."""
-        reused_tab = False
+    @staticmethod
+    def _same_origin(first_url: str, second_url: str) -> bool:
+        """Compare origins, including non-default ports, without comparing paths."""
         try:
-            self._find_browser_address_bar(timeout_seconds=0.6)
-            reused_tab = True
+            first = urlparse(first_url if "://" in first_url else "https://" + first_url)
+            second = urlparse(second_url if "://" in second_url else "https://" + second_url)
+            if not first.hostname or not second.hostname:
+                return False
+            first_port = first.port or (443 if first.scheme.casefold() == "https" else 80)
+            second_port = second.port or (443 if second.scheme.casefold() == "https" else 80)
+            return (
+                first.scheme.casefold() == second.scheme.casefold()
+                and first.hostname.casefold() == second.hostname.casefold()
+                and first_port == second_port
+            )
         except Exception:
-            reused_tab = False
+            return False
 
-        if reused_tab:
+    @staticmethod
+    def _control_runtime_id(control: Any) -> tuple[Any, ...] | None:
+        try:
+            value = getattr(control.element_info, "runtime_id", None)
+            if callable(value):
+                value = value()
+            if value is None:
+                return None
+            if isinstance(value, (list, tuple)):
+                return tuple(value)
+            return (str(value),)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _control_is_selected(control: Any) -> bool:
+        try:
+            return bool(control.iface_selection_item.CurrentIsSelected)
+        except Exception:
+            pass
+        try:
+            method = getattr(control, "is_selected", None)
+            if callable(method):
+                return bool(method())
+        except Exception:
+            pass
+        return False
+
+    @staticmethod
+    def _title_tokens(value: str) -> set[str]:
+        ignored = {
+            "google", "chrome", "microsoft", "edge", "firefox", "mozilla",
+            "opera", "brave", "browser", "new", "tab",
+        }
+        return {
+            token for token in re.findall(r"[a-z0-9]+", str(value or "").casefold())
+            if len(token) > 1 and token not in ignored
+        }
+
+    def _remember_active_browser_tab(self) -> None:
+        """Remember the active tab's accessibility identity for later dashboard submissions."""
+        try:
+            _, tabs = self._active_ui_controls({"TabItem"})
+        except Exception:
+            return
+        selected = [item for item in tabs if self._control_is_selected(item[0])]
+        if selected:
+            runtime_id = self._control_runtime_id(selected[0][0])
+            if runtime_id is not None:
+                self._last_target_tab_runtime_id = runtime_id
+                return
+
+        host_label = (urlparse(self._last_target_browser_url).hostname or "").casefold()
+        host_label = host_label.removeprefix("www.").split(".", 1)[0]
+        target_tokens = self._title_tokens(self._last_target_window_title)
+        if host_label and host_label not in {"localhost", "127"}:
+            target_tokens.add(host_label)
+        scored: list[tuple[int, Any]] = []
+        for control, kind, name, metadata in tabs:
+            candidate_tokens = self._title_tokens(name)
+            score = len(target_tokens & candidate_tokens) * 10
+            if host_label and host_label in candidate_tokens:
+                score += 50
+            if name and self._last_target_window_title and (
+                name.casefold() in self._last_target_window_title.casefold()
+                or self._last_target_window_title.casefold() in name.casefold()
+            ):
+                score += 60
+            if score:
+                scored.append((score, control))
+        if scored:
+            scored.sort(key=lambda entry: entry[0], reverse=True)
+            if len(scored) == 1 or scored[0][0] > scored[1][0]:
+                self._last_target_tab_runtime_id = self._control_runtime_id(scored[0][1])
+
+    def _update_target_context_from_foreground(self) -> None:
+        """Refresh the target tab URL/title after a search or result navigation."""
+        try:
+            active, address_control, _ = self._find_browser_address_bar(timeout_seconds=0.5)
+            current_url = self._control_value(address_control)
+            if current_url:
+                self._last_target_browser_url = current_url
+            try:
+                title = str(getattr(active, "window_text", lambda: "")() or "").strip()
+            except Exception:
+                title = ""
+            if title:
+                self._last_target_window_title = title
+            self._remember_active_browser_tab()
+        except Exception:
+            return
+
+    def _ensure_last_target_tab_active(self) -> None:
+        """Re-activate the previous target tab when the dashboard tab is foregrounded."""
+        expected_url = self._last_target_browser_url or self._last_opened_url
+        if not expected_url:
+            return
+        try:
+            active, address_control, _ = self._find_browser_address_bar(timeout_seconds=0.6)
+            current_url = self._control_value(address_control)
+            if self._browser_url_matches(expected_url, current_url):
+                try:
+                    title = str(getattr(active, "window_text", lambda: "")() or "").strip()
+                except Exception:
+                    title = ""
+                if title:
+                    self._last_target_window_title = title
+                self._remember_active_browser_tab()
+                return
+            _, tabs = self._active_ui_controls({"TabItem"})
+        except Exception as exc:
+            raise DesktopAgentError(
+                "The target browser page is not foregrounded and its tab list isn't accessible. " +
+                "Bring the browser forward and retry; Atlas won't type into the dashboard by mistake."
+            ) from exc
+
+        chosen = None
+        if self._last_target_tab_runtime_id is not None:
+            for control, _, _, _ in tabs:
+                if self._control_runtime_id(control) == self._last_target_tab_runtime_id:
+                    chosen = control
+                    break
+
+        if chosen is None:
+            host_label = (urlparse(expected_url).hostname or "").casefold().removeprefix("www.").split(".", 1)[0]
+            target_tokens = self._title_tokens(self._last_target_window_title)
+            if host_label and host_label not in {"localhost", "127"}:
+                target_tokens.add(host_label)
+            scored: list[tuple[int, Any, str]] = []
+            for control, _, name, _ in tabs:
+                candidate_tokens = self._title_tokens(name)
+                score = len(target_tokens & candidate_tokens) * 10
+                if host_label and host_label in candidate_tokens:
+                    score += 50
+                if name and self._last_target_window_title and (
+                    name.casefold() in self._last_target_window_title.casefold()
+                    or self._last_target_window_title.casefold() in name.casefold()
+                ):
+                    score += 60
+                if score:
+                    scored.append((score, control, name))
+            if scored:
+                scored.sort(key=lambda entry: entry[0], reverse=True)
+                best_score = scored[0][0]
+                equally_good = [entry for entry in scored if entry[0] == best_score]
+                if len(equally_good) > 1:
+                    raise DesktopAgentError(
+                        "Several browser tabs look like the last target page. Click the intended tab once, " +
+                        "then retry the command so Atlas doesn't select the wrong site."
+                    )
+                chosen = scored[0][1]
+
+        if chosen is None:
+            raise DesktopAgentError(
+                "Atlas couldn't identify the previous target browser tab. Open the target URL again or " +
+                "make the desired tab active once, then retry."
+            )
+
+        try:
+            chosen.click_input()
+        except Exception as exc:
+            raise DesktopAgentError("Atlas found the target tab but couldn't activate it: " + str(exc)) from exc
+        _, title = self._wait_for_browser_url(expected_url, timeout_seconds=12.0, stable_seconds=0.35)
+        self._wait_for_active_window_settled(timeout_seconds=5.0, stable_seconds=0.7)
+        _, title = self._wait_for_browser_url(expected_url, timeout_seconds=5.0, stable_seconds=0.25)
+        if title:
+            self._last_target_window_title = title
+        self._remember_active_browser_tab()
+
+    def _navigate_browser_to_url(self, url: str, backend: Any) -> str:
+        """Navigate the target page; preserve the dashboard tab when it is the controller."""
+        current_address = ""
+        current_title = ""
+        has_browser_foreground = False
+        try:
+            active, address_control, _ = self._find_browser_address_bar(timeout_seconds=0.6)
+            has_browser_foreground = True
+            current_address = self._control_value(address_control)
+            try:
+                current_title = str(getattr(active, "window_text", lambda: "")() or "").strip()
+            except Exception:
+                current_title = ""
+        except Exception:
+            pass
+
+        controller_tab = bool(
+            self._controller_origin
+            and (
+                self._same_origin(current_address, self._controller_origin)
+                or (not current_address and "jarvis" in current_title.casefold())
+            )
+        )
+        open_separate_tab = controller_tab or not has_browser_foreground
+
+        if open_separate_tab:
+            if not webbrowser.open_new_tab(url):
+                raise DesktopAgentError("Windows did not accept the request to open the website.")
+            mode = "opened the target in a new browser tab to preserve the JARVIS dashboard: "
+        else:
             backend.hotkey("ctrl", "l")
             time.sleep(0.12)
             backend.write(url, interval=0)
             time.sleep(0.1)
             backend.press("enter")
             mode = "navigated the current browser tab to "
-        else:
-            if not webbrowser.open_new_tab(url):
-                raise DesktopAgentError("Windows did not accept the request to open the website.")
-            mode = "opened the website in the browser and waited for its address to update: "
 
-        # Confirm the target URL and allow the accessible page tree to settle before
-        # another action can inspect or focus a control. The browser call alone only
-        # queues a request; it is not proof that navigation has completed.
-        self._wait_for_browser_url(url, timeout_seconds=25.0, stable_seconds=0.75)
+        active, title = self._wait_for_browser_url(url, timeout_seconds=25.0, stable_seconds=0.75)
         self._wait_for_active_window_settled(timeout_seconds=10.0, stable_seconds=1.0)
-        # Re-check the URL in case the shell or another window took foreground.
-        self._wait_for_browser_url(url, timeout_seconds=5.0, stable_seconds=0.35)
+        active, title = self._wait_for_browser_url(url, timeout_seconds=5.0, stable_seconds=0.35)
+        self._last_target_browser_url = url
+        self._last_target_window_title = title or current_title
+        self._remember_active_browser_tab()
         return mode + url + " (navigation confirmed)"
+
+
 
     @staticmethod
     def _control_value(control: Any) -> str:
@@ -1341,6 +1554,9 @@ class DesktopActionExecutor:
                         self._last_search_query = ""
                     self._last_app_name = app_key
                     self._last_opened_url = ""
+                    self._last_target_browser_url = ""
+                    self._last_target_window_title = ""
+                    self._last_target_tab_runtime_id = None
                     self._last_result_snapshot = None
                     self._last_search_submitted_at = 0.0
                     self._search_navigation_completed = False
@@ -1369,6 +1585,7 @@ class DesktopActionExecutor:
                     detail = self._navigate_browser_to_url(url, backend)
                     self._last_opened_url = url
                     self._last_app_name = ""
+                    self._last_target_browser_url = url
                     self._last_result_snapshot = None
                     self._last_search_submitted_at = 0.0
                     self._search_navigation_completed = False
@@ -1783,6 +2000,12 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 if not approved:
                     self._send_json(403, {"ok": False, "error": "Task was denied or approval timed out. Nothing was executed.", "approval_required": True, "approval_reason": reason})
                     return
+            # Origin has already passed the allowlist check; the executor uses
+            # it only to avoid navigating away from the browser tab hosting the dashboard.
+            try:
+                self.state.executor._controller_origin = self._origin()
+            except Exception:
+                pass
             result = self.state.executor.execute(actions)
             result["approval_required"] = bool(reason)
             result["approval_reason"] = reason
