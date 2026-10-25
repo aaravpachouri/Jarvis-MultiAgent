@@ -1039,17 +1039,20 @@ class DesktopActionExecutor:
 
         invoke_error: Exception | None = None
         invoked = False
+        activation_sent = False
         try:
             invoke = getattr(selected, "iface_invoke", None)
             if invoke is not None:
                 invoke.Invoke()
                 invoked = True
+                activation_sent = True
         except Exception as exc:
             invoke_error = exc
 
         if not invoked:
             try:
                 selected.click_input()
+                activation_sent = True
             except Exception as click_error:
                 invoke_error = click_error
 
@@ -1058,6 +1061,10 @@ class DesktopActionExecutor:
         # URL, tab or accessible page content to change.
         browser_context = bool(before_state and before_state[0])
         if browser_context and self._wait_for_active_page_change(before_state, timeout_seconds=5.0):
+            return selected_name
+        if not browser_context and activation_sent:
+            # A non-browser result can simply select/focus an item without navigation.
+            # Do not issue a second physical click after a successful semantic click.
             return selected_name
 
         # If the semantic click was unsupported or had no observable effect, click
