@@ -166,6 +166,88 @@ def test_bridge_rejects_unapproved_browser_origins(bridge_server):
     assert captured.value.code == 403
 
 
+def test_bridge_preserves_target_context_across_separate_dashboard_commands(monkeypatch):
+    monkeypatch.setenv("JARVIS_DESKTOP_ALLOWED_ORIGINS", "https://example.test")
+
+    class WorkflowExecutor:
+        def __init__(self):
+            self._last_opened_url = ""
+            self._last_app_name = ""
+            self._last_search_query = ""
+            self._controller_origin = ""
+            self.calls = []
+
+        def status(self):
+            return {
+                "ok": True,
+                "platform": "Windows",
+                "desktop_available": True,
+                "active_window": "JARVIS Desktop",
+            }
+
+        def execute(self, actions):
+            self.calls.append(actions)
+            for action in actions:
+                if action["type"] == "open_url":
+                    self._last_opened_url = action["url"]
+                    self._last_app_name = ""
+                elif action["type"] == "open_app":
+                    self._last_app_name = action["app"]
+                    self._last_opened_url = ""
+                elif action["type"] == "smart_type":
+                    self._last_search_query = action["text"]
+            return {
+                "ok": True,
+                "completed": [{"step": 1, "status": "succeeded", "detail": "mocked"}],
+            }
+
+    state = BridgeState("workflow-test-pairing-token")
+    executor = WorkflowExecutor()
+    state.executor = executor
+    server = BridgeHTTPServer(("127.0.0.1", 0), BridgeHandler, state)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    endpoint = "http://127.0.0.1:" + str(server.server_address[1]) + "/v1/execute"
+
+    def submit(task):
+        request = urllib.request.Request(
+            endpoint,
+            data=json.dumps({"task": task}).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": "Bearer workflow-test-pairing-token",
+                "Origin": "https://example.test",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=3) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    try:
+        first = submit("open https://www.youtube.com")
+        second = submit("search for Blinding Lights")
+        third = submit("press Enter")
+        fourth = submit("click the first result")
+
+        assert first["ok"] is True
+        assert second["ok"] is True
+        assert third["ok"] is True
+        assert fourth["ok"] is True
+        assert executor.calls[0][0]["type"] == "open_url"
+        assert executor.calls[1] == [
+            {"type": "smart_type", "text": "Blinding Lights", "target": "search"}
+        ]
+        assert executor.calls[2] == [{"type": "hotkey", "keys": ["enter"]}]
+        assert executor.calls[3] == [
+            {"type": "click_first_result", "target": "Blinding Lights"}
+        ]
+        assert executor._controller_origin == "https://example.test"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
 def test_any_installed_app_name_can_be_parsed_without_a_fixed_allowlist():
     assert parse_task("open Spotify") == [{"type": "open_app", "app": "Spotify"}]
     assert parse_task("open Microsoft Word") == [{"type": "open_app", "app": "Microsoft Word"}]
