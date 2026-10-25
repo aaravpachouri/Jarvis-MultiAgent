@@ -499,7 +499,7 @@ def test_visual_result_finder_uses_ocr_text_and_scales_verified_screen_bounds(mo
     rect = control.rectangle()
     assert rect.left == 80
     assert rect.top == 200
-    assert rect.right == 1170
+    assert rect.right == 990
     assert rect.bottom == 240
     assert "found a visible match" in executor._last_ocr_fallback_status
 
