@@ -1572,6 +1572,7 @@ class DesktopActionExecutor:
         last_tree_signature: tuple[Any, ...] | None = None
         tree_stable_since = 0.0
         baseline_changed = baseline is None
+        self._last_ocr_fallback_status = ""
         last_visual_attempt = started
         pending_visual: tuple[Any, str] | None = None
         pending_visual_since = 0.0
@@ -1680,7 +1681,7 @@ class DesktopActionExecutor:
                 # This is generic across browsers and native apps, not site-specific.
                 if (
                     now - started >= visual_min_wait
-                    and (baseline_changed or baseline is None)
+                    and (baseline_changed or baseline is None or now - started >= 7.0)
                     and now - last_visual_attempt >= 0.8
                 ):
                     last_visual_attempt = now
