@@ -363,6 +363,70 @@ def test_browser_url_then_search_uses_the_open_page_not_a_second_google_tab():
     ]
 
 
+def test_end_to_end_browser_workflow_waits_for_results_before_clicking(monkeypatch):
+    backend = FakeKeyboardBackend()
+    executor = DesktopActionExecutor(backend=backend)
+    search_field = FakeUIControl()
+    result_control = FakeUIControl()
+    sequence = []
+
+    actions = parse_task(
+        "open https://www.youtube.com then search for The Weeknd Blinding Lights official music video "
+        "then press Enter then click the first result"
+    )
+    assert [action["type"] for action in actions] == [
+        "open_url", "smart_type", "hotkey", "click_first_result"
+    ]
+
+    def navigate(url, actual_backend):
+        sequence.append(("open_url", url))
+        return "Opened target and confirmed navigation"
+
+    monkeypatch.setattr(executor, "_navigate_browser_to_url", navigate)
+    monkeypatch.setattr(executor, "_ensure_last_target_tab_active", lambda: None)
+    monkeypatch.setattr(
+        executor,
+        "_find_search_field",
+        lambda timeout_seconds=8.0: (
+            sequence.append(("search_field", "Search")) or object(),
+            search_field,
+            "Search",
+        ),
+    )
+    monkeypatch.setattr(executor, "_capture_result_snapshot", lambda: ("pre-submit",))
+    monkeypatch.setattr(executor, "_update_target_context_from_foreground", lambda: None)
+
+    def wait_for_result(target="", timeout_seconds=20.0):
+        sequence.append(("wait_for_result", target))
+        # Simulate slow page loading; Enter must not finish before the result is ready.
+        if len([item for item in sequence if item[0] == "wait_for_result"]) == 1:
+            desktop_bridge.time.sleep(0.1)
+        return result_control, "Blinding Lights — The Weeknd (Official Video)"
+
+    monkeypatch.setattr(executor, "_find_result_control", wait_for_result)
+
+    def click_result(control, target=""):
+        sequence.append(("click_result", target))
+        return "Blinding Lights — The Weeknd"
+
+    monkeypatch.setattr(executor, "_click_result_control", click_result)
+
+    result = executor.execute(actions)
+
+    assert result["ok"] is True
+    assert [row["status"] for row in result["completed"]] == ["succeeded"] * 4
+    assert search_field.clicked == 1
+    assert ("write", "The Weeknd Blinding Lights official music video") in backend.events
+    assert ("press", "enter") in backend.events
+    assert sequence == [
+        ("open_url", "https://www.youtube.com"),
+        ("search_field", "Search"),
+        ("wait_for_result", "The Weeknd Blinding Lights official music video"),
+        ("wait_for_result", "The Weeknd Blinding Lights official music video"),
+        ("click_result", "The Weeknd Blinding Lights official music video"),
+    ]
+
+
 def test_search_box_instructions_use_adaptive_ui_automation():
     assert parse_task("type Blinding Lights into the search bar") == [
         {"type": "smart_type", "text": "Blinding Lights", "target": "search"}
