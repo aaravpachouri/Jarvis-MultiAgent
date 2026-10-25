@@ -682,6 +682,80 @@ def test_browser_url_identity_matches_normalized_host_and_path():
     )
 
 
+def test_browser_url_wait_blocks_until_expected_location_is_visible(monkeypatch):
+    import time as time_module
+
+    executor = DesktopActionExecutor(backend=FakeKeyboardBackend())
+    started = time_module.monotonic()
+
+    class AddressControl:
+        def get_value(self):
+            if time_module.monotonic() - started < 0.35:
+                return "https://jarvis-multiagent-dashboard.vercel.app/desktop"
+            return "https://www.example.test/search?q=correct"
+
+    class ActiveWindow:
+        def window_text(self):
+            return "JARVIS Desktop" if time_module.monotonic() - started < 0.35 else "Search results"
+
+    address = AddressControl()
+    active = ActiveWindow()
+    monkeypatch.setattr(
+        executor, "_find_browser_address_bar",
+        lambda timeout_seconds=0.35: (active, address, "Address and search bar"),
+    )
+
+    _, title = executor._wait_for_browser_url(
+        "https://example.test/search?q=correct",
+        timeout_seconds=2.0,
+        stable_seconds=0.15,
+    )
+
+    assert title == "Search results"
+    assert time_module.monotonic() - started >= 0.45
+
+
+def test_browser_url_wait_fails_closed_if_address_never_reaches_target(monkeypatch):
+    executor = DesktopActionExecutor(backend=FakeKeyboardBackend())
+    active = type("ActiveWindow", (), {"window_text": lambda self: "JARVIS Desktop"})()
+    address = type(
+        "AddressControl",
+        (),
+        {"get_value": lambda self: "https://jarvis-multiagent-dashboard.vercel.app/desktop"},
+    )()
+    monkeypatch.setattr(
+        executor, "_find_browser_address_bar",
+        lambda timeout_seconds=0.35: (active, address, "Address and search bar"),
+    )
+
+    with pytest.raises(DesktopAgentError, match="did not confirm navigation"):
+        executor._wait_for_browser_url(
+            "https://example.test/",
+            timeout_seconds=0.45,
+            stable_seconds=0.1,
+        )
+
+
+def test_enter_waits_for_a_matching_result_before_command_completes(monkeypatch):
+    backend = FakeKeyboardBackend()
+    executor = DesktopActionExecutor(backend=backend)
+    executor._last_search_query = "Blinding Lights"
+    waited = []
+    monkeypatch.setattr(
+        executor, "_find_result_control",
+        lambda target="", timeout_seconds=20.0: waited.append((target, timeout_seconds))
+        or (FakeUIControl(), "Blinding Lights"),
+    )
+    monkeypatch.setattr(executor, "_update_target_context_from_foreground", lambda: None)
+
+    result = executor.execute([{"type": "hotkey", "keys": ["enter"]}])
+
+    assert result["ok"] is True
+    assert waited == [("Blinding Lights", 20.0)]
+    assert "waited for a stable matching result" in result["completed"][0]["detail"]
+    assert ("press", "enter") in backend.events
+
+
 def test_open_url_reuses_current_browser_tab_and_confirms_navigation(monkeypatch):
     backend = FakeKeyboardBackend()
     executor = DesktopActionExecutor(backend=backend)
