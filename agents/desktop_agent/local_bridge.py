@@ -1544,9 +1544,12 @@ class DesktopActionExecutor:
         deadline = started + timeout_seconds
         target_text = re.sub(r"\s+", " ", target.casefold()).strip()
         target_tokens = {token for token in re.findall(r"[a-z0-9]+", target_text) if len(token) > 1}
+        # Exclude whole-page Document/Pane nodes from clickable candidates.
+        # They often inherit page text but their center is not the result's click target.
+        # If only such broad nodes exist, the visual OCR fallback supplies precise bounds.
         allowed = {
             "ListItem", "DataItem", "TreeItem", "Hyperlink", "Button",
-            "Text", "Group", "Custom", "Image", "Document", "Pane",
+            "Text", "Group", "Custom", "Image",
         }
         excluded = re.compile(
             r"^(?:home|back|forward|next|previous|play|pause|stop|close|cancel|settings|"
@@ -1556,8 +1559,7 @@ class DesktopActionExecutor:
         )
         type_bonus = {
             "ListItem": 30, "DataItem": 28, "TreeItem": 25, "Hyperlink": 22,
-            "Group": 14, "Custom": 12, "Document": 10, "Button": 8,
-            "Pane": 6, "Text": 5, "Image": 3,
+            "Group": 14, "Custom": 12, "Button": 8, "Text": 5, "Image": 3,
         }
 
         baseline = self._last_result_snapshot
