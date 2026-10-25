@@ -541,6 +541,7 @@ class DesktopActionExecutor:
         self._last_result_snapshot: tuple[Any, ...] | None = None
         self._last_search_submitted_at = 0.0
         self._search_navigation_completed = False
+        self._last_ocr_fallback_status = ""
 
     def _get_backend(self):
         if self._backend is not None:
@@ -1318,6 +1319,225 @@ class DesktopActionExecutor:
             time.sleep(0.25)
         return False
 
+    def _find_visual_result_control(self, target: str) -> tuple[Any, str] | None:
+        """Use local OCR to locate a visible result when the app exposes no usable UIA node."""
+        self._last_ocr_fallback_status = ""
+        try:
+            import pytesseract
+        except ImportError:
+            self._last_ocr_fallback_status = (
+                "Visual fallback is unavailable because pytesseract is not installed."
+            )
+            return None
+
+        executable = os.getenv("TESSERACT_CMD", "").strip() or shutil.which("tesseract")
+        if not executable:
+            program_files = os.getenv("PROGRAMFILES", r"C:\Program Files")
+            program_files_x86 = os.getenv("PROGRAMFILES(X86)", r"C:\Program Files (x86)")
+            for candidate in (
+                Path(program_files) / "Tesseract-OCR" / "tesseract.exe",
+                Path(program_files_x86) / "Tesseract-OCR" / "tesseract.exe",
+            ):
+                if candidate.is_file():
+                    executable = str(candidate)
+                    break
+        if not executable or (os.path.isabs(executable) and not Path(executable).is_file()):
+            self._last_ocr_fallback_status = (
+                "Visual fallback is unavailable because the Tesseract OCR executable was not found. "
+                "Install Tesseract OCR or set TESSERACT_CMD to its executable path."
+            )
+            return None
+
+        try:
+            pytesseract.pytesseract.tesseract_cmd = executable
+            backend = self._get_backend()
+            screenshot = backend.screenshot()
+            screen_size = backend.size()
+            image_width, image_height = screenshot.size
+            if image_width <= 0 or image_height <= 0:
+                self._last_ocr_fallback_status = "Visual fallback received an empty screenshot."
+                return None
+            scale_x = float(screen_size.width) / float(image_width)
+            scale_y = float(screen_size.height) / float(image_height)
+            data = pytesseract.image_to_data(
+                screenshot,
+                output_type=pytesseract.Output.DICT,
+                config="--psm 11",
+                timeout=5.0,
+            )
+        except Exception as exc:
+            self._last_ocr_fallback_status = (
+                "Visual result detection failed: " + type(exc).__name__ + ": " + str(exc)[:180]
+            )
+            return None
+
+        stop_words = {
+            "the", "a", "an", "and", "or", "for", "to", "of", "in", "on", "at",
+            "by", "with", "from", "please", "watch", "play", "click", "select",
+            "open", "find", "search", "first", "top", "matching", "result",
+            "official", "officially", "music", "video", "song", "full", "hd",
+            "4k", "lyrics", "audio",
+        }
+        target_tokens = {
+            token for token in re.findall(r"[a-z0-9]+", target.casefold())
+            if len(token) > 1 and token not in stop_words
+        }
+        if not target_tokens:
+            target_tokens = {
+                token for token in re.findall(r"[a-z0-9]+", target.casefold()) if len(token) > 1
+            }
+        if not target_tokens:
+            self._last_ocr_fallback_status = "The requested result has no searchable text tokens."
+            return None
+
+        texts = data.get("text", [])
+        lefts = data.get("left", [])
+        tops = data.get("top", [])
+        widths = data.get("width", [])
+        heights = data.get("height", [])
+        confidences = data.get("conf", [])
+        blocks = data.get("block_num", [0] * len(texts))
+        paragraphs = data.get("par_num", [0] * len(texts))
+        line_numbers = data.get("line_num", list(range(len(texts))))
+
+        # Group OCR words into lines first. The screen is still a normal UI target:
+        # text is used only to identify a real bounding box, never to invent a point.
+        line_words: dict[tuple[int, int, int], list[tuple[str, int, int, int, int]]] = {}
+        for index, raw_text in enumerate(texts):
+            word = re.sub(r"\s+", " ", str(raw_text or "")).strip()
+            if not word:
+                continue
+            try:
+                confidence = float(confidences[index]) if index < len(confidences) else 100.0
+                left = int(lefts[index])
+                top = int(tops[index])
+                width = int(widths[index])
+                height = int(heights[index])
+                block = int(blocks[index]) if index < len(blocks) else 0
+                paragraph = int(paragraphs[index]) if index < len(paragraphs) else 0
+                line = int(line_numbers[index]) if index < len(line_numbers) else index
+            except (TypeError, ValueError, IndexError):
+                continue
+            if confidence < 25 or width <= 0 or height <= 0:
+                continue
+            line_words.setdefault((block, paragraph, line), []).append(
+                (word, left, top, width, height)
+            )
+
+        lines: list[dict[str, Any]] = []
+        for (block, paragraph, line_number), words in line_words.items():
+            words.sort(key=lambda word: word[1])
+            left = min(word[1] for word in words)
+            top = min(word[2] for word in words)
+            right = max(word[1] + word[3] for word in words)
+            bottom = max(word[2] + word[4] for word in words)
+            lines.append({
+                "block": block,
+                "paragraph": paragraph,
+                "line": line_number,
+                "text": " ".join(word[0] for word in words),
+                "left": left,
+                "top": top,
+                "right": right,
+                "bottom": bottom,
+            })
+        lines.sort(key=lambda line: (line["top"], line["left"]))
+
+        candidates: list[tuple[float, int, int, int, int, str]] = []
+        for start_index, first in enumerate(lines):
+            for count in (1, 2, 3):
+                chunk = lines[start_index:start_index + count]
+                if len(chunk) != count:
+                    break
+                if any(
+                    line["block"] != first["block"]
+                    or line["paragraph"] != first["paragraph"]
+                    for line in chunk
+                ):
+                    break
+                if count > 1 and any(
+                    chunk[i]["top"] - chunk[i - 1]["bottom"] > 90
+                    for i in range(1, len(chunk))
+                ):
+                    break
+                label = " ".join(line["text"] for line in chunk).strip()
+                label_tokens = {
+                    token for token in re.findall(r"[a-z0-9]+", label.casefold())
+                    if len(token) > 1 and token not in stop_words
+                }
+                matches = target_tokens & label_tokens
+                minimum_matches = 1 if len(target_tokens) <= 2 else 2
+                if len(matches) < minimum_matches:
+                    continue
+                query_coverage = len(matches) / max(1, len(target_tokens))
+                label_coverage = len(matches) / max(1, len(label_tokens))
+                score = query_coverage * 65.0 + label_coverage * 35.0
+                if matches == target_tokens:
+                    score += 8.0
+                if score < 58.0:
+                    continue
+                left = min(line["left"] for line in chunk)
+                top = min(line["top"] for line in chunk)
+                right = max(line["right"] for line in chunk)
+                bottom = max(line["bottom"] for line in chunk)
+                candidates.append((
+                    score,
+                    int(top * scale_y),
+                    int(left * scale_x),
+                    int(right * scale_x),
+                    int(bottom * scale_y),
+                    label,
+                ))
+
+        if not candidates:
+            self._last_ocr_fallback_status = (
+                "Tesseract OCR ran, but it found no visible text box with a strong match for " +
+                repr(target) + "."
+            )
+            return None
+
+        candidates.sort(key=lambda item: (-item[0], item[1], item[2]))
+        best_score = candidates[0][0]
+        # When multiple visible results match similarly well, prefer the uppermost
+        # one as requested by "click the first result". Bounding-box overlap caused
+        # by one-, two-, and three-line grouping is collapsed before selection.
+        near_best = [item for item in candidates if best_score - item[0] <= 5.0]
+        unique: list[tuple[float, int, int, int, int, str]] = []
+        for item in sorted(near_best, key=lambda candidate: (candidate[1], candidate[2], -candidate[0])):
+            if any(
+                abs(item[1] - seen[1]) < 30
+                and abs(item[2] - seen[2]) < 45
+                and abs(item[3] - seen[3]) < 80
+                and abs(item[4] - seen[4]) < 45
+                for seen in unique
+            ):
+                continue
+            unique.append(item)
+        chosen = min(unique, key=lambda item: (item[1], -item[0], item[2]))
+        _, top, left, right, bottom, label = chosen
+        if right - left < 8 or bottom - top < 8:
+            self._last_ocr_fallback_status = "OCR found a text match, but its clickable bounds were too small."
+            return None
+
+        from types import SimpleNamespace
+
+        rect = SimpleNamespace(left=left, top=top, right=right, bottom=bottom)
+        # Deliberately omit click_input(): _click_result_control will use the normal
+        # verified-bounds physical click path and then check whether the browser moved.
+        visual_control = SimpleNamespace(
+            element_info=SimpleNamespace(
+                name=label,
+                control_type="Custom",
+                automation_id="ocr-result",
+                help_text="OCR-visible result text",
+                class_name="VisualResultTarget",
+            ),
+            rectangle=lambda: rect,
+            parent=lambda: None,
+        )
+        self._last_ocr_fallback_status = "Tesseract OCR found a visible match for " + repr(label) + "."
+        return visual_control, label
+
     def _find_result_control(self, target: str = "", timeout_seconds: float = 20.0) -> tuple[Any, str]:
         """Wait for result controls to appear and stabilize, then pick a matching result."""
         started = time.monotonic()
@@ -1352,6 +1572,10 @@ class DesktopActionExecutor:
         last_tree_signature: tuple[Any, ...] | None = None
         tree_stable_since = 0.0
         baseline_changed = baseline is None
+        last_visual_attempt = started
+        pending_visual: tuple[Any, str] | None = None
+        pending_visual_since = 0.0
+        visual_min_wait = max(4.0, min(7.0, timeout_seconds * 0.3))
 
         while time.monotonic() < deadline:
             active, controls = self._active_ui_controls(allowed)
@@ -1450,6 +1674,43 @@ class DesktopActionExecutor:
                 previous_candidate = None
                 candidate_since = 0.0
 
+                # Accessibility trees are sometimes missing web content entirely.
+                # Once the page has had time to render, try a local, on-screen OCR
+                # match twice and require the same label/position before clicking it.
+                # This is generic across browsers and native apps, not site-specific.
+                if (
+                    now - started >= visual_min_wait
+                    and (baseline_changed or baseline is None)
+                    and now - last_visual_attempt >= 0.8
+                ):
+                    last_visual_attempt = now
+                    visual = self._find_visual_result_control(target_text)
+                    if visual is not None:
+                        visual_control, visual_label = visual
+                        if pending_visual is not None:
+                            previous_control, previous_label = pending_visual
+                            previous_rect = previous_control.rectangle()
+                            current_rect = visual_control.rectangle()
+                            previous_tokens = {
+                                token for token in re.findall(r"[a-z0-9]+", previous_label.casefold())
+                                if len(token) > 1
+                            }
+                            current_tokens = {
+                                token for token in re.findall(r"[a-z0-9]+", visual_label.casefold())
+                                if len(token) > 1
+                            }
+                            shared = len(previous_tokens & current_tokens) / max(
+                                1, len(previous_tokens | current_tokens)
+                            )
+                            same_position = (
+                                abs(int(previous_rect.left) - int(current_rect.left)) <= 55
+                                and abs(int(previous_rect.top) - int(current_rect.top)) <= 55
+                            )
+                            if shared >= 0.5 and same_position and now - pending_visual_since >= 0.7:
+                                return visual_control, visual_label
+                        pending_visual = visual
+                        pending_visual_since = now
+
             time.sleep(min(0.25, max(0.01, deadline - now)))
 
         if baseline is not None and target_tokens:
@@ -1458,9 +1719,11 @@ class DesktopActionExecutor:
                 " within the wait window. No click was made; the page may still be loading or may not expose matching result controls."
             )
         if target_tokens:
+            fallback_note = (" " + self._last_ocr_fallback_status) if self._last_ocr_fallback_status else ""
             raise DesktopAgentError(
-                "I couldn't find a stable, accessible result matching " + repr(target) +
-                ". No result was clicked. The app may still be loading or may not expose its result controls."
+                "I couldn't find a stable result matching " + repr(target) +
+                ". No click was made. The app may still be loading or may not expose its result controls." +
+                fallback_note
             )
         raise DesktopAgentError(
             "I couldn't identify a stable, visible result in the active app. No result was clicked."
