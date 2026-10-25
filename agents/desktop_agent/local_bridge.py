@@ -724,16 +724,16 @@ class DesktopActionExecutor:
 
         texts = data.get("text", [])
         candidates: list[tuple[int, int, int, int, int, str]] = []
-        # Known search placeholders are useful across many apps without tying the
-        # implementation to Spotify, a browser, or any vendor-specific selector.
+        # OCR returns words, so combine words on the same visual line before matching
+        # multiword placeholders such as "What do you want to play?".
         search_phrase = re.compile(
-            r"\b(search|search for|search songs|search artists|search albums|"
-            r"find|filter|what do you want to play|search across)\b",
+            r"\b(search|find|filter|what do you want to play|search across)\b",
             re.IGNORECASE,
         )
+        lines: dict[tuple[int, int, int], list[tuple[str, int, int, int, int, float]]] = {}
         for index, raw in enumerate(texts):
-            label = re.sub(r"\s+", " ", str(raw or "")).strip()
-            if not label or not search_phrase.search(label):
+            word = re.sub(r"\s+", " ", str(raw or "")).strip()
+            if not word:
                 continue
             try:
                 confidence = float(data.get("conf", [100] * len(texts))[index])
@@ -741,15 +741,32 @@ class DesktopActionExecutor:
                 top = int(data["top"][index])
                 width = int(data["width"][index])
                 height = int(data["height"][index])
+                block = int(data.get("block_num", [0] * len(texts))[index])
+                paragraph = int(data.get("par_num", [0] * len(texts))[index])
+                line = int(data.get("line_num", list(range(len(texts))))[index])
             except (TypeError, ValueError, IndexError, KeyError):
                 continue
             if confidence < 35 or width < 8 or height < 6:
                 continue
-            if re.search(r"\b(password|passcode|payment|credit card|security code)\\b", label, re.IGNORECASE):
+            lines.setdefault((block, paragraph, line), []).append(
+                (word, left, top, width, height, confidence)
+            )
+
+        for words in lines.values():
+            words.sort(key=lambda item: item[1])
+            label = " ".join(item[0] for item in words)
+            if not search_phrase.search(label):
                 continue
+            if re.search(r"\b(password|passcode|payment|credit card|security code)\b", label, re.IGNORECASE):
+                continue
+            left = min(item[1] for item in words)
+            top = min(item[2] for item in words)
+            right = max(item[1] + item[3] for item in words)
+            bottom = max(item[2] + item[4] for item in words)
+            confidence = sum(item[5] for item in words) / len(words)
             candidates.append((
                 int(top * scale_y), int(left * scale_x),
-                int((left + width) * scale_x), int((top + height) * scale_y),
+                int(right * scale_x), int(bottom * scale_y),
                 int(confidence), label,
             ))
 
