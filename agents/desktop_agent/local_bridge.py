@@ -1167,10 +1167,21 @@ class DesktopActionExecutor:
 
     def _wait_for_active_page_change(
         self,
-        before: tuple[bool, tuple[Any, ...]],
+        before: tuple[bool, tuple[Any, ...]] | None,
         timeout_seconds: float = 6.0,
     ) -> bool:
-        """Wait for navigation/result state change after activating a browser result."""
+        """Wait for verifiable navigation after a result click, even if omnibox UIA is missing."""
+        # A known target browser URL is evidence that this is a browser interaction
+        # even when a browser version/provider doesn't expose its address bar through
+        # UI Automation. In that case use title/tab changes, not arbitrary content
+        # churn, as navigation evidence.
+        known_browser_target = bool(self._last_target_browser_url)
+        if before is None:
+            try:
+                before = self._capture_active_page_state()
+            except Exception:
+                return False
+
         deadline = time.monotonic() + timeout_seconds
         while time.monotonic() < deadline:
             try:
@@ -1178,14 +1189,13 @@ class DesktopActionExecutor:
             except Exception:
                 time.sleep(0.25)
                 continue
-            if before[0] and current[0]:
-                # In a browser, unrelated page content may change while a click is
+
+            browser_context = known_browser_target or bool(before[0]) or bool(current[0])
+            if browser_context:
+                # In a browser, unrelated page content can change while a click is
                 # still doing nothing (ads, recommendations, loading indicators).
-                # Count only navigational evidence: window title, address/URL value,
-                # or browser tab list. This avoids false-positive "clicked" reports.
-                before_navigation = before[1][:3]
-                current_navigation = current[1][:3]
-                if current_navigation != before_navigation:
+                # Count only navigational evidence: title, address/URL, or tab list.
+                if current[1][:3] != before[1][:3]:
                     return True
             elif current != before:
                 return True
@@ -1516,7 +1526,14 @@ class DesktopActionExecutor:
         # Browser result clicks should navigate/open a player or tab. Don't call the
         # click successful just because an input event was issued; wait for title,
         # URL, tab or accessible page content to change.
-        browser_context = bool(before_state and before_state[0])
+        # The omnibox itself may be absent from the browser's accessibility tree.
+        # A verified target URL/tab identity still establishes browser context; without
+        # this check, a successful UIA Invoke was incorrectly treated as enough and the
+        # physical fallback never ran when the click had no effect.
+        browser_context = bool(
+            (before_state and before_state[0])
+            or self._last_target_browser_url
+        )
         if browser_context and self._wait_for_active_page_change(before_state, timeout_seconds=5.0):
             return selected_name
         if not browser_context and activation_sent:
