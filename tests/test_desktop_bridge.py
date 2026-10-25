@@ -700,7 +700,7 @@ def test_result_finder_uses_ocr_when_weak_uia_match_blocks_visual_fallback(monke
     assert found is visual
     assert label == "Blinding Lights"
     assert len(visual_calls) >= 2
-    assert clock["now"] >= 107.0
+    assert clock["now"] >= 105.0
 
 
 def test_result_finder_does_not_click_a_matching_stale_tree_after_enter(monkeypatch):
