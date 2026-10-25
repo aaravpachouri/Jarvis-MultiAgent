@@ -384,7 +384,7 @@ def test_result_finder_does_not_click_a_matching_stale_tree_after_enter(monkeypa
     executor._last_result_snapshot = executor._result_tree_signature(active, controls)
     executor._last_search_submitted_at = 0.0
 
-    with pytest.raises(DesktopAgentError, match="never showed a fresh result state"):
+    with pytest.raises(DesktopAgentError, match="did not expose a fresh, stable result"):
         executor._find_result_control(
             "The Weeknd Blinding Lights official music video",
             timeout_seconds=0.35,
@@ -512,13 +512,14 @@ def test_browser_search_falls_back_to_default_omnibox_without_site_specific_urls
     )
     monkeypatch.setattr(executor, "_capture_result_snapshot", lambda: ("pre-search",))
 
+    # This represents a browser that was already open, not one opened by
+    # this command: fallback must detect the omnibox from accessibility metadata.
     result = executor.execute([
-        {"type": "open_url", "url": "https://www.example.test"},
         {"type": "smart_type", "text": "Universal search query", "target": "search"},
     ])
 
     assert result["ok"] is True
-    assert "default search" in result["completed"][1]["detail"]
+    assert "default search" in result["completed"][0]["detail"]
     assert ("hotkey", ("ctrl", "l")) in backend.events
     assert ("write", "Universal search query") in backend.events
     assert ("press", "enter") in backend.events
