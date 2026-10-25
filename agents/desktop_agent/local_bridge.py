@@ -728,7 +728,7 @@ class DesktopActionExecutor:
         # implementation to Spotify, a browser, or any vendor-specific selector.
         search_phrase = re.compile(
             r"\b(search|search for|search songs|search artists|search albums|"
-            r"find|filter|what do you want to play|search across)\\b",
+            r"find|filter|what do you want to play|search across)\b",
             re.IGNORECASE,
         )
         for index, raw in enumerate(texts):
