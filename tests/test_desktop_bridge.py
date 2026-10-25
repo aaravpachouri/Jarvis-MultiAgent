@@ -453,6 +453,90 @@ class FakeResultWrapper:
         return SimpleNamespace(left=100, top=120, right=500, bottom=200)
 
 
+def test_visual_result_finder_uses_ocr_text_and_scales_verified_screen_bounds(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    class FakeImage:
+        size = (1000, 500)
+
+    class FakeBackend(FakeKeyboardBackend):
+        def screenshot(self):
+            return FakeImage()
+
+        def size(self):
+            return SimpleNamespace(width=2000, height=1000)
+
+    data = {
+        "text": ["The", "Weeknd", "Blinding", "Lights", "(Official", "Video"],
+        "left": [40, 80, 165, 260, 345, 445],
+        "top": [100, 100, 100, 100, 100, 100],
+        "width": [30, 70, 85, 75, 90, 50],
+        "height": [20, 20, 20, 20, 20, 20],
+        "conf": ["95"] * 6,
+        "block_num": [1] * 6,
+        "par_num": [1] * 6,
+        "line_num": [1] * 6,
+    }
+    fake_module = SimpleNamespace(
+        pytesseract=SimpleNamespace(tesseract_cmd=""),
+        Output=SimpleNamespace(DICT="dict"),
+        image_to_data=lambda image, output_type, config, timeout: data,
+    )
+    monkeypatch.setitem(sys.modules, "pytesseract", fake_module)
+    monkeypatch.setattr(desktop_bridge.shutil, "which", lambda command: "tesseract")
+    monkeypatch.setenv("TESSERACT_CMD", "")
+
+    executor = DesktopActionExecutor(backend=FakeBackend())
+    result = executor._find_visual_result_control(
+        "The Weeknd Blinding Lights official music video"
+    )
+
+    assert result is not None
+    control, label = result
+    assert "Blinding Lights" in label
+    assert control.element_info.control_type == "Custom"
+    rect = control.rectangle()
+    assert rect.left == 80
+    assert rect.top == 200
+    assert rect.right == 1170
+    assert rect.bottom == 240
+    assert "found a visible match" in executor._last_ocr_fallback_status
+
+
+def test_result_finder_uses_repeated_ocr_match_when_uia_exposes_no_result(monkeypatch):
+    from types import SimpleNamespace
+
+    clock = {"now": 0.0}
+    monkeypatch.setattr(desktop_bridge.time, "monotonic", lambda: clock["now"])
+    monkeypatch.setattr(desktop_bridge.time, "sleep", lambda seconds: clock.__setitem__("now", clock["now"] + seconds))
+
+    executor = DesktopActionExecutor(backend=FakeKeyboardBackend())
+    active = SimpleNamespace(window_text=lambda: "Search results")
+    monkeypatch.setattr(executor, "_active_ui_controls", lambda allowed: (active, []))
+    executor._last_result_snapshot = ("Before search", ())
+
+    visual = FakeResultWrapper("Blinding Lights Official Video", "Custom")
+    visual.element_info.automation_id = "ocr-result"
+    visual.rect_value = None
+    calls = []
+
+    def find_visual(target):
+        calls.append(target)
+        return visual, "Blinding Lights Official Video"
+
+    monkeypatch.setattr(executor, "_find_visual_result_control", find_visual)
+    control, label = executor._find_result_control(
+        "The Weeknd Blinding Lights official music video",
+        timeout_seconds=10.0,
+    )
+
+    assert control is visual
+    assert label == "Blinding Lights Official Video"
+    assert len(calls) >= 2
+    assert clock["now"] >= 4.7
+
+
 def test_result_finder_matches_short_browser_title_against_long_query(monkeypatch):
     executor = DesktopActionExecutor(backend=FakeKeyboardBackend())
     title = FakeResultWrapper("Blinding Lights", "Text")
