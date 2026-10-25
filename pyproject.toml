@@ -19,6 +19,7 @@ desktop = [
     'pygetwindow>=0.0.9; platform_system == "Windows"',
     'pyperclip>=1.8.2; platform_system == "Windows"',
     'pywinauto>=0.6.9; platform_system == "Windows"',
+    'pytesseract>=0.3.13; platform_system == "Windows"',
 ]
 voice = [
     "SpeechRecognition>=3.10.0",
