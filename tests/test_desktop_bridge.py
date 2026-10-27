@@ -520,6 +520,79 @@ class FakeResultWrapper:
         return SimpleNamespace(left=100, top=120, right=500, bottom=200)
 
 
+def test_type_text_focuses_the_unique_accessible_document_before_typing(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    class EditableDocument:
+        def __init__(self):
+            self.element_info = SimpleNamespace(
+                name="Text editor", control_type="Document",
+                automation_id="text-area", help_text="", class_name="RichEdit",
+            )
+            self.focused = False
+            self.clicked = 0
+
+        def is_visible(self):
+            return True
+
+        def is_enabled(self):
+            return True
+
+        def rectangle(self):
+            return SimpleNamespace(width=lambda: 800, height=lambda: 500)
+
+        def set_focus(self):
+            self.focused = True
+
+        def has_keyboard_focus(self):
+            return self.focused
+
+        def click_input(self):
+            self.clicked += 1
+            self.focused = True
+
+    document = EditableDocument()
+    active = SimpleNamespace(window_text=lambda: "Untitled - Notepad", descendants=lambda: [document])
+    fake_module = SimpleNamespace(Desktop=lambda backend: SimpleNamespace(get_active=lambda: active))
+    monkeypatch.setitem(sys.modules, "pywinauto", fake_module)
+
+    executor = DesktopActionExecutor(backend=FakeKeyboardBackend())
+    detail = executor._focus_text_entry_target()
+
+    assert document.focused is True
+    assert document.clicked == 0
+    assert "Notepad" in detail
+    assert "Document" in detail
+
+
+def test_type_text_fails_closed_when_no_accessible_editable_surface(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    class NonEditableControl:
+        element_info = SimpleNamespace(
+            name="Save", control_type="Button", automation_id="", help_text="", class_name="Button",
+        )
+
+        def is_visible(self):
+            return True
+
+        def is_enabled(self):
+            return True
+
+        def rectangle(self):
+            return SimpleNamespace(width=lambda: 80, height=lambda: 24)
+
+    active = SimpleNamespace(window_text=lambda: "Notepad", descendants=lambda: [NonEditableControl()])
+    fake_module = SimpleNamespace(Desktop=lambda backend: SimpleNamespace(get_active=lambda: active))
+    monkeypatch.setitem(sys.modules, "pywinauto", fake_module)
+
+    executor = DesktopActionExecutor(backend=FakeKeyboardBackend())
+    with pytest.raises(DesktopAgentError, match="Typing stopped for safety"):
+        executor._focus_text_entry_target()
+
+
 def test_result_finder_never_treats_whole_page_pane_as_a_video_result(monkeypatch):
     from types import SimpleNamespace
 
