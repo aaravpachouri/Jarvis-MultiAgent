@@ -720,6 +720,73 @@ class DesktopActionExecutor:
             found.append((control, kind, name.strip(), metadata))
         return active, found
 
+    def _focus_text_entry_target(self) -> str:
+        """Focus an accessible editable surface before typing; fail closed if none is identifiable."""
+        try:
+            from pywinauto import Desktop
+        except ImportError as exc:
+            raise DesktopAgentError(
+                "Safe text entry needs pywinauto. Close and restart run_desktop_agent.bat to install desktop dependencies."
+            ) from exc
+
+        try:
+            active = Desktop(backend="uia").get_active()
+            title = str(getattr(active, "window_text", lambda: "")() or "").strip()
+            controls = active.descendants()
+        except Exception as exc:
+            raise DesktopAgentError(
+                "Windows could not identify the active app's editable area. Bring the intended app forward and retry."
+            ) from exc
+
+        candidates: list[tuple[int, Any, str]] = []
+        for control in controls:
+            kind = self._control_text(control, "control_type")
+            if kind not in {"Edit", "Document", "TextBox"} or not self._is_visible_enabled(control):
+                continue
+            name = self._control_text(control, "name")
+            metadata = " ".join((
+                name,
+                self._control_text(control, "automation_id"),
+                self._control_text(control, "class_name"),
+            )).casefold()
+            # Prefer actual document/editing surfaces over small search or address fields.
+            score = {"Document": 30, "Edit": 20, "TextBox": 10}.get(kind, 0)
+            if any(token in metadata for token in ("document", "text editor", "edit area", "text area")):
+                score += 15
+            candidates.append((score, control, kind))
+
+        if not candidates:
+            raise DesktopAgentError(
+                "Typing stopped for safety: the active window exposes no accessible text-entry area. "
+                "Click the exact place where text should go and retry."
+            )
+
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        best_score = candidates[0][0]
+        best = [item for item in candidates if item[0] == best_score]
+        if len(best) > 1:
+            raise DesktopAgentError(
+                "Typing stopped for safety: the active window has multiple equally likely text fields. "
+                "Click the exact field and retry."
+            )
+
+        _, target, kind = best[0]
+        try:
+            # Set focus first; clicking the middle of an Edit/Document is the fallback
+            # for providers that report focus calls as successful without moving focus.
+            set_focus = getattr(target, "set_focus", None)
+            if callable(set_focus):
+                set_focus()
+            if not bool(getattr(target, "has_keyboard_focus", lambda: False)()):
+                target.click_input()
+            time.sleep(0.15)
+        except Exception as exc:
+            raise DesktopAgentError(
+                "Windows found the text area but could not focus it. Click the intended field and retry."
+            ) from exc
+
+        return (title + " — " if title else "") + kind + " text area focused"
+
     def _find_visual_search_field(self) -> tuple[Any, str] | None:
         """Locate a clearly labelled visible search placeholder with local OCR.
 
@@ -2165,21 +2232,20 @@ class DesktopActionExecutor:
                     if not value or len(value) > 8_000:
                         raise DesktopAgentError("Text must be between 1 and 8,000 characters.")
 
-                    # Explicitly reactivate the current foreground window before sending
-                    # keyboard input. Windows can leave Start/search or the dashboard
-                    # focused for a short time after an app launch, causing silent typing
-                    # into the wrong place or nowhere at all.
+                    # Reactivate the foreground window, then explicitly focus an accessible
+                    # edit/document surface. Merely calling pyautogui.write() can silently
+                    # send text nowhere when Windows has the app window active but no caret.
                     try:
                         active_window = backend.getActiveWindow()
                         if active_window is not None:
-                            try:
-                                active_window.activate()
-                            except Exception:
-                                pass
+                            active_window.activate()
                             time.sleep(0.2)
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        raise DesktopAgentError(
+                            "Windows could not activate the intended foreground window. Bring the target app forward and retry."
+                        ) from exc
 
+                    focus_detail = self._focus_text_entry_target()
                     if value.isascii():
                         backend.write(value, interval=0)
                     else:
@@ -2202,7 +2268,7 @@ class DesktopActionExecutor:
                                     pyperclip.copy(original_clipboard)
                                 except Exception:
                                     pass
-                    detail = "Sent " + str(len(value)) + " characters to the active window"
+                    detail = "Typed " + str(len(value)) + " characters after focusing " + focus_detail
                 elif kind in {"smart_type", "focus_search"}:
                     value = str(action.get("text", ""))
                     if kind == "smart_type" and (not value or len(value) > 8_000):
