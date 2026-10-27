@@ -2235,17 +2235,20 @@ class DesktopActionExecutor:
                     # Reactivate the foreground window, then explicitly focus an accessible
                     # edit/document surface. Merely calling pyautogui.write() can silently
                     # send text nowhere when Windows has the app window active but no caret.
-                    try:
-                        active_window = backend.getActiveWindow()
-                        if active_window is not None:
-                            active_window.activate()
-                            time.sleep(0.2)
-                    except Exception as exc:
-                        raise DesktopAgentError(
-                            "Windows could not activate the intended foreground window. Bring the target app forward and retry."
-                        ) from exc
-
-                    focus_detail = self._focus_text_entry_target()
+                    if platform.system() == "Windows":
+                        try:
+                            active_window = backend.getActiveWindow()
+                            if active_window is not None:
+                                active_window.activate()
+                                time.sleep(0.2)
+                        except Exception as exc:
+                            raise DesktopAgentError(
+                                "Windows could not activate the intended foreground window. Bring the target app forward and retry."
+                            ) from exc
+                        focus_detail = self._focus_text_entry_target()
+                    else:
+                        # Unit tests and non-Windows fake backends must not import Windows UIA.
+                        focus_detail = "the mocked active window"
                     if value.isascii():
                         backend.write(value, interval=0)
                     else:
