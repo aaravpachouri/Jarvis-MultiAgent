@@ -2164,6 +2164,22 @@ class DesktopActionExecutor:
                     value = str(action.get("text", ""))
                     if not value or len(value) > 8_000:
                         raise DesktopAgentError("Text must be between 1 and 8,000 characters.")
+
+                    # Explicitly reactivate the current foreground window before sending
+                    # keyboard input. Windows can leave Start/search or the dashboard
+                    # focused for a short time after an app launch, causing silent typing
+                    # into the wrong place or nowhere at all.
+                    try:
+                        active_window = backend.getActiveWindow()
+                        if active_window is not None:
+                            try:
+                                active_window.activate()
+                            except Exception:
+                                pass
+                            time.sleep(0.2)
+                    except Exception:
+                        pass
+
                     if value.isascii():
                         backend.write(value, interval=0)
                     else:
@@ -2176,15 +2192,17 @@ class DesktopActionExecutor:
                             original_clipboard = pyperclip.paste()
                         except Exception:
                             pass
-                        pyperclip.copy(value)
-                        backend.hotkey("ctrl", "v")
-                        time.sleep(0.15)
-                        if original_clipboard is not None:
-                            try:
-                                pyperclip.copy(original_clipboard)
-                            except Exception:
-                                pass
-                    detail = "Typed " + str(len(value)) + " characters"
+                        try:
+                            pyperclip.copy(value)
+                            backend.hotkey("ctrl", "v")
+                            time.sleep(0.2)
+                        finally:
+                            if original_clipboard is not None:
+                                try:
+                                    pyperclip.copy(original_clipboard)
+                                except Exception:
+                                    pass
+                    detail = "Sent " + str(len(value)) + " characters to the active window"
                 elif kind in {"smart_type", "focus_search"}:
                     value = str(action.get("text", ""))
                     if kind == "smart_type" and (not value or len(value) > 8_000):
