@@ -2560,9 +2560,59 @@ class BridgeHandler(BaseHTTPRequestHandler):
             self._send_json(500, {"ok": False, "error": "Desktop bridge failed safely: " + type(exc).__name__})
 
 
+def _run_console_app(state: BridgeState, server: BridgeHTTPServer) -> None:
+    """Console fallback for Python installations without Tcl/Tk.
+
+    Pairing stays local, and sensitive tasks still require an explicit yes/no
+    decision. No approval is granted when input is unavailable or ambiguous.
+    """
+    print("\\nJARVIS DESKTOP COMPANION — CONSOLE MODE")
+    print("Tkinter is unavailable; using the permission-preserving console fallback.")
+    print("Local bridge: http://" + HOST + ":" + str(PORT))
+    print("PAIRING KEY (keep private; paste only into your trusted JARVIS dashboard):")
+    print(state.token)
+    print("\\nRoutine tasks follow the existing policy. Sensitive actions require approval.")
+    print("For each approval request, review the exact actions and type YES to approve.")
+    print("Any other response, timeout, or input error denies the action.")
+    print("Press Ctrl+C in this terminal to stop the companion. Keep this terminal open.")
+
+    def approval_console() -> None:
+        while True:
+            try:
+                ticket = state.approvals.pending.get(timeout=0.5)
+            except queue.Empty:
+                continue
+            try:
+                details = action_summary(ticket.actions, ticket.active_window)
+                print("\\n" + "=" * 68)
+                print("JARVIS PERMISSION REQUIRED — REVIEW BEFORE EXECUTION")
+                print(details)
+                answer = input("Approve this exact action sequence? Type YES to approve [default: NO]: ")
+                ticket.approved = answer.strip().casefold() == "yes"
+            except (EOFError, KeyboardInterrupt, OSError):
+                ticket.approved = False
+            except Exception:
+                ticket.approved = False
+            finally:
+                ticket.finished.set()
+                print("Approval result: " + ("APPROVED" if ticket.approved else "DENIED"))
+
+    threading.Thread(
+        target=approval_console,
+        name="jarvis-console-approvals",
+        daemon=True,
+    ).start()
+    while True:
+        time.sleep(1)
+
+
 def _run_tk_app(state: BridgeState, server: BridgeHTTPServer) -> None:
-    import tkinter as tk
-    from tkinter import messagebox
+    try:
+        import tkinter as tk
+        from tkinter import messagebox
+    except (ImportError, ModuleNotFoundError):
+        _run_console_app(state, server)
+        return
 
     root = tk.Tk()
     root.title("JARVIS Desktop Companion")
