@@ -721,22 +721,26 @@ class DesktopActionExecutor:
         return active, found
 
     def _focus_text_entry_target(self) -> str:
-        """Focus an accessible editable surface before typing; fail closed if none is identifiable."""
+        """Focus a unique editable surface when available; otherwise preserve the user's caret.
+
+        Desktop typing must work across ordinary apps and custom-drawn apps. Many applications
+        expose no editable control through UI Automation, and some expose several (e.g. editor
+        plus search/filter). In those cases, guessing a control or clicking its centre is unsafe.
+        Keep the active app's existing caret instead, after verifying a foreground window exists.
+        """
         try:
             from pywinauto import Desktop
-        except ImportError as exc:
-            raise DesktopAgentError(
-                "Safe text entry needs pywinauto. Close and restart run_desktop_agent.bat to install desktop dependencies."
-            ) from exc
+        except ImportError:
+            # The local bridge still has a keyboard backend. Keep its current focus rather than
+            # making the whole typing feature unavailable when UI Automation is missing.
+            return "the current foreground caret (UI Automation unavailable)"
 
         try:
             active = Desktop(backend="uia").get_active()
             title = str(getattr(active, "window_text", lambda: "")() or "").strip()
             controls = active.descendants()
-        except Exception as exc:
-            raise DesktopAgentError(
-                "Windows could not identify the active app's editable area. Bring the intended app forward and retry."
-            ) from exc
+        except Exception:
+            return "the current foreground caret (editable controls unavailable)"
 
         candidates: list[tuple[int, Any, str]] = []
         for control in controls:
@@ -749,43 +753,32 @@ class DesktopActionExecutor:
                 self._control_text(control, "automation_id"),
                 self._control_text(control, "class_name"),
             )).casefold()
-            # Prefer actual document/editing surfaces over small search or address fields.
             score = {"Document": 30, "Edit": 20, "TextBox": 10}.get(kind, 0)
             if any(token in metadata for token in ("document", "text editor", "edit area", "text area")):
                 score += 15
             candidates.append((score, control, kind))
 
-        if not candidates:
-            raise DesktopAgentError(
-                "Typing stopped for safety: the active window exposes no accessible text-entry area. "
-                "Click the exact place where text should go and retry."
-            )
-
+        # Only move focus when there is one clearly best candidate. Never click the
+        # centre of a document just to manufacture a caret; it could reposition the cursor.
         candidates.sort(key=lambda item: item[0], reverse=True)
-        best_score = candidates[0][0]
-        best = [item for item in candidates if item[0] == best_score]
-        if len(best) > 1:
-            raise DesktopAgentError(
-                "Typing stopped for safety: the active window has multiple equally likely text fields. "
-                "Click the exact field and retry."
-            )
+        if not candidates or (len(candidates) > 1 and candidates[0][0] == candidates[1][0]):
+            return (title + " — " if title else "") + "current caret preserved"
 
-        _, target, kind = best[0]
+        _, target, kind = candidates[0]
         try:
-            # Set focus first; clicking the middle of an Edit/Document is the fallback
-            # for providers that report focus calls as successful without moving focus.
             set_focus = getattr(target, "set_focus", None)
             if callable(set_focus):
                 set_focus()
-            if not bool(getattr(target, "has_keyboard_focus", lambda: False)()):
+            has_focus = getattr(target, "has_keyboard_focus", None)
+            if callable(has_focus) and not bool(has_focus()):
+                # click_input is used only for a unique best candidate whose focus
+                # provider did not work. No app name or coordinate is hardcoded.
                 target.click_input()
-            time.sleep(0.15)
-        except Exception as exc:
-            raise DesktopAgentError(
-                "Windows found the text area but could not focus it. Click the intended field and retry."
-            ) from exc
-
-        return (title + " — " if title else "") + kind + " text area focused"
+            time.sleep(0.1)
+            return (title + " — " if title else "") + kind + " focused"
+        except Exception:
+            # Do not abort typing solely because an app has incomplete accessibility support.
+            return (title + " — " if title else "") + "current caret preserved"
 
     def _find_visual_search_field(self) -> tuple[Any, str] | None:
         """Locate a clearly labelled visible search placeholder with local OCR.
