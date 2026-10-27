@@ -566,13 +566,13 @@ def test_type_text_focuses_the_unique_accessible_document_before_typing(monkeypa
     assert "Document" in detail
 
 
-def test_type_text_fails_closed_when_no_accessible_editable_surface(monkeypatch):
+def test_type_text_preserves_current_caret_when_no_editable_surface_is_exposed(monkeypatch):
     import sys
     from types import SimpleNamespace
 
     class NonEditableControl:
         element_info = SimpleNamespace(
-            name="Save", control_type="Button", automation_id="", help_text="", class_name="Button",
+            name="Run", control_type="Button", automation_id="", help_text="", class_name="Button",
         )
 
         def is_visible(self):
@@ -584,13 +584,50 @@ def test_type_text_fails_closed_when_no_accessible_editable_surface(monkeypatch)
         def rectangle(self):
             return SimpleNamespace(width=lambda: 80, height=lambda: 24)
 
-    active = SimpleNamespace(window_text=lambda: "Notepad", descendants=lambda: [NonEditableControl()])
+    active = SimpleNamespace(window_text=lambda: "Custom editor", descendants=lambda: [NonEditableControl()])
     fake_module = SimpleNamespace(Desktop=lambda backend: SimpleNamespace(get_active=lambda: active))
     monkeypatch.setitem(sys.modules, "pywinauto", fake_module)
 
     executor = DesktopActionExecutor(backend=FakeKeyboardBackend())
-    with pytest.raises(DesktopAgentError, match="Typing stopped for safety"):
-        executor._focus_text_entry_target()
+    detail = executor._focus_text_entry_target()
+
+    assert "current caret preserved" in detail
+    assert "Custom editor" in detail
+
+
+def test_type_text_preserves_current_caret_when_multiple_fields_are_equally_likely(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    class Editable:
+        def __init__(self, name):
+            self.element_info = SimpleNamespace(
+                name=name, control_type="Edit", automation_id="", help_text="", class_name="Edit",
+            )
+
+        def is_visible(self):
+            return True
+
+        def is_enabled(self):
+            return True
+
+        def rectangle(self):
+            return SimpleNamespace(width=lambda: 200, height=lambda: 30)
+
+        def set_focus(self):
+            raise AssertionError("Ambiguous fields must not be guessed")
+
+        def click_input(self):
+            raise AssertionError("Ambiguous fields must not be clicked")
+
+    active = SimpleNamespace(window_text=lambda: "Generic application", descendants=lambda: [Editable("Field A"), Editable("Field B")])
+    fake_module = SimpleNamespace(Desktop=lambda backend: SimpleNamespace(get_active=lambda: active))
+    monkeypatch.setitem(sys.modules, "pywinauto", fake_module)
+
+    executor = DesktopActionExecutor(backend=FakeKeyboardBackend())
+    detail = executor._focus_text_entry_target()
+
+    assert "current caret preserved" in detail
 
 
 def test_result_finder_never_treats_whole_page_pane_as_a_video_result(monkeypatch):
