@@ -122,6 +122,29 @@ def validate_url(value: str) -> str:
     return value
 
 
+def validate_local_path(value: str, expected_kind: str = "any") -> Path:
+    """Resolve an existing local path; never invoke a shell or accept network paths."""
+    raw = str(value or "").strip().strip("'\\\"")
+    if not raw or len(raw) > 2048 or any(ord(ch) < 32 for ch in raw):
+        raise DesktopAgentError("Provide a valid local file or folder path.")
+    if raw.startswith(("\\\\", "//")):
+        raise DesktopAgentError("Network/UNC paths are disabled for safety.")
+    if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", raw):
+        raise DesktopAgentError("Only local file and folder paths are supported.")
+    candidate = Path(os.path.expandvars(os.path.expanduser(raw)))
+    try:
+        resolved = candidate.resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        raise DesktopAgentError("That file or folder does not exist or cannot be accessed.") from exc
+    if expected_kind == "file" and not resolved.is_file():
+        raise DesktopAgentError("The path exists, but it is not a file.")
+    if expected_kind == "folder" and not resolved.is_dir():
+        raise DesktopAgentError("The path exists, but it is not a folder.")
+    if not (resolved.is_file() or resolved.is_dir()):
+        raise DesktopAgentError("Only existing files and folders can be opened.")
+    return resolved
+
+
 def _parse_one(task: str, app_context: bool = False) -> list[dict[str, Any]]:
     text = task.strip().strip(" .")
     if not text:
@@ -191,6 +214,24 @@ def _parse_one(task: str, app_context: bool = False) -> list[dict[str, Any]]:
     )
     if first_result:
         return [{"type": "click_first_result"}]
+
+    local_path_match = re.fullmatch(
+        r"(?:open|launch|show)\\s+(?:(file|folder|directory)\\s+)?(.+)",
+        text, re.IGNORECASE,
+    )
+    if local_path_match:
+        path_value = local_path_match.group(2).strip().strip("'\\\"")
+        looks_like_path = bool(
+            re.match(r"^(?:[a-zA-Z]:[\\\\/]|\\\\\\\\)", path_value)
+            or path_value.startswith((".", "~", "%"))
+            or "\\\\" in path_value
+            or "/" in path_value
+        )
+        if looks_like_path:
+            kind_label = (local_path_match.group(1) or "any").casefold()
+            expected = "folder" if kind_label in {"folder", "directory"} else ("file" if kind_label == "file" else "any")
+            resolved = validate_local_path(path_value, expected)
+            return [{"type": "open_path", "path": str(resolved), "kind": "folder" if resolved.is_dir() else "file"}]
 
     url_match = re.fullmatch(r"(?:open|visit|go to|navigate to)\s+(https?://\S+|www\.\S+)", text, re.IGNORECASE)
     if url_match:
@@ -404,6 +445,8 @@ def action_summary(actions: list[dict[str, Any]], active_window: str = "") -> st
             label = "Open application: " + str(action.get("app", "unknown"))
         elif kind == "open_url":
             label = "Open website: " + str(action.get("url", ""))
+        elif kind == "open_path":
+            label = "Open local " + str(action.get("kind", "file")) + " (approval required): " + str(action.get("path", ""))
         elif kind == "type_text":
             value = str(action.get("text", ""))
             preview = value if len(value) <= 420 else value[:420] + " … [text truncated in preview]"
@@ -461,6 +504,8 @@ def approval_reason(task: str, actions: list[dict[str, Any]], active_window: str
     )
     if any(action.get("type") == "screenshot" for action in actions):
         return "Screen capture can expose private information."
+    if any(action.get("type") == "open_path" for action in actions):
+        return "Opening a local file or folder can expose private information."
     if sensitive.search(task):
         return "The instruction contains a sensitive or consequential operation."
     if sensitive_window.search(active_window or ""):
@@ -2099,6 +2144,13 @@ class DesktopActionExecutor:
                         "Launched " + app + " and confirmed foreground window " +
                         repr(settled_window[2] or app) + " is stable"
                     )
+                elif kind == "open_path":
+                    path = validate_local_path(str(action.get("path", "")), str(action.get("kind", "any")))
+                    if platform.system() != "Windows":
+                        raise DesktopAgentError("Opening local files through the companion is currently supported on Windows only.")
+                    # Delegate to the registered Windows app without constructing a shell command.
+                    os.startfile(str(path))
+                    detail = "Asked Windows to open local " + ("folder " if path.is_dir() else "file ") + repr(str(path))
                 elif kind == "open_url":
                     url = validate_url(str(action.get("url", "")))
                     detail = self._navigate_browser_to_url(url, backend)
