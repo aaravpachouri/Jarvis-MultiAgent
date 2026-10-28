@@ -1487,7 +1487,6 @@ class DesktopActionExecutor:
         last_identity: tuple[int | None, int | None, str] | None = None
         stable_since = 0.0
         last_activation_attempt = 0.0
-        activation_attempts: set[tuple[int | None, int | None, str]] = set()
         last_discovery_error = ""
 
         while time.monotonic() < deadline:
@@ -1578,29 +1577,29 @@ class DesktopActionExecutor:
                 chosen = current_match or (best[0] if len(best) == 1 else None)
                 if chosen is not None:
                     _, window, identity = chosen
-                    if identity != current and now - last_activation_attempt >= 0.6:
+                    if identity != current and now - last_activation_attempt >= 0.8:
                         last_activation_attempt = now
-                        if identity not in activation_attempts:
-                            activation_attempts.add(identity)
+                        try:
+                            # Retry activation while the target remains verified and
+                            # not foreground; Windows may reject an early focus request
+                            # during app startup or when a brokered process is still loading.
                             try:
-                                # Restore minimized windows before requesting focus.
+                                if hasattr(window, "is_minimized") and window.is_minimized():
+                                    window.restore()
+                            except Exception:
+                                pass
+                            try:
+                                window.set_focus()
+                            except Exception:
                                 try:
-                                    if hasattr(window, "is_minimized") and window.is_minimized():
-                                        window.restore()
+                                    window.restore()
                                 except Exception:
                                     pass
-                                try:
-                                    window.set_focus()
-                                except Exception:
-                                    try:
-                                        window.restore()
-                                    except Exception:
-                                        pass
-                                    window.set_focus()
-                            except Exception:
-                                # Foreground verification below decides whether focus
-                                # actually succeeded; never type based on activation alone.
-                                pass
+                                window.set_focus()
+                        except Exception:
+                            # Foreground verification below decides whether focus
+                            # actually succeeded; never type based on activation alone.
+                            pass
 
                     actual = self._foreground_window_identity()
                     actual_pid, actual_handle, actual_title = actual
