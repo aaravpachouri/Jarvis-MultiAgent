@@ -1467,9 +1467,18 @@ class DesktopActionExecutor:
         timeout_seconds: float = 25.0,
         stable_seconds: float = 1.0,
     ) -> tuple[int | None, int | None, str]:
-        """Wait until the requested app actually owns the foreground window."""
+        """Find and activate the launched app, then verify foreground stability.
+
+        Windows apps can launch through a broker or hand off to an existing process.
+        Watching only the current foreground window misses those cases: the app may
+        exist in the window list without ever becoming foreground. Discover windows
+        through UI Automation, rank them using generic title/process evidence, activate
+        the best unambiguous candidate, and verify the actual foreground identity.
+        No application-specific window titles or coordinates are assumed.
+        """
         deadline = time.monotonic() + timeout_seconds
         normalized_app = re.sub(r"[^a-z0-9]+", " ", app_name.casefold()).strip()
+        app_tokens = {token for token in normalized_app.split() if len(token) > 1}
         shell_title = re.compile(
             r"^(?:start|search|windows search|task switching|program manager|desktop|"
             r"task view|notification center|quick settings)$",
@@ -1477,48 +1486,188 @@ class DesktopActionExecutor:
         )
         last_identity: tuple[int | None, int | None, str] | None = None
         stable_since = 0.0
+        last_activation_attempt = 0.0
+        activation_attempts: set[tuple[int | None, int | None, str]] = set()
+        last_discovery_error = ""
 
         while time.monotonic() < deadline:
-            identity = self._foreground_window_identity()
-            process_id, handle, title = identity
-            normalized_title = re.sub(r"[^a-z0-9]+", " ", title.casefold()).strip()
-            if normalized_title and not shell_title.fullmatch(normalized_title):
-                title_matches = bool(
-                    normalized_app
-                    and (
-                        normalized_app in normalized_title
-                        or all(token in normalized_title for token in normalized_app.split())
-                    )
-                )
-                window_changed = bool(
-                    (before[1] is not None and handle is not None and before[1] != handle)
-                    or (before[0] is not None and process_id is not None and before[0] != process_id)
-                )
-                # Prefer app-name evidence. When a product doesn't put its name in
-                # the title bar, accept a different foreground process/window once it
-                # is stable rather than blindly continuing in the old app.
-                if title_matches or window_changed or not any(before):
-                    if identity != last_identity:
-                        last_identity = identity
-                        stable_since = time.monotonic()
-                    elif time.monotonic() - stable_since >= stable_seconds:
-                        self._wait_for_active_window_settled(
-                            timeout_seconds=4.0,
-                            stable_seconds=0.75,
+            candidates: list[tuple[int, Any, tuple[int | None, int | None, str]]] = []
+            try:
+                from pywinauto import Desktop
+                windows = Desktop(backend="uia").windows()
+            except Exception as exc:
+                windows = []
+                last_discovery_error = type(exc).__name__
+
+            for window in windows:
+                try:
+                    title = str(getattr(window, "window_text", lambda: "")() or "").strip()
+                    if not title:
+                        continue
+                    normalized_title = re.sub(r"[^a-z0-9]+", " ", title.casefold()).strip()
+                    if shell_title.fullmatch(normalized_title):
+                        continue
+                    try:
+                        process_id = window.process_id()
+                    except Exception:
+                        process_id = None
+                    try:
+                        handle = getattr(window, "handle", None)
+                        if callable(handle):
+                            handle = handle()
+                    except Exception:
+                        handle = None
+
+                    title_tokens = set(normalized_title.split())
+                    title_match = bool(
+                        normalized_app and (
+                            normalized_app in normalized_title
+                            or app_tokens.issubset(title_tokens)
+                            or (len(app_tokens) == 1 and next(iter(app_tokens)) in title_tokens)
                         )
-                        return identity
+                    )
+                    process_match = False
+                    # Process-name evidence helps apps whose visible title is generic.
+                    # psutil is optional; title/UIA matching remains available without it.
+                    if process_id and app_tokens:
+                        try:
+                            import psutil
+                            process_name = re.sub(
+                                r"[^a-z0-9]+", " ",
+                                Path(psutil.Process(process_id).name()).stem.casefold(),
+                            ).strip()
+                            process_tokens = set(process_name.split())
+                            process_match = bool(
+                                normalized_app in process_name
+                                or app_tokens.issubset(process_tokens)
+                                or (len(app_tokens) == 1 and next(iter(app_tokens)) in process_tokens)
+                            )
+                        except Exception:
+                            pass
+
+                    identity = (process_id, handle, title)
+                    is_current = bool(
+                        (before[1] is not None and handle == before[1])
+                        or (before[0] is not None and process_id == before[0])
+                    )
+                    # A matching title/process is strongest. A newly created top-level
+                    # window is only a fallback when its identity differs from the old
+                    # foreground window; this accommodates apps with generic titles.
+                    score = 100 if title_match else 0
+                    if process_match:
+                        score += 80
+                    if not is_current:
+                        score += 10
+                    if score:
+                        candidates.append((score, window, identity))
+                except Exception:
+                    continue
+
+            candidates.sort(key=lambda item: item[0], reverse=True)
+            now = time.monotonic()
+            if candidates:
+                best_score = candidates[0][0]
+                best = [item for item in candidates if item[0] == best_score]
+                # Prefer a uniquely identifiable target. If multiple equally strong
+                # windows exist, only use the current foreground when it itself matches.
+                current = self._foreground_window_identity()
+                current_match = next(
+                    (item for item in best if item[2][1] == current[1] and item[2][1] is not None),
+                    None,
+                )
+                chosen = current_match or (best[0] if len(best) == 1 else None)
+                if chosen is not None:
+                    _, window, identity = chosen
+                    if identity != current and now - last_activation_attempt >= 0.6:
+                        last_activation_attempt = now
+                        if identity not in activation_attempts:
+                            activation_attempts.add(identity)
+                            try:
+                                # Restore minimized windows before requesting focus.
+                                try:
+                                    if hasattr(window, "is_minimized") and window.is_minimized():
+                                        window.restore()
+                                except Exception:
+                                    pass
+                                try:
+                                    window.set_focus()
+                                except Exception:
+                                    try:
+                                        window.restore()
+                                    except Exception:
+                                        pass
+                                    window.set_focus()
+                            except Exception:
+                                # Foreground verification below decides whether focus
+                                # actually succeeded; never type based on activation alone.
+                                pass
+
+                    actual = self._foreground_window_identity()
+                    actual_pid, actual_handle, actual_title = actual
+                    expected_pid, expected_handle, expected_title = identity
+                    foreground_matches = bool(
+                        (expected_handle is not None and actual_handle == expected_handle)
+                        or (expected_pid is not None and actual_pid == expected_pid)
+                    )
+                    if foreground_matches:
+                        if actual != last_identity:
+                            last_identity = actual
+                            stable_since = time.monotonic()
+                        elif time.monotonic() - stable_since >= stable_seconds:
+                            self._wait_for_active_window_settled(
+                                timeout_seconds=min(4.0, max(1.0, deadline - time.monotonic())),
+                                stable_seconds=min(0.75, stable_seconds),
+                            )
+                            # Re-read after settling: the foreground may have changed
+                            # while UI Automation was waiting for the accessibility tree.
+                            verified = self._foreground_window_identity()
+                            if (
+                                (actual_handle is not None and verified[1] == actual_handle)
+                                or (actual_pid is not None and verified[0] == actual_pid)
+                            ):
+                                return verified
+                            last_identity = None
+                            stable_since = 0.0
+                    else:
+                        last_identity = None
+                        stable_since = 0.0
                 else:
                     last_identity = None
                     stable_since = 0.0
             else:
-                last_identity = None
-                stable_since = 0.0
-            time.sleep(0.25)
+                # If UI Automation discovery is temporarily empty, continue polling the
+                # real foreground identity rather than failing immediately.
+                identity = self._foreground_window_identity()
+                process_id, handle, title = identity
+                normalized_title = re.sub(r"[^a-z0-9]+", " ", title.casefold()).strip()
+                title_tokens = set(normalized_title.split())
+                title_matches = bool(
+                    normalized_app and (
+                        normalized_app in normalized_title
+                        or app_tokens.issubset(title_tokens)
+                        or (len(app_tokens) == 1 and next(iter(app_tokens)) in title_tokens)
+                    )
+                )
+                changed = bool(
+                    (before[1] is not None and handle is not None and before[1] != handle)
+                    or (before[0] is not None and process_id is not None and before[0] != process_id)
+                )
+                if title and not shell_title.fullmatch(normalized_title) and (title_matches or changed):
+                    if identity != last_identity:
+                        last_identity = identity
+                        stable_since = time.monotonic()
+                    elif time.monotonic() - stable_since >= stable_seconds:
+                        return identity
+                else:
+                    last_identity = None
+                    stable_since = 0.0
+            time.sleep(0.2)
 
+        diagnostic = (" Window discovery error: " + last_discovery_error + ".") if last_discovery_error else ""
         raise DesktopAgentError(
-            "Windows did not bring " + repr(app_name) +
-            " to the foreground within " + str(round(timeout_seconds)) +
-            " seconds. No follow-up actions were run in the previous window."
+            "Windows started " + repr(app_name) + " but Atlas could not verify it as the foreground window "
+            "within " + str(round(timeout_seconds)) + " seconds. Check whether the app opened minimized, "
+            "behind another window, or in a separate desktop. No follow-up actions were run." + diagnostic
         )
 
     def _wait_for_active_window_settled(self, timeout_seconds: float = 12.0, stable_seconds: float = 0.8) -> bool:
