@@ -1433,7 +1433,42 @@ class DesktopActionExecutor:
         return False
 
     def _foreground_window_identity(self) -> tuple[int | None, int | None, str]:
-        """Read foreground process/window identity to avoid acting on the previous app."""
+        """Read the actual Win32 foreground HWND, PID and title.
+
+        UI Automation's get_active() can lag behind the real foreground window or
+        return a child/accessibility wrapper whose handle differs from the top-level
+        HWND. Use the Windows foreground API as the source of truth; UIA is used later
+        for semantic controls, not to decide which application owns keyboard input.
+        """
+        if platform.system() == "Windows":
+            try:
+                import ctypes
+                from ctypes import wintypes
+
+                user32 = ctypes.WinDLL("user32", use_last_error=True)
+                user32.GetForegroundWindow.restype = wintypes.HWND
+                user32.GetWindowThreadProcessId.argtypes = [
+                    wintypes.HWND, ctypes.POINTER(wintypes.DWORD)
+                ]
+                user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+                user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
+                user32.GetWindowTextLengthW.restype = ctypes.c_int
+                user32.GetWindowTextW.argtypes = [
+                    wintypes.HWND, wintypes.LPWSTR, ctypes.c_int
+                ]
+                user32.GetWindowTextW.restype = ctypes.c_int
+                hwnd = user32.GetForegroundWindow()
+                if hwnd:
+                    pid = wintypes.DWORD(0)
+                    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                    length = max(0, user32.GetWindowTextLengthW(hwnd))
+                    buffer = ctypes.create_unicode_buffer(length + 1)
+                    user32.GetWindowTextW(hwnd, buffer, len(buffer))
+                    return int(pid.value) or None, int(hwnd), buffer.value.strip()
+            except Exception:
+                pass
+
+        # Portable/test fallback for mocked backends and non-Windows unit tests.
         try:
             from pywinauto import Desktop
             active = Desktop(backend="uia").get_active()
@@ -1446,16 +1481,11 @@ class DesktopActionExecutor:
         try:
             process_id = active.process_id()
         except Exception:
-            try:
-                process_id = getattr(getattr(active, "element_info", None), "process_id", None)
-            except Exception:
-                process_id = None
+            process_id = None
         try:
             handle = getattr(active, "handle", None)
             if callable(handle):
                 handle = handle()
-            if handle is None:
-                handle = getattr(getattr(active, "element_info", None), "handle", None)
         except Exception:
             handle = None
         return process_id, handle, title
