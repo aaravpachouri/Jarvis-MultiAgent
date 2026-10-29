@@ -1602,12 +1602,29 @@ class DesktopActionExecutor:
                                 from ctypes import wintypes
 
                                 user32 = ctypes.WinDLL("user32", use_last_error=True)
-                                target_hwnd = int(identity[1] or 0)
+                                user32.GetForegroundWindow.restype = wintypes.HWND
+                                user32.IsWindow.argtypes = [wintypes.HWND]
+                                user32.IsWindow.restype = wintypes.BOOL
+                                user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+                                user32.BringWindowToTop.argtypes = [wintypes.HWND]
+                                user32.SetForegroundWindow.argtypes = [wintypes.HWND]
+                                user32.SetActiveWindow.argtypes = [wintypes.HWND]
+                                user32.SetFocus.argtypes = [wintypes.HWND]
+                                user32.GetWindowThreadProcessId.argtypes = [
+                                    wintypes.HWND, ctypes.POINTER(wintypes.DWORD)
+                                ]
+                                user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+                                user32.GetCurrentThreadId.restype = wintypes.DWORD
+                                user32.AttachThreadInput.argtypes = [
+                                    wintypes.DWORD, wintypes.DWORD, wintypes.BOOL
+                                ]
+                                user32.AttachThreadInput.restype = wintypes.BOOL
+                                target_hwnd = wintypes.HWND(identity[1] or 0)
                                 if target_hwnd and user32.IsWindow(target_hwnd):
                                     SW_RESTORE = 9
                                     user32.ShowWindow(target_hwnd, SW_RESTORE)
                                     user32.BringWindowToTop(target_hwnd)
-                                    current_hwnd = int(user32.GetForegroundWindow() or 0)
+                                    current_hwnd = user32.GetForegroundWindow()
                                     target_thread = user32.GetWindowThreadProcessId(
                                         target_hwnd, None
                                     )
