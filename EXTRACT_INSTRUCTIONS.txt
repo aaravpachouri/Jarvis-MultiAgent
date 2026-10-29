@@ -1,0 +1,15 @@
+JARVIS MultiAgent — Existing Folder Overlay
+
+INSTALLATION
+1. Make a backup or commit your current project first.
+2. Extract this ZIP directly into your existing JARVIS MultiAgent project ROOT — the directory that already contains dashboard_server.py, main.py, agents/, dashboard/, and tests/.
+3. Allow Windows to overwrite matching files when prompted. This package only contains the Phase 27 HUD files and the Quant HTTP 404 recovery files; it does not include a parent wrapper directory.
+4. From that same project root, run your usual test command, for example:
+   .\.venv\Scripts\python.exe -m pytest -q
+5. Restart the dashboard server using the command you normally use for this project.
+
+IMPORTANT
+- Do not extract into the dashboard/ subfolder; extract into the project root.
+- Do not overwrite/delete your .git directory, .env file, local configuration, or user data.
+- This is an overlay: files not listed in the ZIP remain untouched.
+- The ZIP itself does not push changes to GitHub. To commit from your existing clone, review `git status`, then `git add` only the intended source files, commit, and push.

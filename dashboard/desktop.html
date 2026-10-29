@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#07111b">
+  <meta name="description" content="Permission-gated local Windows desktop controls for JARVIS MultiAgent.">
+  <title>JARVIS // Desktop Agent</title>
+  <link rel="stylesheet" href="/assets/desktop.css">
+  <script src="/assets/desktop.js" defer></script>
+</head>
+<body>
+  <main class="desktop-shell">
+    <header class="topline">
+      <a class="wordmark" href="/" aria-label="Back to JARVIS overview">
+        <span class="brand-glyph"><i></i><i></i><i></i></span>
+        <span><strong>JARVIS<span>/X</span></strong><small>LOCAL DESKTOP AGENT</small></span>
+      </a>
+      <div class="connection-state"><span id="status-led" class="led idle"></span><span id="connection-label">LOCAL COMPANION DISCONNECTED</span></div>
+    </header>
+
+    <section class="hero">
+      <div class="kicker"><span class="kicker-line"></span> ATLAS / DESKTOP CONTROL</div>
+      <div class="hero-grid">
+        <div>
+          <h1>Your PC.<br><em>Under your command.</em></h1>
+          <p class="hero-copy">Control your Windows desktop across installed apps. Routine actions run instantly; sensitive operations pause for native approval on your PC.</p>
+          <div class="hero-badges"><span><i class="led good"></i> LOOPBACK ONLY</span><span><i class="led good"></i> RISK-BASED APPROVAL</span><span><i class="led good"></i> NO REMOTE SHELL</span></div>
+        </div>
+        <div class="orbit-card" aria-hidden="true">
+          <div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><div class="orbit orbit-three"></div>
+          <div class="core"><span>ATLAS</span><b>⌘</b><small>DESKTOP</small></div>
+          <div class="orbit-dot dot-one"></div><div class="orbit-dot dot-two"></div><div class="orbit-dot dot-three"></div>
+          <div class="orbit-tag tag-one">INPUT</div><div class="orbit-tag tag-two">APP</div><div class="orbit-tag tag-three">VERIFY</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel pairing-panel">
+      <div class="panel-heading"><div><span class="eyebrow">01 / PAIR DEVICE</span><h2>Connect your Windows companion</h2></div><span class="panel-index">LOCAL</span></div>
+      <p class="muted">Run <code>run_desktop_agent.bat</code> on the PC you want to control. Copy the pairing key from its local companion window and save it here once in this browser.</p>
+      <div class="connection-fields">
+        <label for="pairing-token">LOCAL PAIRING KEY
+          <input id="pairing-token" type="password" autocomplete="off" spellcheck="false" placeholder="Paste key from the Windows companion">
+        </label>
+        <button id="connect-button" class="button primary" type="button">CONNECT <span>↗</span></button>
+        <button id="forget-button" class="button secondary" type="button">FORGET KEY</button>
+      </div>
+      <div id="connection-detail" class="inline-status" role="status" aria-live="polite">The local companion must be running on this same PC.</div>
+    </section>
+
+    <section class="work-grid">
+      <section class="panel composer-panel">
+        <div class="panel-heading"><div><span class="eyebrow">02 / COMMAND</span><h2>Tell Atlas what to do</h2></div><span class="panel-index">MAX 8 STEPS</span></div>
+        <form id="task-form">
+          <label class="sr-only" for="task-input">Desktop task instruction</label>
+          <textarea id="task-input" maxlength="3000" rows="4" placeholder="Example: Open an app, search for a title, press Enter, then click the result"></textarea>
+          <div class="task-meta"><span>Chain with “then” or send one step at a time · search context is remembered</span><span id="char-count">0 / 3000</span></div>
+          <div class="example-row" aria-label="Example tasks">
+            <button class="example" data-example="open notepad" type="button">Open Notepad</button>
+            <button class="example" data-example="open Spotify" type="button">Open any app</button>
+            <button class="example" data-example="open notepad and type Hello from JARVIS" type="button">Type a message</button>
+            <button class="example" data-example="scroll down" type="button">Scroll screen</button>
+            <button class="example" data-example="search for Python 3.12 release notes" type="button">Search web</button>
+          </div>
+          <div class="task-actions">
+            <button id="preview-button" class="button secondary" type="button">PREVIEW PLAN</button>
+            <button id="execute-button" class="button primary" type="submit" disabled>RUN TASK <span>↗</span></button>
+          </div>
+        </form>
+        <div id="plan-output" class="result-block hidden" aria-live="polite"></div>
+      </section>
+
+      <section class="panel screen-panel">
+        <div class="panel-heading"><div><span class="eyebrow">03 / SCREEN INSPECTION</span><h2>View the current screen</h2></div><span class="panel-index">ON DEMAND</span></div>
+        <p class="muted">Screen capture requires its own local approval. Click the captured image to map a point to your real desktop coordinates.</p>
+        <button id="screenshot-button" class="button secondary full-width" type="button" disabled>REQUEST SCREEN CAPTURE</button>
+        <div id="screen-placeholder" class="screen-placeholder"><span class="crosshair">⌖</span><b>NO SCREEN CAPTURE</b><small>Capture is private to this browser tab and is not sent to the cloud.</small></div>
+        <div id="screen-wrap" class="screen-wrap hidden"><img id="screen-image" alt="Approved screenshot of the local Windows desktop"><div class="screen-tip">Click a location to add its desktop coordinates to the command field.</div></div>
+        <div id="coordinate-note" class="inline-status" aria-live="polite">A screenshot must be approved locally before coordinate picking is available.</div>
+      </section>
+    </section>
+
+    <section class="panel results-panel">
+      <div class="panel-heading"><div><span class="eyebrow">04 / EXECUTION TRACE</span><h2>Latest result</h2></div><button id="clear-results" class="button text-button" type="button">CLEAR</button></div>
+      <div id="result-output" class="result-block" role="status" aria-live="polite"><div class="empty-result"><span>◈</span><p>Waiting for a task. Atlas reports the actual actions completed and stops at the first failure.</p></div></div>
+    </section>
+
+    <footer class="safety-footer">
+      <span><i class="led good"></i> LOCAL APPROVAL FOR SENSITIVE ACTIONS</span>
+      <span>NO ARBITRARY SHELL · REVIEW DESTRUCTIVE OR EXTERNAL ACTIONS</span>
+      <a href="/">BACK TO JARVIS ↗</a>
+    </footer>
+    <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+  </main>
+</body>
+</html>

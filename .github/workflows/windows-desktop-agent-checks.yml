@@ -1,0 +1,33 @@
+name: Windows desktop-agent checks
+
+on:
+  push:
+    branches:
+      - publish/jarvis-multiagent
+  pull_request:
+    branches:
+      - publish/jarvis-multiagent
+  workflow_dispatch:
+
+jobs:
+  windows-tests:
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install project and desktop test dependencies
+        run: python -m pip install -e ".[desktop,dev]"
+
+      - name: Compile desktop companion
+        run: python -m compileall -q agents/desktop_agent
+
+      - name: Run test suite
+        run: python -m pytest -q

@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#080b12">
+  <meta name="description" content="Local-first JARVIS agent network intelligence dashboard">
+  <title>JARVIS/X // Living Intelligence</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+  <script src="/assets/result-format.js" defer></script>
+  <script src="/assets/app.js" defer></script>
+</head>
+<body class="hud-active">
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <a class="brand" href="#overview" aria-label="JARVIS overview">
+        <span class="brand-mark"><span></span><span></span><span></span></span>
+        <span class="brand-copy"><strong>JARVIS<span class="brand-x">/X</span></strong><small>AGENT NETWORK</small></span>
+      </a>
+      <div class="workspace-label">WORKSPACE <span class="tiny-dot"></span></div>
+      <nav class="nav-group" aria-label="Primary navigation">
+        <button class="nav-item active" data-view="overview"><span class="nav-icon">◈</span><span>Overview</span><span class="nav-key">01</span></button>
+        <button class="nav-item" data-view="agents"><span class="nav-icon">⌘</span><span>Agent network</span><span class="nav-count" id="nav-agent-count">10</span></button>
+        <button class="nav-item" data-view="tasks"><span class="nav-icon">⟲</span><span>Task center</span><span class="nav-count" id="nav-task-count">—</span></button>
+        <button class="nav-item" data-view="markets"><span class="nav-icon">⌁</span><span>Market intelligence</span><span class="nav-live" title="Read-only market data"></span></button>
+        <a class="nav-item quant-nav-link" href="/quant"><span class="nav-icon">◎</span><span>Quant Desk</span><span class="nav-live" title="Separate Quant dashboard"></span></a>
+        <a class="nav-item quant-nav-link" href="/desktop"><span class="nav-icon">⌖</span><span>Desktop Agent</span><span class="nav-live" title="Permission-gated local Windows control"></span></a>
+        <button class="nav-item" data-view="reports"><span class="nav-icon">▤</span><span>Reports & artifacts</span></button>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="side-system-card">
+          <div class="side-system-top"><span class="tiny-dot pulse"></span><span>LOCAL RUNTIME</span><span class="system-on">ON</span></div>
+          <div class="side-system-value" id="side-ready">— / — <span>agents ready</span></div>
+          <div class="side-meter"><span id="side-meter-fill"></span></div>
+          <div class="side-system-foot"><span>Loopback only</span><span>v1.0</span></div>
+        </div>
+        <div class="sidebar-user"><div class="user-orbit">J</div><div class="user-copy"><strong>Operator</strong><small>LOCAL SESSION</small></div><span class="user-status"></span></div>
+      </div>
+    </aside>
+
+    <main class="main-area">
+      <header class="topbar">
+        <div class="breadcrumbs"><span class="crumb-muted">JARVIS /X</span><span class="crumb-slash">/</span><span id="breadcrumb-current">Overview</span></div>
+        <div class="topbar-actions">
+          <div class="system-pill"><span class="tiny-dot pulse"></span><span>CORE SYSTEMS</span><strong id="core-status">CHECKING</strong></div>
+          <button class="icon-button mobile-menu" id="menu-toggle" aria-label="Toggle navigation">☰</button>
+          <button class="icon-button" id="refresh-all" aria-label="Refresh dashboard" title="Refresh dashboard">↻</button>
+          <div class="top-avatar" title="Local operator">J<span></span></div>
+        </div>
+      </header>
+
+      <div class="page-content">
+        <section class="view active" id="view-overview">
+          <section class="hud-main-board" id="hud-main-board" aria-label="JARVIS living intelligence command centre">
+            <header class="mk-topline">
+              <div class="mk-brand">
+                <div class="mk-brand-reactor" aria-hidden="true"><span></span><i></i></div>
+                <div><strong>JARVIS<span>/X</span></strong><small>MARK XI · AGENT NETWORK</small></div>
+              </div>
+              <div class="mk-system-strip" aria-label="Runtime status">
+                <div class="mk-system-state"><i class="mk-led pulse"></i><div><strong id="hud-sys-status">SYSTEM ONLINE</strong><small id="hud-system-subtitle">LOCAL RUNTIME CONNECTING</small></div></div>
+                <div class="mk-strip-metric"><b id="hud-ready-count">—</b><small>EXECUTABLE</small></div>
+                <div class="mk-strip-metric"><b id="hud-identity-count">—</b><small>IDENTITIES</small></div>
+                <div class="mk-strip-metric"><b id="hud-response-count">—</b><small>TASK OUTCOMES</small></div>
+                <div class="mk-strip-metric"><b id="clock-time">--:--:--</b><small id="clock-date">LOCAL SYSTEM TIME</small></div>
+              </div>
+              <nav class="mk-nav" aria-label="Command areas">
+                <button type="button" data-hud-panel="mission"><span>◉</span> MISSION</button>
+                <button type="button" data-hud-panel="agents"><span>⌘</span> AGENTS</button>
+                <button type="button" data-hud-panel="intelligence"><span>◎</span> INTELLIGENCE</button>
+                <button type="button" data-hud-panel="settings"><span>⚙</span> SYSTEM</button>
+                <a class="mk-quant-link" href="/quant"><span>⌁</span> QUANT DESK ↗</a>
+                <a class="mk-quant-link" href="/desktop"><span>⌖</span> DESKTOP ↗</a>
+                <button type="button" class="mk-refresh" data-hud-refresh aria-label="Refresh runtime" title="Refresh runtime">↻</button>
+              </nav>
+            </header>
+
+            <div class="mk-workspace">
+              <aside class="mk-rail mk-left-rail" aria-label="System telemetry">
+                <section class="mk-panel mk-global-panel">
+                  <div class="mk-panel-head"><span>GLOBAL VIEW</span><small>NETWORK MAP / LOCAL</small></div>
+                  <div class="mk-globe-area" aria-hidden="true">
+                    <svg class="mk-globe" viewBox="0 0 220 170">
+                      <defs><radialGradient id="globeFill"><stop offset="0" stop-color="#0b5470" stop-opacity=".75"/><stop offset="1" stop-color="#04111d" stop-opacity=".1"/></radialGradient><filter id="globeGlow"><feGaussianBlur stdDeviation="3" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+                      <circle cx="110" cy="84" r="66" fill="url(#globeFill)" stroke="#1bbfdf" stroke-opacity=".72"/>
+                      <ellipse cx="110" cy="84" rx="29" ry="66" fill="none" stroke="#38dbf7" stroke-opacity=".42"/><ellipse cx="110" cy="84" rx="51" ry="66" fill="none" stroke="#38dbf7" stroke-opacity=".32"/>
+                      <ellipse cx="110" cy="84" rx="66" ry="23" fill="none" stroke="#38dbf7" stroke-opacity=".45"/><ellipse cx="110" cy="84" rx="66" ry="46" fill="none" stroke="#38dbf7" stroke-opacity=".25"/>
+                      <path d="M53 51l13-10 12 4 7-8 13 7 3 11-12 6-4 13-17 4-8-10-8-2z M111 65l14-10 17 5 17 14-4 14-11 2-5 15-11-3-5-16-14-6z M87 103l12-5 12 6 6 16-7 16-9 6-8-20z" fill="#0e7898" fill-opacity=".55" stroke="#36dafa" stroke-opacity=".5"/>
+                      <g filter="url(#globeGlow)" fill="#ff5965"><circle cx="91" cy="71" r="3"/><circle cx="135" cy="83" r="3"/><circle cx="115" cy="119" r="3"/></g>
+                      <path d="M20 84H200M110 9V159" stroke="#2ccbe9" stroke-opacity=".25" stroke-dasharray="2 6"/>
+                      <circle cx="110" cy="84" r="73" fill="none" stroke="#2bd4f4" stroke-opacity=".24" stroke-dasharray="2 8"/>
+                    </svg>
+                    <div class="mk-globe-caption"><b id="hud-global-agent-count">10 / 10</b><small>AGENT IDENTITIES</small></div>
+                  </div>
+                  <div class="mk-mini-stats"><div><i class="mk-led pulse"></i><span>NETWORK HEALTH</span><b id="hud-network-health">SYNCING</b></div><div><i class="mk-led mk-led-red"></i><span>ACTIVE MISSIONS</span><b id="hud-active-missions">0</b></div></div>
+                </section>
+
+                <section class="mk-panel mk-activity-panel">
+                  <div class="mk-panel-head"><span>LIVE ACTIVITY</span><small id="runtime-stream-state" class="event-stream-state">CONNECTING</small><button type="button" data-hud-panel="mission">EVENT TRACE ↗</button></div>
+                  <div class="mk-activity-list" id="recent-activity"><div class="mk-empty">Waiting for runtime events…</div></div>
+                  <div class="mk-panel-foot"><span>RECENT PERSISTED TASK EVENTS</span><b id="audit-count">—</b></div>
+                </section>
+
+                <section class="mk-panel mk-metrics-panel">
+                  <div class="mk-panel-head"><span>SYSTEM METRICS</span><small>RUNTIME-BACKED</small></div>
+                  <div class="mk-gauges">
+                    <div class="mk-gauge" id="hud-gauge-ready" style="--gauge:0deg"><div><b id="hud-gauge-ready-value">—</b><small>READY</small></div></div>
+                    <div class="mk-gauge" id="hud-gauge-tasks" style="--gauge:0deg"><div><b id="hud-gauge-tasks-value">—</b><small>TASKS</small></div></div>
+                    <div class="mk-gauge" id="hud-gauge-up" style="--gauge:0deg"><div><b id="hud-gauge-up-value">—</b><small>UPTIME</small></div></div>
+                  </div>
+                  <div class="mk-telemetry-line"><span>REGISTERED</span><b id="hud-registered-inline">—</b><span>EXECUTABLE</span><b id="hud-executable-inline">—</b></div>
+                  <div class="mk-signal-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+                </section>
+
+                <section class="mk-panel mk-tools-panel">
+                  <div class="mk-panel-head"><span>QUICK TOOLS</span><small>SAFE SHORTCUTS</small></div>
+                  <div class="mk-tool-grid">
+                    <button type="button" data-hud-panel="mission"><span>⌁</span><small>Mission</small></button>
+                    <button type="button" data-open-workspace="reports"><span>▤</span><small>Files</small></button>
+                    <button type="button" data-agent-id="search.scout"><span>⌕</span><small>Research</small></button>
+                    <button type="button" data-agent-id="coding.forge"><span>⌘</span><small>Code</small></button>
+                    <button type="button" data-agent-id="memory.notes"><span>▧</span><small>Memory</small></button>
+                  </div>
+                </section>
+              </aside>
+
+              <section class="mk-center-stage" aria-label="Living JARVIS suit intelligence core">
+                <div class="mk-stage-topline"><div><span class="mk-bracket"></span><div><strong>SUIT INTERFACE / MARK XI</strong><small id="network-state-label">INITIALIZING NEURAL LINKS</small></div></div><div class="mk-stage-status"><i class="mk-led pulse"></i><span id="network-agent-summary">Waiting for runtime</span></div></div>
+                <div class="mk-stage-scene">
+                  <div class="mk-scene-grid" aria-hidden="true"></div><div class="mk-radar-ring radar-one" aria-hidden="true"></div><div class="mk-radar-ring radar-two" aria-hidden="true"></div><div class="mk-radar-ring radar-three" aria-hidden="true"></div><div class="mk-scan-beam" aria-hidden="true"></div>
+                  <svg class="mk-connection-svg" viewBox="0 0 1000 800" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="linkGlow"><stop offset="0" stop-color="#11c9f4" stop-opacity=".12"/><stop offset=".5" stop-color="#2feaff" stop-opacity=".7"/><stop offset="1" stop-color="#11c9f4" stop-opacity=".12"/></linearGradient></defs><g class="mk-network-links" id="mk-network-links"></g></svg>
+                  <svg class="mk-suit-drawing" viewBox="0 0 520 690" role="img" aria-label="Original animated line-art armored intelligence suit with illuminated eyes and arc reactor">
+                    <defs>
+                      <linearGradient id="mkArmorFill" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#102c3b" stop-opacity=".75"/><stop offset=".45" stop-color="#07131e" stop-opacity=".9"/><stop offset="1" stop-color="#1d0b12" stop-opacity=".78"/></linearGradient>
+                      <linearGradient id="mkFaceFill" x1="0" y1="0" x2="0.9" y2="1"><stop offset="0" stop-color="#101f2a"/><stop offset=".6" stop-color="#060b12"/><stop offset="1" stop-color="#1c1117"/></linearGradient>
+                      <radialGradient id="mkReactorFill"><stop offset="0" stop-color="#ffffff"/><stop offset=".15" stop-color="#c7fbff"/><stop offset=".38" stop-color="#37e8ff"/><stop offset=".7" stop-color="#0c6086" stop-opacity=".86"/><stop offset="1" stop-color="#03101c" stop-opacity=".15"/></radialGradient>
+                      <filter id="mkGlowCyan" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+                      <filter id="mkGlowRed" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="2.3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+                      <pattern id="mkSuitGrid" width="15" height="15" patternUnits="userSpaceOnUse"><path d="M15 0H0V15" fill="none" stroke="#38cce8" stroke-opacity=".11" stroke-width=".55"/></pattern>
+                    </defs>
+                    <g class="mk-suit-drafting" fill="none" stroke="#3adcf5" stroke-opacity=".5" stroke-width="1"><path d="M260 16V666M45 365H475M72 170H448M115 520H405" stroke-dasharray="3 8"/><circle cx="260" cy="365" r="208" stroke-dasharray="2 10"/><circle cx="260" cy="365" r="180" stroke-opacity=".17"/><path d="M62 350h26m-13-13v26M432 350h26m-13-13v26M249 54h22m-11-12v24M249 642h22m-11-12v24"/></g>
+                    <g class="mk-suit-outline">
+                      <path class="mk-armor-fill" d="M173 243L133 254 89 284 64 332 79 380 120 403 145 449 174 473 210 492 235 468 244 433 244 408 276 408 285 433 310 468 346 492 382 473 411 449 436 403 477 380 492 332 467 284 423 254 383 243 354 272 327 285 193 285Z"/>
+                      <path d="M178 249L144 269 113 300 130 328 154 336 162 372 193 394 220 388 234 358 286 358 300 388 327 394 358 372 366 336 390 328 407 300 376 269 342 249 316 265 204 265Z" fill="url(#mkArmorFill)" stroke="#ff4b59" stroke-opacity=".9" stroke-width="2.1"/>
+                      <path d="M143 269L90 286 67 329 84 362 116 378 139 357 133 326 158 300M377 269L430 286 453 329 436 362 404 378 381 357 387 326 362 300" fill="none" stroke="#ff4655" stroke-width="2.2"/>
+                      <path d="M157 312L186 299 207 319 220 358 203 379 176 368 164 345ZM363 312L334 299 313 319 300 358 317 379 344 368 356 345Z" fill="#08121b" stroke="#38d9f5" stroke-opacity=".62" stroke-width="1.4"/>
+                      <path d="M177 387L213 407 237 432 223 467 198 480 173 457 157 423Z M343 387L307 407 283 432 297 467 322 480 347 457 363 423Z" fill="url(#mkArmorFill)" stroke="#e63e50" stroke-width="1.7"/>
+                      <path d="M205 408L232 397 244 409 239 441 221 465M315 408L288 397 276 409 281 441 299 465" fill="none" stroke="#31dafa" stroke-opacity=".8" stroke-width="1.3"/>
+                      <path d="M218 243L220 270 239 294H281L300 270 302 243 321 231 343 200 350 128 338 78 309 51 260 39 211 51 182 78 170 128 177 200 199 231Z" fill="url(#mkFaceFill)" stroke="#26cbe9" stroke-width="2.1"/>
+                      <path d="M206 65L260 53 314 65 335 92 338 144 327 188 300 216 281 225H239L220 216 193 188 182 144 185 92Z" fill="url(#mkArmorFill)" stroke="#ff515d" stroke-opacity=".94" stroke-width="1.6"/>
+                      <path d="M215 74L223 112 246 122 252 96 268 96 274 122 297 112 305 74" fill="none" stroke="#e6b26c" stroke-opacity=".8" stroke-width="1.6"/>
+                      <path d="M187 142L222 145 247 155 238 169 210 164 192 155Z M333 142L298 145 273 155 282 169 310 164 328 155Z" fill="#8cfaff" stroke="#c9ffff" stroke-width="1.8" filter="url(#mkGlowCyan)" class="mk-eye-glow"/>
+                      <path d="M197 181L225 188 238 205 260 210 282 205 295 188 323 181 312 201 290 226 274 231 246 231 230 226 208 201Z" fill="#070a10" stroke="#f1b86f" stroke-width="1.8"/>
+                      <path d="M217 193L236 200 246 215 260 218 274 215 284 200 303 193M235 231L238 247 260 261 282 247 285 231" fill="none" stroke="#ff495b" stroke-width="1.7"/>
+                      <path d="M212 251L205 273 224 294 260 306 296 294 315 273 308 251" fill="#070d14" stroke="#36d9f5" stroke-opacity=".56" stroke-width="1.5"/>
+                      <path d="M225 273L245 286H275L295 273M260 306V327" fill="none" stroke="#fb4c5c" stroke-width="1.6"/>
+                      <path d="M174 248L160 229 146 205 128 206 114 226 129 246 144 264M346 248L360 229 374 205 392 206 406 226 391 246 376 264" fill="none" stroke="#2ccfeb" stroke-width="1.4" stroke-opacity=".8"/>
+                      <path d="M145 283L177 285 192 309 183 335 156 328M375 283L343 285 328 309 337 335 364 328" fill="#050d14" stroke="#ff4a59" stroke-width="1.7"/>
+                      <path d="M204 304L226 319 240 350M316 304L294 319 280 350" fill="none" stroke="#37d9f4" stroke-width="1.5"/>
+                      <path d="M195 350L215 340 235 354 224 379 205 383M325 350L305 340 285 354 296 379 315 383" fill="#0a1822" stroke="#ef4658" stroke-width="1.4"/>
+                      <path d="M226 352L240 365 242 388 232 407M294 352L280 365 278 388 288 407" fill="none" stroke="#28cbed" stroke-width="1.7"/>
+                      <path d="M190 286l-17-7m154 7l17-7M146 358l-17 16m245-16l17 16M184 440l-17 19m199-19l17 19" fill="none" stroke="#48dff7" stroke-opacity=".55" stroke-width="1.3"/>
+                    </g>
+                    <g class="mk-suit-surface" fill="url(#mkSuitGrid)" opacity=".55"><path d="M173 243L133 254 89 284 64 332 79 380 120 403 145 449 174 473 210 492 235 468 244 433 244 408 276 408 285 433 310 468 346 492 382 473 411 449 436 403 477 380 492 332 467 284 423 254 383 243 354 272 327 285 193 285Z"/><path d="M218 243L220 270 239 294H281L300 270 302 243 321 231 343 200 350 128 338 78 309 51 260 39 211 51 182 78 170 128 177 200 199 231Z"/></g>
+                    <g class="mk-reactor" transform="translate(260 407)"><circle r="83" fill="#06131e" fill-opacity=".48" stroke="#1acbe9" stroke-opacity=".24"/><circle class="mk-reactor-orbit" r="69" fill="none" stroke="#2ce4ff" stroke-width="1.4" stroke-dasharray="5 7"/><circle r="57" fill="#06111a" stroke="#ee4857" stroke-width="1.6"/><circle class="mk-reactor-spin" r="49" fill="none" stroke="#49e9ff" stroke-width="4" stroke-dasharray="18 9 3 7"/><circle r="37" fill="url(#mkReactorFill)" stroke="#bafaff" stroke-width="2" filter="url(#mkGlowCyan)"/><circle r="23" fill="none" stroke="#ecffff" stroke-width="1.6"/><circle r="13" fill="#fff" filter="url(#mkGlowCyan)"/><path d="M0-59V-47M0 47V59M-59 0H-47M47 0H59M-42-42L-34-34M42-42L34-34M-42 42L-34 34M42 42L34 34" stroke="#8af8ff" stroke-width="2"/></g>
+                    <g class="mk-suit-labels" font-family="monospace" fill="#62def4" font-size="7" letter-spacing="1.1"><text x="32" y="183">MK-XI / HEAD ARRAY</text><text x="34" y="195" fill="#6b8295">OPTICAL SENSOR</text><text x="370" y="183">NEURAL LINK</text><text x="370" y="195" fill="#6b8295">ENCRYPTED</text><text x="35" y="535">TORSO / ARMOR</text><text x="35" y="547" fill="#6b8295">SIGNAL STABLE</text><text x="377" y="535">POWER CORE</text><text x="377" y="547" fill="#6b8295">ARC REACTOR</text></g>
+                  </svg>
+                  <div class="mk-core-caption"><span class="mk-core-caption-overline">COORDINATION CORE</span><strong>J.A.R.V.I.S.</strong><small id="network-mission-state">STANDING BY</small></div>
+                  <div id="living-network" class="mk-agent-layer" aria-label="Interactive runtime agent nodes"><div class="mk-empty">Resolving agent identities…</div></div>
+                  <div class="mk-edge-readout mk-readout-left"><span>POWER CORE</span><b>ARC / XI</b><small>STABLE FIELD</small></div><div class="mk-edge-readout mk-readout-right"><span>NETWORK LINK</span><b id="hud-network-link">ESTABLISHING</b><small>LOOPBACK CHANNEL</small></div>
+                  <div class="mk-scene-corner mk-corner-a">MK-XI <span>SUIT DIAGNOSTICS</span></div><div class="mk-scene-corner mk-corner-b">JARVIS <span>COORDINATION FIELD</span></div>
+                </div>
+                <div class="mk-stage-footer"><div><small>ACTIVE INTELLIGENCE</small><strong id="network-agent-summary-footer">8 EXECUTABLE · 10 IDENTITIES</strong></div><div class="mk-stage-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><button type="button" class="mk-mini-link" data-hud-panel="mission">OPEN MISSION COCKPIT ↗</button></div>
+              </section>
+
+              <aside class="mk-rail mk-right-rail" aria-label="Mission and specialist console">
+                <section class="mk-panel mk-command-panel" aria-label="Mission control">
+                  <div class="mk-panel-head"><span>MISSION CONTROL</span><small>TELL JARVIS WHAT TO DO</small><i class="mk-led pulse"></i></div>
+                  <form id="mk-mission-form" class="mk-mission-composer" autocomplete="off">
+                    <label class="sr-only" for="mk-mission-prompt">Mission instructions</label>
+                    <textarea id="mk-mission-prompt" maxlength="6000" rows="2" placeholder="Type your mission here…" spellcheck="false"></textarea>
+                    <button type="submit" id="mk-mission-send" aria-label="Send mission">➤</button>
+                  </form>
+                  <div class="mk-route-tabs" role="group" aria-label="Mission route">
+                    <button type="button" class="active" data-mission-route="voice.jarvis">◉ Auto</button>
+                    <button type="button" data-mission-route="search.scout">⌕ Research</button>
+                    <button type="button" data-mission-route="coding.forge">⌘ Code</button>
+                    <button type="button" data-mission-route="trading.quant">⌁ Analyze</button>
+                    <button type="button" data-mission-route="planning.planner">◎ Plan</button>
+                    <button type="button" data-mission-route="deployment.launch">↗ Execute</button>
+                  </div>
+                  <div class="mk-command-policy"><span><i class="mk-led"></i> LOCAL RUNTIME</span><span>PERMISSIONS ENFORCED</span><span>NO LIVE TRADE EXECUTION</span></div>
+                </section>
+                <section class="mk-panel mk-focus-panel">
+                  <div class="mk-panel-head"><span>AGENT PANEL</span><span class="mk-panel-head-tools"><i class="mk-led pulse"></i><small id="hud-focus-state-head">READY</small></span></div>
+                  <div class="mk-focus-head"><div class="mk-focus-orb" id="hud-focus-symbol">⌘</div><div><h2 id="hud-focus-name">Forge</h2><p id="hud-focus-role">CODING SPECIALIST</p></div><span class="mk-focus-live" id="hud-focus-status">ONLINE</span></div>
+                  <div class="mk-agent-tabs"><button class="active" type="button" data-focus-tab="chat">CHAT</button><button type="button" data-focus-tab="tools">TOOLS</button><button type="button" data-focus-tab="files" data-open-workspace="reports">FILES</button><button type="button" data-focus-tab="logs" data-hud-panel="mission">LOGS</button></div>
+                  <div class="mk-focus-description" id="hud-focus-description">Select an agent in the suit interface to inspect its role and route a task directly.</div>
+                  <div class="mk-focus-feed" id="hud-focus-feed"><div class="mk-chat-system"><i class="mk-led"></i> SPECIALIST CHANNEL READY</div><div class="mk-chat-bubble agent-bubble"><strong>JARVIS/X</strong><p>Choose an agent from the neural field to open its working context.</p></div></div>
+                  <form id="hud-direct-form" class="mk-direct-composer" autocomplete="off"><label class="sr-only" for="hud-direct-prompt">Send a task to the selected specialist</label><textarea id="hud-direct-prompt" maxlength="6000" rows="2" placeholder="Send a message to Forge…" spellcheck="false"></textarea><div class="mk-direct-actions"><span id="hud-direct-route">ROUTE · CODING.FORGE</span><button type="submit" id="hud-direct-send" aria-label="Send task to selected agent">➤</button></div></form>
+                </section>
+
+                <section class="mk-panel mk-mission-panel">
+                  <div class="mk-panel-head"><span>CURRENT MISSION</span><button type="button" id="hud-open-result" data-hud-panel="mission">DETAILS ↗</button></div>
+                  <div class="mk-mission-title-row"><div><h3 id="hud-mission-title">MISSION READY</h3><p id="hud-mission-subtitle">Awaiting a command from the operator.</p></div><span class="mk-mission-chip" id="hud-mission-chip">STANDBY</span></div>
+                  <div class="mk-mission-progress"><span id="hud-mission-progress-bar"></span></div><div class="mk-mission-progress-label"><small id="hud-mission-progress-text">0% · NO ACTIVE MISSION</small><small id="hud-mission-agent">JARVIS / AUTO</small></div>
+                  <div class="mk-mission-steps"><div class="mk-mission-step" data-mission-step="0"><i>01</i><span>Command received</span><b>○</b></div><div class="mk-mission-step" data-mission-step="1"><i>02</i><span>Runtime executing</span><b>○</b></div><div class="mk-mission-step" data-mission-step="2"><i>03</i><span>Result returned</span><b>○</b></div></div>
+                  <div class="mk-mission-latest" id="hud-mission-latest">Mission outputs will appear here when a task completes.</div>
+                </section>
+
+                <section class="mk-panel mk-intelligence-panel">
+                  <div class="mk-panel-head"><span>MARKET INTELLIGENCE</span><button type="button" id="refresh-market" title="Request a new read-only snapshot">↻ SYNC</button></div>
+                  <div id="market-overview"><span class="market-badge none">NO SAVED REPORT</span><div class="market-signal-title">Awaiting Quant report</div><div class="market-signal-copy">Market cards populate from the saved report. Quote freshness depends on source timestamps.</div></div>
+                  <div class="mk-market-footer"><span id="market-updated">SOURCE TIME UNKNOWN</span><button type="button" data-navigate="markets">OPEN QUANT ↗</button></div>
+                </section>
+              </aside>
+
+              <section class="mk-agent-dock" aria-label="JARVIS ten-agent network">
+                <header class="mk-agent-dock-head">
+                  <div><span class="mk-dock-symbol">⌘</span><strong>AGENT NETWORK</strong><i class="mk-led pulse"></i><small id="mk-dock-online-count">SYNCING AGENTS</small></div>
+                  <nav class="mk-dock-tabs" aria-label="Agent display mode">
+                    <button type="button" class="active" data-dock-tab="overview">OVERVIEW</button>
+                    <button type="button" data-dock-tab="capabilities">CAPABILITIES</button>
+                    <button type="button" data-dock-tab="tasks">TASKS</button>
+                    <button type="button" data-dock-tab="personalities">PERSONALITIES</button>
+                  </nav>
+                </header>
+                <div class="mk-agent-cards" id="mk-agent-cards"><div class="mk-empty">Loading the local agent registry…</div></div>
+              </section>
+            </div>
+
+            <footer class="mk-command-dock">
+              <div class="mk-command-label"><span class="mk-command-glyph">⌘</span><div><strong>COMMAND INPUT</strong><small>JARVIS / ALL SUPPORTED SPECIALISTS</small></div></div>
+              <form id="hud-command-form" autocomplete="off"><label class="sr-only" for="hud-command-prompt">Ask JARVIS to perform a task</label><textarea id="hud-command-prompt" maxlength="6000" rows="1" placeholder="Ask JARVIS or any agent… research, code, plan, analyze…" spellcheck="false"></textarea><button type="button" id="hud-command-mic" title="Voice input" aria-label="Dictate a task">♩</button><button type="button" id="hud-command-options" title="Mission options" aria-label="Open mission options">☷</button><button type="submit" id="hud-command-send" aria-label="Send command">➤</button></form>
+              <div class="mk-command-safety"><i class="mk-led"></i><span>LOCAL-FIRST</span><span>READ-ONLY MARKETS</span></div>
+            </footer>
+
+            <aside class="hud-drawer hidden" id="hud-drawer" role="dialog" aria-modal="true" aria-labelledby="hud-drawer-title"><div class="hud-drawer-header"><div><span class="hud-drawer-kicker" id="hud-drawer-kicker">JARVIS /X · COMMAND</span><h2 id="hud-drawer-title">Agent panel</h2></div><button type="button" class="hud-mini-suit" id="hud-mini-suit" data-suit-profile="mark-iii" aria-label="Armory profile: Mark III classic red and gold. Activate to cycle armor profiles." title="SUIT BAY · MARK III · Click to cycle armor profiles"><span class="hud-mini-suit-aura" aria-hidden="true"></span><svg viewBox="0 0 100 112" aria-hidden="true" focusable="false"><defs><linearGradient id="miniSuitRedShade" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff5360"/><stop offset=".42" stop-color="#b91f2e"/><stop offset="1" stop-color="#4d0912"/></linearGradient><linearGradient id="miniSuitGoldShade" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff0b1"/><stop offset=".45" stop-color="#e7b85c"/><stop offset="1" stop-color="#8a541f"/></linearGradient><radialGradient id="miniSuitReactorShade"><stop offset="0" stop-color="#ffffff"/><stop offset=".35" stop-color="#c9ffff"/><stop offset=".72" stop-color="#39dcff"/><stop offset="1" stop-color="#03618a" stop-opacity=".18"/></radialGradient><filter id="miniSuitGlow" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="2.3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs><circle class="mini-suit-orbit" cx="50" cy="51" r="43" fill="none" stroke="var(--mini-core)" stroke-opacity=".36" stroke-dasharray="3 5"/><path class="mini-suit-armor" d="M36 16 50 10 64 16 73 30 70 45 61 56H39L30 45 27 30Z" fill="url(#miniSuitRedShade)" stroke="var(--mini-gold)" stroke-width="1.7"/><path class="mini-suit-faceplate" d="M36 20 50 15 64 20 68 32 64 43 57 50H43L36 43 32 32Z" fill="#101923" stroke="var(--mini-gold)" stroke-width="1.4"/><path class="mini-suit-gold" d="M39 21 43 31 48 34 50 27 52 34 57 31 61 21 65 28 62 41 56 47H44L38 41 35 28Z" fill="url(#miniSuitGoldShade)"/><path class="mini-suit-eye" d="M36 32 45 34 47 38 38 37ZM64 32 55 34 53 38 62 37Z" fill="var(--mini-core)" filter="url(#miniSuitGlow)"/><path class="mini-suit-chest" d="M36 51 26 55 17 69 22 83 34 89 40 79 45 65H55L60 79 66 89 78 83 83 69 74 55 64 51 58 59H42Z" fill="url(#miniSuitRedShade)" stroke="var(--mini-gold)" stroke-width="1.6"/><path class="mini-suit-shoulder" d="M30 57 24 67 30 76 37 74 41 62M70 57 76 67 70 76 63 74 59 62" fill="none" stroke="var(--mini-gold)" stroke-width="1.6"/><path d="M39 55 42 62 39 75 44 83H56L61 75 58 62 61 55 55 59H45Z" fill="url(#miniSuitRedShade)" stroke="var(--mini-core)" stroke-opacity=".65" stroke-width="1.1"/><circle class="mini-suit-reactor-halo" cx="50" cy="72" r="12" fill="var(--mini-core)" fill-opacity=".13"/><circle class="mini-suit-reactor-ring" cx="50" cy="72" r="8.5" fill="#07131d" stroke="var(--mini-core)" stroke-width="1.4"/><circle class="mini-suit-reactor" cx="50" cy="72" r="5.6" fill="url(#miniSuitReactorShade)" filter="url(#miniSuitGlow)"/><path d="M47 94 50 90 53 94 50 99Z" fill="var(--mini-gold)"/><path d="M15 52H22M78 52H85M50 4V10M50 99V105" stroke="var(--mini-core)" stroke-opacity=".55" stroke-width="1"/></svg><span class="hud-mini-suit-label" id="hud-mini-suit-label">MARK III</span><span class="hud-mini-suit-tip">CYCLE ARMOR</span></button><button type="button" id="hud-drawer-close" class="hud-drawer-close" aria-label="Close panel">×</button></div><div class="hud-drawer-body" id="hud-drawer-body"></div></aside>
+            <div class="hud-status-toast" id="hud-status-toast" aria-live="polite"></div>
+
+            <div class="mk-compatibility-bank" aria-hidden="true"><span id="metric-identities">—</span><span id="metric-ready">—</span><span id="metric-tasks">—</span><span id="metric-uptime">—</span><span id="network-state-label-legacy">—</span><span id="network-mission-state-legacy">—</span><div id="agent-mosaic"></div><form id="task-form"><textarea id="task-prompt"></textarea><select id="agent-target"><option value="voice.jarvis">JARVIS</option></select><span id="char-count">0 / 6000</span><button id="run-task" type="submit">Run</button></form><div id="task-result" class="hidden"><span id="result-title"></span><span id="result-meta"></span><pre id="result-output"></pre><button id="dismiss-result" type="button">Dismiss</button></div></div>
+          </section>
+        </section>
+
+        <section class="view" id="view-agents">
+          <div class="page-title-row"><div><div class="eyebrow"><span class="eyebrow-line"></span> NETWORK / REGISTRY</div><h1>Agent <span>network.</span></h1><p class="hero-subtitle">Every identity, its actual runtime status, and the capabilities it exposes.</p></div><div class="title-actions"><div class="system-pill"><span class="tiny-dot pulse"></span><span id="agent-status-summary">LOADING AGENTS</span></div></div></div>
+          <div class="filter-row"><div class="search-box"><span>⌕</span><input id="agent-search" type="search" placeholder="Find an agent or capability…" aria-label="Search agents"></div><div class="filter-chips" id="agent-filters"><button class="filter-chip active" data-filter="all">All identities <span id="filter-all-count">10</span></button><button class="filter-chip" data-filter="ready">Ready <span id="filter-ready-count">—</span></button><button class="filter-chip" data-filter="registered">Registered <span id="filter-registered-count">—</span></button></div></div>
+          <div class="agent-grid" id="agent-grid"></div>
+        </section>
+
+        <section class="view" id="view-tasks">
+          <div class="page-title-row"><div><div class="eyebrow"><span class="eyebrow-line"></span> EXECUTION / OBSERVABILITY</div><h1>Task <span>center.</span></h1><p class="hero-subtitle">Recent executions, persisted lifecycle events, and inspectable results.</p></div><button class="subtle-button" data-navigate="overview">+ New task <span>↗</span></button></div>
+          <div class="metric-ribbon task-metrics"><article class="metric-cell"><div class="metric-top"><span class="metric-label">RECORDED EVENTS</span><span class="metric-glyph">▤</span></div><div class="metric-value" id="task-event-count">—</div><div class="metric-foot"><span class="metric-sub">Lifecycle log</span></div></article><article class="metric-cell"><div class="metric-top"><span class="metric-label">SUCCEEDED</span><span class="metric-glyph green">✓</span></div><div class="metric-value" id="task-succeeded-count">—</div><div class="metric-foot"><span class="metric-sub">Terminal outcomes</span></div></article><article class="metric-cell"><div class="metric-top"><span class="metric-label">FAILED / TIMED OUT</span><span class="metric-glyph amber">!</span></div><div class="metric-value" id="task-failed-count">—</div><div class="metric-foot"><span class="metric-sub">Requires inspection</span></div></article><article class="metric-cell"><div class="metric-top"><span class="metric-label">MALFORMED LINES</span><span class="metric-glyph violet">⌁</span></div><div class="metric-value" id="task-malformed-count">—</div><div class="metric-foot"><span class="metric-sub">Audit file integrity</span></div></article></div>
+          <section class="panel table-panel"><div class="panel-heading"><div><span class="section-kicker">PERSISTED / RECENT</span><h2>Execution timeline</h2></div><button class="mini-icon-button" id="refresh-tasks" title="Refresh tasks">↻</button></div><div class="table-scroll"><table class="data-table"><thead><tr><th>STATUS</th><th>AGENT</th><th>TASK ID</th><th>FINISHED</th><th>DETAIL</th></tr></thead><tbody id="task-table-body"><tr><td colspan="5" class="empty-cell">Loading execution history…</td></tr></tbody></table></div><div class="panel-footer"><span>Stored task history excludes prompt and output content by design.</span><span id="task-log-path">data/task_history.jsonl</span></div></section>
+          <section class="panel output-panel"><div class="panel-heading"><div><span class="section-kicker">IN-MEMORY / THIS SESSION</span><h2>Recent results</h2></div><span class="session-tag">SESSION ONLY</span></div><div id="session-results" class="session-results"><div class="empty-state">Run a task to see its full result here.</div></div></section>
+        </section>
+
+        <section class="view" id="view-markets">
+          <div class="page-title-row"><div><div class="eyebrow"><span class="eyebrow-line"></span> QUANT / READ-ONLY</div><h1>Market <span>intelligence.</span></h1><p class="hero-subtitle">A grounded view of the latest report saved by your Quant agent.</p></div><button class="run-button" id="run-market-snapshot"><span>Request snapshot</span><span class="run-arrow">↗</span></button></div>
+          <div id="market-detail" class="market-detail"><div class="loading-state"><span class="spinner"></span> Loading saved market report…</div></div>
+          <div class="market-disclaimer"><span class="shield-icon">⬡</span><div><strong>Read-only research, not an execution terminal.</strong><p>Report retrieval time is not necessarily the quote timestamp. Confirm source timestamps and feed status before relying on values. JARVIS does not place orders.</p></div></div>
+        </section>
+
+        <section class="view" id="view-reports">
+          <div class="page-title-row"><div><div class="eyebrow"><span class="eyebrow-line"></span> ARTIFACTS / LOCAL FILES</div><h1>Reports & <span>artifacts.</span></h1><p class="hero-subtitle">Open the files generated by your agents without leaving the dashboard.</p></div><button class="mini-icon-button large" id="refresh-reports" title="Refresh reports">↻</button></div>
+          <div class="report-layout"><section class="panel report-list-panel"><div class="panel-heading"><div><span class="section-kicker">DATA / REPORTS</span><h2>Local artifacts</h2></div><span class="session-tag">ON DISK</span></div><div id="report-list" class="report-list"><div class="loading-state"><span class="spinner"></span> Scanning report directory…</div></div></section><section class="panel report-viewer"><div class="viewer-top"><div><span class="section-kicker">FILE PREVIEW</span><h2 id="viewer-title">Select a report</h2></div><button class="mini-icon-button" id="copy-report" disabled title="Copy report contents">⧉</button></div><div id="viewer-content" class="viewer-content">Choose a file from the list to inspect its contents.</div></section></div>
+        </section>
+      </div>
+    </main>
+  </div>
+  <div class="toast-stack" id="toast-stack" aria-live="polite"></div>
+  <div class="modal-backdrop hidden" id="agent-modal" role="dialog" aria-modal="true" aria-labelledby="modal-agent-name"><div class="modal-card"><button class="modal-close" id="close-agent-modal" aria-label="Close">×</button><div id="agent-modal-content"></div></div></div>
+</body>
+</html>
