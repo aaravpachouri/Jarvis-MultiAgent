@@ -1614,7 +1614,8 @@ class DesktopActionExecutor:
                                     wintypes.HWND, ctypes.POINTER(wintypes.DWORD)
                                 ]
                                 user32.GetWindowThreadProcessId.restype = wintypes.DWORD
-                                user32.GetCurrentThreadId.restype = wintypes.DWORD
+                                kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+                                kernel32.GetCurrentThreadId.restype = wintypes.DWORD
                                 user32.AttachThreadInput.argtypes = [
                                     wintypes.DWORD, wintypes.DWORD, wintypes.BOOL
                                 ]
@@ -1631,7 +1632,7 @@ class DesktopActionExecutor:
                                     current_thread = user32.GetWindowThreadProcessId(
                                         current_hwnd, None
                                     ) if current_hwnd else 0
-                                    caller_thread = user32.GetCurrentThreadId()
+                                    caller_thread = kernel32.GetCurrentThreadId()
                                     attached = []
                                     try:
                                         for thread_id in {target_thread, current_thread}:
