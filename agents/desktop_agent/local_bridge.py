@@ -1567,14 +1567,17 @@ class DesktopActionExecutor:
             if candidates:
                 best_score = candidates[0][0]
                 best = [item for item in candidates if item[0] == best_score]
-                # Prefer a uniquely identifiable target. If multiple equally strong
-                # windows exist, only use the current foreground when it itself matches.
+                # Prefer the already-foreground match. If several windows of the
+                # requested app have equal evidence (common with modern Notepad's
+                # brokered/duplicate UIA surfaces), select a concrete verified candidate
+                # rather than timing out despite the app visibly being open. The selected
+                # HWND/PID must still pass the foreground check below before any typing.
                 current = self._foreground_window_identity()
                 current_match = next(
                     (item for item in best if item[2][1] == current[1] and item[2][1] is not None),
                     None,
                 )
-                chosen = current_match or (best[0] if len(best) == 1 else None)
+                chosen = current_match or best[0]
                 if chosen is not None:
                     _, window, identity = chosen
                     if identity != current and now - last_activation_attempt >= 0.8:
