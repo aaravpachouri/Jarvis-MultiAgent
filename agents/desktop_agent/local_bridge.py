@@ -574,6 +574,9 @@ class DesktopActionExecutor:
         # Preserve search context across separate dashboard submissions in the same session.
         self._last_search_query = ""
         self._last_app_name = ""
+        # Exact top-level window identity established by launch; subsequent input
+        # steps must continue to target this window until another app is opened.
+        self._last_target_window_identity: tuple[int | None, int | None, str] | None = None
         self._last_opened_url = ""
         # The allowed dashboard origin tells Atlas when the foreground tab is the
         # controller itself; target sites must open in a separate tab in that case.
@@ -1489,6 +1492,87 @@ class DesktopActionExecutor:
         except Exception:
             handle = None
         return process_id, handle, title
+
+    def _activate_window_identity(
+        self,
+        identity: tuple[int | None, int | None, str],
+        timeout_seconds: float = 3.0,
+    ) -> tuple[int | None, int | None, str]:
+        """Activate a known top-level HWND using Win32, then verify real foreground.
+
+        This is the shared native interaction primitive for launch and typing. It does
+        not inject keystrokes until the target HWND/PID is actually foreground.
+        """
+        if platform.system() != "Windows":
+            raise DesktopAgentError("Native desktop activation is supported on Windows only.")
+        import ctypes
+        from ctypes import wintypes
+
+        target_pid, target_handle, target_title = identity
+        if not target_handle:
+            raise DesktopAgentError(
+                "Atlas found the app but Windows did not provide a usable top-level window handle."
+            )
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        user32.GetForegroundWindow.restype = wintypes.HWND
+        user32.IsWindow.argtypes = [wintypes.HWND]
+        user32.IsWindow.restype = wintypes.BOOL
+        user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+        user32.BringWindowToTop.argtypes = [wintypes.HWND]
+        user32.SetForegroundWindow.argtypes = [wintypes.HWND]
+        user32.SetActiveWindow.argtypes = [wintypes.HWND]
+        user32.SetFocus.argtypes = [wintypes.HWND]
+        user32.GetWindowThreadProcessId.argtypes = [
+            wintypes.HWND, ctypes.POINTER(wintypes.DWORD)
+        ]
+        user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+        user32.AttachThreadInput.argtypes = [
+            wintypes.DWORD, wintypes.DWORD, wintypes.BOOL
+        ]
+        user32.AttachThreadInput.restype = wintypes.BOOL
+        kernel32.GetCurrentThreadId.restype = wintypes.DWORD
+        hwnd = wintypes.HWND(int(target_handle))
+        if not user32.IsWindow(hwnd):
+            raise DesktopAgentError("The target app window no longer exists. Reopen the app and retry.")
+
+        deadline = time.monotonic() + max(0.5, timeout_seconds)
+        last_error = 0
+        while time.monotonic() < deadline:
+            user32.ShowWindow(hwnd, 9)  # SW_RESTORE: restore if minimized
+            user32.BringWindowToTop(hwnd)
+            foreground = user32.GetForegroundWindow()
+            target_thread = user32.GetWindowThreadProcessId(hwnd, None)
+            foreground_thread = (
+                user32.GetWindowThreadProcessId(foreground, None) if foreground else 0
+            )
+            caller_thread = kernel32.GetCurrentThreadId()
+            attached: list[int] = []
+            try:
+                for thread_id in {target_thread, foreground_thread}:
+                    if thread_id and thread_id != caller_thread:
+                        if user32.AttachThreadInput(caller_thread, thread_id, True):
+                            attached.append(int(thread_id))
+                user32.SetForegroundWindow(hwnd)
+                user32.SetActiveWindow(hwnd)
+                user32.SetFocus(hwnd)
+            finally:
+                for thread_id in reversed(attached):
+                    user32.AttachThreadInput(caller_thread, thread_id, False)
+
+            current = self._foreground_window_identity()
+            if current[1] == int(target_handle) or (
+                target_pid is not None and current[0] == target_pid
+            ):
+                return current
+            last_error = ctypes.get_last_error()
+            time.sleep(0.12)
+
+        suffix = (" Win32 error " + str(last_error) + ".") if last_error else ""
+        raise DesktopAgentError(
+            "Atlas could not activate " + repr(target_title or "the target app") +
+            " as the actual foreground window. No keystrokes were sent." + suffix
+        )
 
     def _wait_for_app_foreground(
         self,
