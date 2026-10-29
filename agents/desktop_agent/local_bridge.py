@@ -2518,6 +2518,9 @@ class DesktopActionExecutor:
                         timeout_seconds=25.0,
                         stable_seconds=1.0,
                     )
+                    # Persist the verified native foreground identity so the next
+                    # action in "open app and type ..." reactivates this exact window.
+                    self._last_target_window_identity = settled_window
                     detail = (
                         "Launched " + app + " and confirmed foreground window " +
                         repr(settled_window[2] or app) + " is stable"
@@ -2547,31 +2550,22 @@ class DesktopActionExecutor:
                     # edit/document surface. Merely calling pyautogui.write() can silently
                     # send text nowhere when Windows has the app window active but no caret.
                     if platform.system() == "Windows":
-                        activation_error = None
-                        try:
-                            active_window = backend.getActiveWindow()
-                            if active_window is not None:
-                                try:
-                                    active_window.activate()
-                                except Exception as exc:
-                                    activation_error = exc
-                                time.sleep(0.15)
-                        except Exception as exc:
-                            activation_error = exc
-
-                        # pygetwindow's activate() can report an error even when the
-                        # requested window is already foreground. Trust the native HWND
-                        # check, not that wrapper's exception; still fail closed if no
-                        # real foreground window can be verified.
-                        foreground = self._foreground_window_identity()
-                        if foreground[1] is None:
-                            message = (
-                                "Windows could not verify a foreground window before typing. "
-                                "Bring the intended app forward and retry."
-                            )
-                            if activation_error is not None:
-                                raise DesktopAgentError(message) from activation_error
-                            raise DesktopAgentError(message)
+                        # If this action follows an app launch, reactivate the exact
+                        # verified target HWND rather than whichever window happens to
+                        # be active after UI Automation or the dashboard has run.
+                        target_identity = self._last_target_window_identity
+                        if target_identity is not None and target_identity[1] is not None:
+                            foreground = self._activate_window_identity(target_identity)
+                        else:
+                            foreground = self._foreground_window_identity()
+                            if foreground[1] is None:
+                                raise DesktopAgentError(
+                                    "Windows could not verify a foreground window before typing. "
+                                    "Bring the intended app forward and retry."
+                                )
+                        # Focus a unique accessible text surface if the app exposes one.
+                        # Otherwise preserve the current caret (Notepad/editor caret, browser
+                        # field, etc.) and rely on the verified foreground window.
                         focus_detail = self._focus_text_entry_target()
                     else:
                         # Unit tests and non-Windows fake backends must not import Windows UIA.
