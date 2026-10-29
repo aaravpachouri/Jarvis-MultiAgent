@@ -1608,9 +1608,22 @@ class DesktopActionExecutor:
             try:
                 from pywinauto import Desktop
                 windows = Desktop(backend="uia").windows()
+                if not windows:
+                    # Some native/legacy apps expose incomplete UI Automation trees.
+                    # Fall back to Win32 window enumeration rather than treating an
+                    # empty UIA list as proof that the app never opened.
+                    try:
+                        windows = Desktop(backend="win32").windows()
+                    except Exception as fallback_exc:
+                        last_discovery_error = type(fallback_exc).__name__
             except Exception as exc:
                 windows = []
                 last_discovery_error = type(exc).__name__
+                try:
+                    from pywinauto import Desktop
+                    windows = Desktop(backend="win32").windows()
+                except Exception as fallback_exc:
+                    last_discovery_error += "/" + type(fallback_exc).__name__
 
             for window in windows:
                 try:
