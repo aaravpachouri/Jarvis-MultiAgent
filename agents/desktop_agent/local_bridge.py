@@ -1588,18 +1588,53 @@ class DesktopActionExecutor:
                                     window.restore()
                             except Exception:
                                 pass
+                            # Try the accessibility library first, then use native
+                            # Win32 activation. Windows can reject SetForegroundWindow
+                            # when the caller and target belong to different input threads;
+                            # temporarily attaching the input queues gives activation a
+                            # chance without sending any keystrokes.
                             try:
                                 window.set_focus()
                             except Exception:
-                                try:
-                                    window.restore()
-                                except Exception:
-                                    pass
-                                window.set_focus()
-                        except Exception:
-                            # Foreground verification below decides whether focus
-                            # actually succeeded; never type based on activation alone.
-                            pass
+                                pass
+                            try:
+                                import ctypes
+                                from ctypes import wintypes
+
+                                user32 = ctypes.WinDLL("user32", use_last_error=True)
+                                target_hwnd = int(identity[1] or 0)
+                                if target_hwnd and user32.IsWindow(target_hwnd):
+                                    SW_RESTORE = 9
+                                    user32.ShowWindow(target_hwnd, SW_RESTORE)
+                                    user32.BringWindowToTop(target_hwnd)
+                                    current_hwnd = int(user32.GetForegroundWindow() or 0)
+                                    target_thread = user32.GetWindowThreadProcessId(
+                                        target_hwnd, None
+                                    )
+                                    current_thread = user32.GetWindowThreadProcessId(
+                                        current_hwnd, None
+                                    ) if current_hwnd else 0
+                                    caller_thread = user32.GetCurrentThreadId()
+                                    attached = []
+                                    try:
+                                        for thread_id in {target_thread, current_thread}:
+                                            if thread_id and thread_id != caller_thread:
+                                                if user32.AttachThreadInput(
+                                                    caller_thread, thread_id, True
+                                                ):
+                                                    attached.append(thread_id)
+                                        user32.SetForegroundWindow(target_hwnd)
+                                        user32.SetActiveWindow(target_hwnd)
+                                        user32.SetFocus(target_hwnd)
+                                    finally:
+                                        for thread_id in reversed(attached):
+                                            user32.AttachThreadInput(
+                                                caller_thread, thread_id, False
+                                            )
+                            except Exception:
+                                # Foreground verification below decides whether focus
+                                # actually succeeded; never type based on activation alone.
+                                pass
 
                     actual = self._foreground_window_identity()
                     actual_pid, actual_handle, actual_title = actual
