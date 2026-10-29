@@ -2443,13 +2443,12 @@ class DesktopActionExecutor:
                     else:
                         # Unit tests and non-Windows fake backends must not import Windows UIA.
                         focus_detail = "the mocked active window"
-                    if value.isascii():
-                        backend.write(value, interval=0)
-                    else:
-                        try:
-                            import pyperclip
-                        except ImportError as exc:
-                            raise DesktopAgentError("Unicode typing needs pyperclip; run run_desktop_agent.bat to install it.") from exc
+                    # Clipboard paste is more reliable than synthesizing every character
+                    # on Windows (keyboard layout, elevated windows, and Unicode all affect
+                    # key injection). Preserve and restore the user's clipboard when possible.
+                    pasted = False
+                    try:
+                        import pyperclip
                         original_clipboard = None
                         try:
                             original_clipboard = pyperclip.paste()
@@ -2458,14 +2457,26 @@ class DesktopActionExecutor:
                         try:
                             pyperclip.copy(value)
                             backend.hotkey("ctrl", "v")
-                            time.sleep(0.2)
+                            time.sleep(0.25)
+                            pasted = True
                         finally:
                             if original_clipboard is not None:
                                 try:
                                     pyperclip.copy(original_clipboard)
                                 except Exception:
                                     pass
-                    detail = "Typed " + str(len(value)) + " characters after focusing " + focus_detail
+                    except Exception:
+                        # Keep typing usable if clipboard support is missing or blocked.
+                        if not value.isascii():
+                            raise DesktopAgentError(
+                                "Unicode typing needs a working clipboard backend. "
+                                "Install pyperclip with run_desktop_agent.bat and retry."
+                            )
+                    if not pasted:
+                        backend.write(value, interval=0)
+                    detail = "Entered " + str(len(value)) + " characters using " + (
+                        "clipboard paste" if pasted else "keyboard input"
+                    ) + " after focusing " + focus_detail
                 elif kind in {"smart_type", "focus_search"}:
                     value = str(action.get("text", ""))
                     if kind == "smart_type" and (not value or len(value) > 8_000):
