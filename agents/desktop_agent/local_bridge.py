@@ -2463,15 +2463,31 @@ class DesktopActionExecutor:
                     # edit/document surface. Merely calling pyautogui.write() can silently
                     # send text nowhere when Windows has the app window active but no caret.
                     if platform.system() == "Windows":
+                        activation_error = None
                         try:
                             active_window = backend.getActiveWindow()
                             if active_window is not None:
-                                active_window.activate()
-                                time.sleep(0.2)
+                                try:
+                                    active_window.activate()
+                                except Exception as exc:
+                                    activation_error = exc
+                                time.sleep(0.15)
                         except Exception as exc:
-                            raise DesktopAgentError(
-                                "Windows could not activate the intended foreground window. Bring the target app forward and retry."
-                            ) from exc
+                            activation_error = exc
+
+                        # pygetwindow's activate() can report an error even when the
+                        # requested window is already foreground. Trust the native HWND
+                        # check, not that wrapper's exception; still fail closed if no
+                        # real foreground window can be verified.
+                        foreground = self._foreground_window_identity()
+                        if foreground[1] is None:
+                            message = (
+                                "Windows could not verify a foreground window before typing. "
+                                "Bring the intended app forward and retry."
+                            )
+                            if activation_error is not None:
+                                raise DesktopAgentError(message) from activation_error
+                            raise DesktopAgentError(message)
                         focus_detail = self._focus_text_entry_target()
                     else:
                         # Unit tests and non-Windows fake backends must not import Windows UIA.
