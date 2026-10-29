@@ -2474,6 +2474,9 @@ class DesktopActionExecutor:
     def execute(self, actions: list[dict[str, Any]]) -> dict[str, Any]:
         backend = self._get_backend()
         completed: list[dict[str, Any]] = []
+        # Do not reuse a window identity from a previous user task. Only an
+        # open_app action in this same sequence can establish a target for typing.
+        self._last_target_window_identity = None
         last_search_query = self._last_search_query
         for index, action in enumerate(actions, 1):
             kind = action.get("type")
