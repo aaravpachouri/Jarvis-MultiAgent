@@ -1779,10 +1779,10 @@ class DesktopActionExecutor:
                                             user32.AttachThreadInput(
                                                 caller_thread, thread_id, False
                                             )
-                            except Exception:
-                                # Foreground verification below decides whether focus
-                                # actually succeeded; never type based on activation alone.
-                                pass
+                                    except Exception:
+                                        # Activation is best-effort; the foreground
+                                        # identity check below decides whether it worked.
+                                        pass
 
                     actual = self._foreground_window_identity()
                     actual_pid, actual_handle, actual_title = actual
