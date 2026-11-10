@@ -334,3 +334,95 @@ def test_invalid_search_environment_values_use_safe_defaults(monkeypatch):
 
 def test_search_timeout_is_capped():
     assert SearchAgent(timeout_seconds=999).timeout_seconds == 60.0
+
+
+@pytest.mark.asyncio
+async def test_agent_falls_back_to_duckduckgo_after_brave_timeout(monkeypatch):
+    import agents.search_agent.agent as module
+
+    monkeypatch.setenv("BRAVE_SEARCH_API_KEY", "test-key-not-real")
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    monkeypatch.delenv("JARVIS_SEARCH_PROVIDER", raising=False)
+
+    def fail_brave(query, *, timeout, limit):
+        raise TimeoutError("Brave timed out")
+
+    monkeypatch.setattr(module, "_fetch_brave_results", fail_brave)
+    monkeypatch.setattr(module, "_fetch_html", lambda query, *, timeout: SAMPLE_HTML)
+
+    output = await SearchAgent()(SimpleNamespace(prompt="search for Python docs"), None)
+
+    assert len(output["results"]) == 2
+    assert output["provider"] == "DuckDuckGo HTML search"
+    assert output["provider_failures"][0]["error_code"] == "network_error"
+    assert output["providers_attempted"] == ["Brave Search API", "DuckDuckGo HTML search"]
+
+
+@pytest.mark.asyncio
+async def test_agent_combines_partial_results_from_multiple_providers(monkeypatch):
+    import agents.search_agent.agent as module
+
+    monkeypatch.setenv("BRAVE_SEARCH_API_KEY", "test-key-not-real")
+    monkeypatch.setenv("TAVILY_API_KEY", "test-key-not-real")
+    monkeypatch.delenv("JARVIS_SEARCH_PROVIDER", raising=False)
+
+    monkeypatch.setattr(module, "_fetch_brave_results", lambda query, *, timeout, limit: [{
+        "title": "Brave result", "url": "https://example.com/a", "domain": "example.com", "snippet": "A"
+    }])
+    monkeypatch.setattr(module, "_fetch_tavily_results", lambda query, *, timeout, limit, include_domains=None: [{
+        "title": "Tavily result", "url": "https://example.org/b", "domain": "example.org", "snippet": "B"
+    }])
+
+    output = await SearchAgent(result_count=5)(SimpleNamespace(prompt="research topic"), None)
+
+    assert [item["url"] for item in output["results"]] == [
+        "https://example.com/a", "https://example.org/b"
+    ]
+    assert output["provider"] == "Brave Search API, Tavily Search API"
+    assert output["partial"] is True
+
+
+@pytest.mark.asyncio
+async def test_agent_reports_all_provider_failures_without_fabricating(monkeypatch):
+    import agents.search_agent.agent as module
+
+    monkeypatch.setenv("BRAVE_SEARCH_API_KEY", "test-key-not-real")
+    monkeypatch.setenv("TAVILY_API_KEY", "test-key-not-real")
+    monkeypatch.delenv("JARVIS_SEARCH_PROVIDER", raising=False)
+
+    def fail(*args, **kwargs):
+        raise TimeoutError("provider timeout")
+
+    monkeypatch.setattr(module, "_fetch_brave_results", fail)
+    monkeypatch.setattr(module, "_fetch_tavily_results", fail)
+    monkeypatch.setattr(module, "_fetch_html", fail)
+
+    output = await SearchAgent()(SimpleNamespace(prompt="research topic"), None)
+
+    assert output["results"] == []
+    assert output["error_code"] == "network_error"
+    assert len(output["provider_failures"]) == 3
+    assert output["providers_attempted"] == [
+        "Brave Search API", "Tavily Search API", "DuckDuckGo HTML search"
+    ]
+    assert "No results have been fabricated" in output["summary"]
+
+
+@pytest.mark.asyncio
+async def test_explicit_tavily_provider_still_falls_back_to_brave(monkeypatch):
+    import agents.search_agent.agent as module
+
+    monkeypatch.setenv("JARVIS_SEARCH_PROVIDER", "tavily")
+    monkeypatch.setenv("TAVILY_API_KEY", "test-key-not-real")
+    monkeypatch.setenv("BRAVE_SEARCH_API_KEY", "test-key-not-real")
+
+    monkeypatch.setattr(module, "_fetch_tavily_results", lambda *args, **kwargs: (_ for _ in ()).throw(TimeoutError("Tavily timeout")))
+    monkeypatch.setattr(module, "_fetch_brave_results", lambda query, *, timeout, limit: [{
+        "title": "Brave result", "url": "https://example.com/", "domain": "example.com", "snippet": "Recovered"
+    }])
+
+    output = await SearchAgent()(SimpleNamespace(prompt="research topic"), None)
+
+    assert output["provider"] == "Brave Search API"
+    assert output["results"][0]["url"] == "https://example.com/"
+    assert output["provider_failures"][0]["provider"] == "Tavily Search API"
