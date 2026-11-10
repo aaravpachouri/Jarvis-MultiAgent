@@ -127,3 +127,41 @@ def test_implementation_fails_when_verification_is_unknown(tmp_path, monkeypatch
 
     with pytest.raises(ForgeError, match="verification did not pass"):
         asyncio.run(agent._implement("implement the app"))
+
+def test_failed_verification_restores_overwritten_files_and_keeps_backup(tmp_path, monkeypatch):
+    original = "stable = True\\n"
+    (tmp_path / "app.py").write_text(original, encoding="utf-8")
+    model = FakeModel(json.dumps({
+        "summary": "Changed app.",
+        "files": [{"path": "app.py", "content": "broken = True\\n"}],
+    }))
+    agent = ForgeAgent(workspace=tmp_path, model=model)
+    monkeypatch.setattr(
+        agent, "_run_tests",
+        lambda quiet=True: "Verification: FAILED (exit code 1)\\n1 failed",
+    )
+
+    with pytest.raises(ForgeError, match="Changes were rolled back"):
+        asyncio.run(agent._implement("fix app"))
+
+    assert (tmp_path / "app.py").read_text(encoding="utf-8") == original
+    backups = list((tmp_path / ".jarvis_forge_backups").rglob("app.py"))
+    assert len(backups) == 1
+    assert backups[0].read_text(encoding="utf-8") == original
+
+
+def test_failed_verification_removes_newly_created_files(tmp_path, monkeypatch):
+    model = FakeModel(json.dumps({
+        "summary": "Created app.",
+        "files": [{"path": "new_app.py", "content": "broken = True\\n"}],
+    }))
+    agent = ForgeAgent(workspace=tmp_path, model=model)
+    monkeypatch.setattr(
+        agent, "_run_tests",
+        lambda quiet=True: "Verification: FAILED (exit code 1)\\n1 failed",
+    )
+
+    with pytest.raises(ForgeError, match="Changes were rolled back"):
+        asyncio.run(agent._implement("create app"))
+
+    assert not (tmp_path / "new_app.py").exists()
