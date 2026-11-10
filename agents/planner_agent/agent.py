@@ -47,10 +47,13 @@ class PlannerAgent:
             step_titles = self._default_steps(goal)
             plan_basis = "goal_decomposition"
 
+        available_agents = supplied.get("available_executable_agents", [])
+        if not isinstance(available_agents, list):
+            available_agents = []
         steps: list[dict[str, Any]] = []
         for index, title in enumerate(step_titles, start=1):
             dependencies = [index - 1] if index > 1 else []
-            steps.append({
+            step = {
                 "id": index,
                 "title": title,
                 "action": title if title.endswith((".", "!", "?")) else title + ".",
@@ -58,7 +61,12 @@ class PlannerAgent:
                 "deliverable": self._deliverable_for(title),
                 "verification": self._verification_for(title),
                 "status": "not_started",
-            })
+            }
+            assignment = self._assign_specialist(title, available_agents)
+            if assignment:
+                step["agent_id"] = assignment["agent_id"]
+                step["capability"] = assignment["capability"]
+            steps.append(step)
 
         checklist = [
             f"[ ] {step['title']}" for step in steps
@@ -86,6 +94,49 @@ class PlannerAgent:
             "execution_status": "plan_only_not_executed",
             "summary": f"Planner created a {len(steps)}-step plan for: {goal}",
         }
+
+    @staticmethod
+    def _assign_specialist(title: str, available_agents: list[Any]) -> dict[str, str] | None:
+        """Assign only when the step clearly matches a declared executable capability."""
+        text = title.casefold()
+        categories: list[tuple[tuple[str, ...], tuple[str, ...]]] = [
+            (("test", "pytest", "verify", "validation", "regression", "compile"),
+             ("code.test", "research.verify", "deployment.verify")),
+            (("implement", "build", "develop", "write code", "fix", "refactor", "feature"),
+             ("code.write", "code.debug")),
+            (("research", "investigate", "evidence", "compare", "sources"),
+             ("research.deep", "research.synthesize", "web.search", "documentation.lookup")),
+            (("document", "report", "write-up", "proposal", "release notes"),
+             ("writing.report", "documentation.write")),
+            (("deploy", "release", "publish", "hosting"),
+             ("deployment.plan", "deployment.build", "deployment.verify")),
+        ]
+        preferred: list[str] = []
+        for terms, capabilities in categories:
+            if any(term in text for term in terms):
+                preferred.extend(capabilities)
+        if not preferred:
+            return None
+        candidates: list[tuple[int, str, str]] = []
+        for agent in available_agents:
+            if not isinstance(agent, Mapping):
+                continue
+            agent_id = agent.get("agent_id")
+            capabilities = agent.get("capabilities", [])
+            if not isinstance(agent_id, str) or not agent_id.strip() or not isinstance(capabilities, list):
+                continue
+            for rank, capability in enumerate(preferred):
+                if capability in capabilities:
+                    candidates.append((rank, agent_id.strip(), capability))
+                    break
+        if not candidates:
+            return None
+        candidates.sort(key=lambda item: (item[0], item[1]))
+        best_rank = candidates[0][0]
+        best = [item for item in candidates if item[0] == best_rank]
+        if len(best) != 1:
+            return None
+        return {"agent_id": best[0][1], "capability": best[0][2]}
 
     @staticmethod
     def _extract_requested_steps(prompt: str) -> list[str]:
