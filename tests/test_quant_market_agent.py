@@ -141,3 +141,49 @@ def test_no_news_handler_does_not_claim_news_was_verified(monkeypatch):
     result = asyncio.run(agent(SimpleNamespace(prompt="market brief"), context))
     assert result["news"]["status"] == "unavailable"
     assert "not independently verified" in result["summary"] or "Recent news unavailable" in result["summary"]
+
+
+def test_quant_shortlist_requires_recent_uncached_timestamped_quote():
+    fresh = {
+        "source_timestamp_utc": "2026-11-10T10:00:00+00:00",
+        "source_age_seconds": 300,
+        "cached": False,
+    }
+    assert TradingAgent._quote_is_fresh_for_shortlisting(fresh) == {
+        "eligible": True,
+        "reason": "recent_uncached_provider_timestamp",
+    }
+
+
+def test_quant_shortlist_rejects_latest_session_quotes_older_than_five_minutes():
+    quote = {
+        "source_timestamp_utc": "2026-11-10T09:00:00+00:00",
+        "source_age_seconds": 301,
+        "cached": False,
+    }
+    result = TradingAgent._quote_is_fresh_for_shortlisting(quote)
+    assert result["eligible"] is False
+    assert result["reason"] == "source_timestamp_older_than_5_minutes"
+
+
+@pytest.mark.parametrize(
+    ("overrides", "expected_reason"),
+    [
+        ({"source_timestamp_utc": None}, "source_timestamp_missing"),
+        ({"source_age_seconds": None}, "source_age_invalid"),
+        ({"source_age_seconds": -1}, "source_age_invalid"),
+        ({"source_age_seconds": True}, "source_age_invalid"),
+        ({"cached": True}, "cached_or_cache_status_unknown"),
+        ({"cached": None}, "cached_or_cache_status_unknown"),
+    ],
+)
+def test_quant_shortlist_rejects_missing_invalid_or_cached_quote_metadata(overrides, expected_reason):
+    quote = {
+        "source_timestamp_utc": "2026-11-10T10:00:00+00:00",
+        "source_age_seconds": 10,
+        "cached": False,
+    }
+    quote.update(overrides)
+    result = TradingAgent._quote_is_fresh_for_shortlisting(quote)
+    assert result["eligible"] is False
+    assert result["reason"] == expected_reason

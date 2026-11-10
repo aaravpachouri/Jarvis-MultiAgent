@@ -280,6 +280,26 @@ class TradingAgent:
             ),
         }
 
+    @staticmethod
+    def _quote_is_fresh_for_shortlisting(quote_data: Mapping[str, Any]) -> dict[str, Any]:
+        """Require a recent, timestamped, uncached provider observation for shortlist eligibility.
+
+        A quote from the latest session can still be useful context, but it is not
+        fresh enough to qualify a candidate for the actionable research shortlist.
+        """
+        age = quote_data.get("source_age_seconds")
+        cached = quote_data.get("cached")
+        timestamp = quote_data.get("source_timestamp_utc")
+        if not isinstance(timestamp, str) or not timestamp.strip():
+            return {"eligible": False, "reason": "source_timestamp_missing"}
+        if isinstance(age, bool) or not isinstance(age, int) or age < 0:
+            return {"eligible": False, "reason": "source_age_invalid"}
+        if cached is not False:
+            return {"eligible": False, "reason": "cached_or_cache_status_unknown"}
+        if age > 300:
+            return {"eligible": False, "reason": "source_timestamp_older_than_5_minutes"}
+        return {"eligible": True, "reason": "recent_uncached_provider_timestamp"}
+
     async def _run_market_pulse_research(self, prompt: str, context: Any) -> dict[str, Any]:
         """Search and evaluate each requested listing using the public no-key provider.
 
@@ -319,10 +339,11 @@ class TradingAgent:
                             "data_mode", "chart_range", "interval", "source_url", "cached",
                         )}
                         item["technical_metrics"] = metrics
-                        age = quote_data.get("source_age_seconds")
-                        fresh_enough = isinstance(age, int) and age <= 86400
+                        item["shortlist_freshness_check"] = self._quote_is_fresh_for_shortlisting(quote_data)
                         item["shortlist_eligible"] = bool(
-                            fresh_enough and metrics["history_points"] >= 50 and metrics["trend"] == "bullish"
+                            item["shortlist_freshness_check"]["eligible"]
+                            and metrics["history_points"] >= 50
+                            and metrics["trend"] == "bullish"
                         )
                         item["status"] = "quoted"
                     return item
