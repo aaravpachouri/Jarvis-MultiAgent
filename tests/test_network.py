@@ -31,7 +31,7 @@ def test_project_discovers_ten_separate_initial_agents() -> None:
     assert len(discovered) == 10
     assert len({spec.agent_id for _, spec in discovered}) == 10
     assert {folder.name for folder, _ in discovered} == {
-        "voice_agent", "search_agent", "coding_agent", "desktop_agent",
+        "voice_agent", "search_agent", "coding_agent", "atlas_agent",
         "trading_agent", "research_agent", "documentation_agent", "deployment_agent",
         "planner_agent", "memory_agent",
     }
