@@ -55,7 +55,7 @@ def integrated_runtime(monkeypatch):
     runtime = AgentRuntime(registry=registry, bus=EventBus(), max_delegation_depth=6)
     voice = VoiceAgent()
     athena = ResearchAgent()
-    scout = SearchAgent(timeout_seconds=2, result_count=3)
+    scout = SearchAgent(timeout_seconds=2, result_count=1)
     forge_calls: list[dict] = []
 
     async def forge_handler(task, context):
