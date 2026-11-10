@@ -549,7 +549,9 @@ class SearchAgent:
             "query": query,
             "results": combined_results,
             "retrieved_at": retrieved_at,
-            "provider": ", ".join(successful_providers),
+            "provider": ", ".join(dict.fromkeys(
+                [item["provider"] for item in combined_results]
+            )),
             "providers_attempted": [_provider_label(item) for item in order[:len(successful_providers) + len(failures)]],
             "provider_failures": failures,
             "requested_result_count": self.result_count,
