@@ -386,10 +386,10 @@ class SearchAgent:
                     combined_results.append(item)
                     if len(combined_results) >= self.result_count:
                         break
-                # A successful provider is enough for the normal fast path.
-                # If it returned fewer than requested, continue once through
-                # the remaining providers to fill the result set.
-                if len(combined_results) >= self.result_count:
+                # A non-empty provider response is usable. Avoid extra quota
+                # and latency merely to fill the target count; fail over only
+                # when a provider yields no usable links.
+                if combined_results:
                     break
 
             except HTTPError as exc:
