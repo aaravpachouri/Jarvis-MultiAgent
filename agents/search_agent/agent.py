@@ -524,6 +524,9 @@ class SearchAgent:
             )
             failure["providers_attempted"] = [item["provider"] for item in failures]
             failure["provider_failures"] = failures
+            failure["error_code"] = "empty_results" if all(
+                item.get("error_code") in {"empty_results", "empty_or_invalid_results"} for item in failures
+            ) else failure.get("error_code")
             failure["requested_result_count"] = self.result_count
             failure["result_count"] = 0
             failure["partial"] = True
