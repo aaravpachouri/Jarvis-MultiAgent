@@ -303,95 +303,169 @@ class SearchAgent:
                 "retrieved_at": _utc_now(),
             }
 
-        # An explicit provider setting always wins. When no provider is set,
-        # prefer Brave if its key is configured, then Tavily, then DuckDuckGo.
-        # This keeps provider choice deterministic when multiple API keys are
-        # present (for example, in a developer environment running tests).
-        provider = os.getenv("JARVIS_SEARCH_PROVIDER", "").strip().casefold()
-        if provider:
-            selected_provider = provider
-        elif os.getenv("BRAVE_SEARCH_API_KEY", "").strip():
-            selected_provider = "brave"
-        elif os.getenv("TAVILY_API_KEY", "").strip():
-            selected_provider = "tavily"
+        configured = os.getenv("JARVIS_SEARCH_PROVIDER", "").strip().casefold()
+        if configured and configured not in {"brave", "tavily", "duckduckgo", "ddg"}:
+            return self._failure(
+                query,
+                f"Unknown JARVIS_SEARCH_PROVIDER '{configured}'. Choose tavily, brave, or duckduckgo.",
+                provider=configured,
+                error_code="unknown_provider",
+                retryable=False,
+            )
+
+        # The selected provider is preferred, not a single point of failure.
+        # Other API providers are attempted only when their keys are present;
+        # DuckDuckGo remains the no-key fallback.
+        available = []
+        if os.getenv("BRAVE_SEARCH_API_KEY", "").strip():
+            available.append("brave")
+        if os.getenv("TAVILY_API_KEY", "").strip():
+            available.append("tavily")
+        available.append("duckduckgo")
+
+        if configured:
+            order = [configured]
+            if configured == "ddg":
+                configured = "duckduckgo"
+                order = ["duckduckgo"]
+            order.extend(provider for provider in available if provider not in order)
+        elif "brave" in available:
+            order = ["brave"] + [provider for provider in available if provider != "brave"]
+        elif "tavily" in available:
+            order = ["tavily"] + [provider for provider in available if provider != "tavily"]
         else:
-            selected_provider = "duckduckgo"
-        provider_name = _provider_label(selected_provider)
-        try:
-            if selected_provider == "tavily":
-                requested_domains = re.findall(r"\bsite:([A-Za-z0-9.-]+)", query, re.IGNORECASE)
-                provider_query = re.sub(r"\s+site:[A-Za-z0-9./_-]+", "", query, flags=re.IGNORECASE).strip()
-                tavily_kwargs: dict[str, Any] = {"timeout": self.timeout_seconds, "limit": self.result_count}
-                if requested_domains:
-                    tavily_kwargs["include_domains"] = requested_domains
-                async with action_scope(context, "web.search.request", action_type="tool", metadata={"tool_name": "web_search", "provider": "tavily"}):
-                    results = await asyncio.to_thread(
-                        _fetch_tavily_results, provider_query, **tavily_kwargs
-                    )
-                provider_name = "Tavily Search API"
-            elif selected_provider == "brave":
-                async with action_scope(context, "web.search.request", action_type="tool", metadata={"tool_name": "web_search", "provider": "brave"}):
-                    results = await asyncio.to_thread(
-                        _fetch_brave_results, query, timeout=self.timeout_seconds, limit=self.result_count
-                    )
-                provider_name = "Brave Search API"
-            elif selected_provider in {"duckduckgo", "ddg", ""}:
-                async with action_scope(context, "web.search.request", action_type="tool", metadata={"tool_name": "web_search", "provider": "duckduckgo"}):
-                    html = await asyncio.to_thread(_fetch_html, query, timeout=self.timeout_seconds)
-                results = _parse_results(html, self.result_count)
-                provider_name = "DuckDuckGo HTML search"
-            else:
-                return self._failure(query, f"Unknown JARVIS_SEARCH_PROVIDER '{selected_provider}'. Choose tavily, brave, or duckduckgo.", provider=provider_name, error_code="unknown_provider", retryable=False)
-        except HTTPError as exc:
-            if exc.code == 429:
-                reason = "The search provider rate-limited this request (HTTP 429). Wait for its quota window or reduce request frequency."
-                code, retryable = "rate_limited", True
-            elif exc.code in {500, 502, 503, 504}:
-                reason = f"The search provider is temporarily unavailable (HTTP {exc.code}). Retry later."
-                code, retryable = "provider_unavailable", True
-            elif exc.code in {401, 403}:
-                reason = f"The search provider rejected authentication or access (HTTP {exc.code}). Check the configured API key and plan."
-                code, retryable = "provider_auth", False
-            else:
-                reason = f"The search provider returned HTTP {exc.code}. Check provider configuration and quota."
-                code, retryable = "provider_http_error", False
-            retry_after = exc.headers.get("Retry-After") if exc.headers else None
-            return self._failure(query, reason, provider=provider_name, error_code=code, retryable=retryable, retry_after=retry_after)
-        except (TimeoutError, URLError, OSError) as exc:
-            detail = getattr(exc, "reason", None) or str(exc)
-            return self._failure(query, f"The search request failed: {detail}", provider=provider_name, error_code="network_error", retryable=True)
-        except Exception as exc:
-            return self._failure(query, f"Search failed ({type(exc).__name__}): {exc}", provider=provider_name, error_code="provider_error", retryable=False)
+            order = ["duckduckgo"]
+
+        failures: list[dict[str, Any]] = []
+        combined_results: list[dict[str, str]] = []
+        seen_urls: set[str] = set()
+        successful_providers: list[str] = []
+
+        for selected_provider in order:
+            provider_name = _provider_label(selected_provider)
+            try:
+                if selected_provider == "tavily":
+                    requested_domains = re.findall(r"\bsite:([A-Za-z0-9.-]+)", query, re.IGNORECASE)
+                    provider_query = re.sub(r"\s+site:[A-Za-z0-9./_-]+", "", query, flags=re.IGNORECASE).strip()
+                    tavily_kwargs: dict[str, Any] = {
+                        "timeout": self.timeout_seconds,
+                        "limit": self.result_count,
+                    }
+                    if requested_domains:
+                        tavily_kwargs["include_domains"] = requested_domains
+                    async with action_scope(context, "web.search.request", action_type="tool", metadata={"tool_name": "web_search", "provider": "tavily"}):
+                        results = await asyncio.to_thread(
+                            _fetch_tavily_results, provider_query, **tavily_kwargs
+                        )
+                elif selected_provider == "brave":
+                    async with action_scope(context, "web.search.request", action_type="tool", metadata={"tool_name": "web_search", "provider": "brave"}):
+                        results = await asyncio.to_thread(
+                            _fetch_brave_results, query, timeout=self.timeout_seconds, limit=self.result_count
+                        )
+                else:
+                    async with action_scope(context, "web.search.request", action_type="tool", metadata={"tool_name": "web_search", "provider": "duckduckgo"}):
+                        html = await asyncio.to_thread(_fetch_html, query, timeout=self.timeout_seconds)
+                    results = _parse_results(html, self.result_count)
+
+                provider_name = _provider_label(selected_provider)
+                if not results:
+                    failures.append({
+                        "provider": provider_name,
+                        "error_code": "empty_results",
+                        "error": "Provider returned no parseable results.",
+                        "retryable": False,
+                    })
+                    continue
+
+                successful_providers.append(provider_name)
+                for item in results:
+                    url_value = str(item.get("url", "")).strip()
+                    if not _is_public_http_url(url_value) or url_value in seen_urls:
+                        continue
+                    seen_urls.add(url_value)
+                    combined_results.append(item)
+                    if len(combined_results) >= self.result_count:
+                        break
+                # A non-empty provider response is usable. Avoid extra quota
+                # and latency merely to fill the target count; fail over only
+                # when a provider yields no usable links.
+                if combined_results:
+                    break
+
+            except HTTPError as exc:
+                if exc.code == 429:
+                    reason = "The search provider rate-limited this request (HTTP 429)."
+                    code, retryable = "rate_limited", True
+                elif exc.code in {500, 502, 503, 504}:
+                    reason = f"The search provider is temporarily unavailable (HTTP {exc.code})."
+                    code, retryable = "provider_unavailable", True
+                elif exc.code in {401, 403}:
+                    reason = f"The search provider rejected authentication or access (HTTP {exc.code})."
+                    code, retryable = "provider_auth", False
+                else:
+                    reason = f"The search provider returned HTTP {exc.code}."
+                    code, retryable = "provider_http_error", False
+                failures.append({
+                    "provider": provider_name,
+                    "error_code": code,
+                    "error": reason,
+                    "retryable": retryable,
+                    "retry_after": exc.headers.get("Retry-After") if exc.headers else None,
+                })
+            except (TimeoutError, URLError, OSError) as exc:
+                detail = getattr(exc, "reason", None) or str(exc)
+                failures.append({
+                    "provider": provider_name,
+                    "error_code": "network_error",
+                    "error": f"Search request failed: {detail}",
+                    "retryable": True,
+                })
+            except Exception as exc:
+                failures.append({
+                    "provider": provider_name,
+                    "error_code": "provider_error",
+                    "error": f"Search failed ({type(exc).__name__}): {exc}",
+                    "retryable": False,
+                })
 
         retrieved_at = _utc_now()
-        if not results:
-            return {
-                "summary": (
-                    f"I searched for '{query}', but the provider returned no parseable results. "
-                    "It may have returned a challenge page. Configure TAVILY_API_KEY and set "
-                    "JARVIS_SEARCH_PROVIDER=tavily to use structured JSON search results."
-                ),
-                "query": query,
-                "results": [],
-                "retrieved_at": retrieved_at,
-                "provider": provider_name,
+        if not combined_results:
+            last_failure = failures[-1] if failures else {
+                "provider": "unspecified",
                 "error_code": "empty_results",
-                "retryable": False,
+                "error": "No provider returned usable results.",
+                "retryable": True,
             }
+            failure = self._failure(
+                query,
+                str(last_failure["error"]),
+                provider=str(last_failure["provider"]),
+                error_code=str(last_failure["error_code"]),
+                retryable=bool(last_failure["retryable"]),
+                retry_after=last_failure.get("retry_after"),
+            )
+            failure["providers_attempted"] = [item["provider"] for item in failures]
+            failure["provider_failures"] = failures
+            return failure
 
         lines = [f"Scout search results for: {query}", f"Retrieved: {retrieved_at}"]
-        for index, result in enumerate(results, start=1):
+        for index, result in enumerate(combined_results, start=1):
             lines.append(f"\n{index}. {result['title']} ({result['domain']})")
             lines.append(f"   {result['url']}")
-            if result["snippet"]:
+            if result.get("snippet"):
                 lines.append(f"   {result['snippet']}")
         lines.append("\nThese are search results, not independently verified claims. Open primary sources before relying on details.")
+        if failures:
+            lines.append("\nSome providers were unavailable; results were recovered from the providers that responded.")
         return {
-            "summary": "\n".join(lines),
+            "summary": "\\n".join(lines),
             "query": query,
-            "results": results,
+            "results": combined_results,
             "retrieved_at": retrieved_at,
-            "provider": provider_name,
+            "provider": ", ".join(successful_providers),
+            "providers_attempted": [_provider_label(item) for item in order[:len(successful_providers) + len(failures)]],
+            "provider_failures": failures,
+            "partial": len(combined_results) < self.result_count,
         }
 
     @staticmethod

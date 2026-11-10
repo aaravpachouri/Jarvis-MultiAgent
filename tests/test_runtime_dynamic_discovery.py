@@ -80,3 +80,34 @@ async def test_task_result_contains_parent_and_correlation_lineage():
     assert result.metadata["delegation_depth"] == 2
     assert result.metadata["requested_by"] == "research.athena"
     assert result.metadata["capabilities_requested"] == ["web.search"]
+
+
+@pytest.mark.asyncio
+async def test_structured_search_failure_is_not_marked_succeeded():
+    runtime = AgentRuntime()
+    failure = {
+        "summary": "Scout couldn't retrieve search results.",
+        "query": "research on aqi levels in india",
+        "results": [],
+        "provider": "DuckDuckGo HTML search",
+        "error": "The search request failed: timed out",
+        "error_code": "network_error",
+        "retryable": True,
+    }
+    runtime.register_agent(
+        spec("search.scout", ("web.search",)),
+        lambda task, context: failure,
+    )
+
+    result = await runtime.run_task(TaskRequest(
+        prompt="research on aqi levels in india",
+        capabilities=("web.search",),
+        target_agent_id="search.scout",
+    ))
+
+    assert result.status is TaskStatus.FAILED
+    assert result.succeeded is False
+    assert result.output == failure
+    assert result.error == failure["error"]
+    assert result.metadata["error_code"] == "network_error"
+    assert result.metadata["retryable"] is True

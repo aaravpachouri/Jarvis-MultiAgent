@@ -611,6 +611,27 @@ class AgentRuntime:
             output = await asyncio.wait_for(invoke(), timeout=timeout)
             if isinstance(output, TaskResult):
                 result = replace(output, task_id=request.task_id, agent_id=spec.agent_id, started_at=output.started_at or started_at)
+            elif (
+                isinstance(output, dict)
+                and output.get("error_code")
+                and output.get("error")
+            ):
+                # Some tools return a structured failure envelope rather than
+                # raising. Preserve the payload for diagnosis, but do not label
+                # the task as succeeded merely because the handler returned.
+                result = TaskResult(
+                    task_id=request.task_id,
+                    agent_id=spec.agent_id,
+                    status=TaskStatus.FAILED,
+                    output=output,
+                    error=str(output.get("error"))[:2000],
+                    summary=str(output.get("summary") or "Agent returned a structured failure.")[:500],
+                    started_at=started_at,
+                    metadata={
+                        "error_code": str(output.get("error_code"))[:100],
+                        "retryable": bool(output.get("retryable", False)),
+                    },
+                )
             else:
                 result = TaskResult(
                     task_id=request.task_id,
