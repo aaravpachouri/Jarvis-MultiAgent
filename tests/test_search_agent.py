@@ -485,24 +485,21 @@ def test_crossref_parser_extracts_doi_title_and_publication_date(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_crossref_recovers_general_query_after_duckduckgo_empty(monkeypatch):
+async def test_general_query_does_not_use_crossref_as_web_search_fallback(monkeypatch):
     import agents.search_agent.agent as module
 
     monkeypatch.delenv("BRAVE_SEARCH_API_KEY", raising=False)
     monkeypatch.delenv("TAVILY_API_KEY", raising=False)
     monkeypatch.delenv("JARVIS_SEARCH_PROVIDER", raising=False)
     monkeypatch.setattr(module, "_fetch_html", lambda query, *, timeout: "<html>challenge page</html>")
-    monkeypatch.setattr(module, "_fetch_crossref_results", lambda query, *, timeout, limit: [{
-        "title": "Research related to air quality",
-        "url": "https://doi.org/10.1234/aqi",
-        "domain": "doi.org",
-        "snippet": "Scholarly record",
-        "publication_date": "2024-01-01",
-        "source_type": "scholarly_record",
-    }])
 
+    def unexpected_crossref(*args, **kwargs):
+        raise AssertionError("Crossref must not be used as a general web-search fallback")
+
+    monkeypatch.setattr(module, "_fetch_crossref_results", unexpected_crossref)
     output = await SearchAgent()(SimpleNamespace(prompt="current AQI situation in India"), None)
-    assert output["provider"] == "Crossref scholarly works API"
-    assert output["results"][0]["url"] == "https://doi.org/10.1234/aqi"
-    assert output["provider_failures"][0]["provider"] == "DuckDuckGo HTML search"
-    assert output["provider_failures"][0]["error_code"] == "empty_results"
+
+    assert output["results"] == []
+    assert output["provider"] == "DuckDuckGo HTML search"
+    assert output["error_code"] == "empty_results"
+    assert output["providers_attempted"] == ["DuckDuckGo HTML search"]
