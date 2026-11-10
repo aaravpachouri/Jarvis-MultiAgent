@@ -8,7 +8,7 @@ APP = ROOT / "dashboard" / "assets" / "app.js"
 ASSETS = ROOT / "dashboard" / "assets" / "agents"
 
 AGENTS = {
-    "voice.jarvis": "jarvis", "research.athena": "athena", "desktop.atlas": "atlas",
+    "voice.jarvis": "jarvis", "research.athena": "athena", "systems.atlas": "atlas",
     "coding.forge": "forge", "trading.quant": "quant", "search.scout": "scout",
     "planning.planner": "planner", "documentation.scribe": "scribe",
     "memory.notes": "memory", "deployment.launch": "launch",

@@ -7,7 +7,7 @@
   const agentIdentities = {
     'voice.jarvis': { slug: 'jarvis', short: 'JARVIS', specialty: 'COMMAND & VOICE', motto: '“I’m always here.”', persona: 'Calm, precise, and quietly anticipatory', color: '#ff5968' },
     'research.athena': { slug: 'athena', short: 'Athena', specialty: 'RESEARCH & ANALYSIS', motto: '“Turning information into intelligence.”', persona: 'Curious, evidence-led, and methodical', color: '#42dcff' },
-    'desktop.atlas': { slug: 'atlas', short: 'Atlas', specialty: 'DESKTOP AUTOMATION', motto: '“I’ll handle the system.”', persona: 'Grounded, cautious, and operational', color: '#45e6c5' },
+    'systems.atlas': { slug: 'atlas', short: 'Atlas', specialty: 'SYSTEMS & API ORCHESTRATION', motto: '“Connecting systems with care.”', persona: 'Grounded, cautious, and operational', color: '#45e6c5' },
     'coding.forge': { slug: 'forge', short: 'Forge', specialty: 'CODE & DEVELOPMENT', motto: '“Building what’s next.”', persona: 'Direct, systematic, and quality-focused', color: '#ff5965' },
     'trading.quant': { slug: 'quant', short: 'Quant', specialty: 'MARKET & TRADING RESEARCH', motto: '“Data. Patterns. Edge.”', persona: 'Quantitative, skeptical, and timestamp-aware', color: '#35e0b8' },
     'search.scout': { slug: 'scout', short: 'Scout', specialty: 'WEB SEARCH & INTEL', motto: '“Finding what others miss.”', persona: 'Fast, curious, and source-aware', color: '#b58cff' },
@@ -16,7 +16,7 @@
     'memory.notes': { slug: 'memory', short: 'Memory', specialty: 'MEMORY & KNOWLEDGE', motto: '“I remember so you don’t have to.”', persona: 'Discreet, user-controlled, and detail-oriented', color: '#45dff5' },
     'deployment.launch': { slug: 'launch', short: 'Launch', specialty: 'DEPLOYMENT & TOOLS', motto: '“From idea to impact.”', persona: 'Mission-minded, measured, and release-conscious', color: '#ff974c' },
   };
-  const agentDockOrder = ['voice.jarvis', 'research.athena', 'desktop.atlas', 'coding.forge', 'trading.quant', 'search.scout', 'planning.planner', 'documentation.scribe', 'memory.notes', 'deployment.launch'];
+  const agentDockOrder = ['voice.jarvis', 'research.athena', 'systems.atlas', 'coding.forge', 'trading.quant', 'search.scout', 'planning.planner', 'documentation.scribe', 'memory.notes', 'deployment.launch'];
   const identityFor = agent => agentIdentities[agent?.agent_id] || { slug: 'jarvis', short: agent?.name || agent?.agent_id || 'Agent', specialty: agent?.role || 'SPECIALIST', motto: 'Runtime-registered specialist.', persona: 'Identity details were not supplied by the local registry.', color: '#45eaff' };
   const titles = { overview: 'Overview', agents: 'Agent network', tasks: 'Task center', markets: 'Market intelligence', reports: 'Reports & artifacts' };
   const escapeHTML = (value) => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch]));
@@ -425,8 +425,8 @@
       return;
     }
     const positions = {
+      'systems.atlas': [69, 12],
       'research.athena': [31, 12],
-      'desktop.atlas': [69, 12],
       'documentation.scribe': [16, 29],
       'coding.forge': [84, 29],
       'search.scout': [9, 48],
@@ -437,7 +437,7 @@
       'voice.jarvis': [68, 85],
     };
     const colors = {
-      'research.athena': '#38d8ff', 'desktop.atlas': '#35efc5',
+      'research.athena': '#38d8ff', 'systems.atlas': '#35efc5',
       'documentation.scribe': '#35efc5', 'coding.forge': '#ff605f',
       'search.scout': '#9d8aff', 'deployment.launch': '#9d8aff',
       'planning.planner': '#ffd36b', 'memory.notes': '#f3ca68',
@@ -1091,155 +1091,12 @@
       toast(`Could not connect to JARVIS runtime: ${error.message}`, 'error');
     }
   }
-  const DESKTOP_PAIRING_STORAGE_KEY = 'jarvisDesktopPairingKey';
-  const DESKTOP_BRIDGE_ORIGIN = 'http://127.0.0.1:8766';
-
-  function isDesktopControlRequest(prompt) {
-    const text = String(prompt || '')
-      .trim()
-      .replace(/^(?:(?:hey|hello)\s+)?jarvis[\s,:-]+/i, '')
-      .replace(/^please\s+/i, '')
-      .trim();
-    if (!text) return false;
-    const app = '(?:notepad|calculator|calc|file\\s+explorer|explorer|paint|mspaint|chrome|google\\s+chrome|edge|microsoft\\s+edge|firefox|vscode|visual\\s+studio\\s+code)';
-    return new RegExp('^(?:open|launch|start)\\s+' + app + '\\b', 'i').test(text)
-      || /^(?:type|write|enter)(?:\s+text)?\s+.+/is.test(text)
-      || /^click\s+(?:(?:at|on)\s+)?\d{1,5}(?:\s*,|\s)\s*\d{1,5}(?:\s+(?:left|right))?$/i.test(text)
-      || /^click\s+(?:(?:the\s+)?(?:button|link)\b|.+\s+(?:button|link)\s+in\s+)/i.test(text)
-      || /^(?:press|hotkey)\s+(?:ctrl[+]|control[+]|alt[+]|enter\b|tab\b|escape\b|esc\b|space\b|up\b|down\b|left\b|right\b|home\b|end\b)/i.test(text)
-      || /^(?:search(?:\s+the\s+web)?\s+for|google)\s+\S/i.test(text)
-      || /^(?:open|visit|go to|navigate to)\s+(?:https?:\/\/|www\.)/i.test(text);
-  }
-
-  async function localDesktopApi(path, body, timeoutMs = 150000) {
-    const token = localStorage.getItem(DESKTOP_PAIRING_STORAGE_KEY);
-    if (!token) {
-      throw new Error('Atlas is not paired on this browser. Open the Desktop Agent page, start run_desktop_agent.bat on this PC, and pair the local companion first.');
-    }
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      let response;
-      try {
-        response = await fetch(DESKTOP_BRIDGE_ORIGIN + path, {
-          method: body === undefined ? 'GET' : 'POST',
-          mode: 'cors',
-          cache: 'no-store',
-          credentials: 'omit',
-          signal: controller.signal,
-          headers: {
-            'Authorization': 'Bearer ' + token,
-            ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-          },
-          ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-        });
-      } catch (error) {
-        if (error?.name === 'AbortError') throw new Error('Atlas timed out waiting for the Windows companion. Check its local window and try again.');
-        throw new Error('Cannot reach Atlas on this PC. Start run_desktop_agent.bat and allow local-network access for the JARVIS dashboard if the browser asks.');
-      }
-      let payload = {};
-      try { payload = await response.json(); } catch {}
-      if (response.status === 401) {
-        localStorage.removeItem(DESKTOP_PAIRING_STORAGE_KEY);
-        throw new Error('The Atlas pairing key was rejected. Open Desktop Agent and pair this browser again.');
-      }
-      if (!response.ok) throw new Error(payload.error || ('Atlas request failed (' + response.status + ').'));
-      return payload;
-    } finally {
-      window.clearTimeout(timer);
-    }
-  }
-
-  async function runLocalDesktopTask(prompt) {
-    if (state.taskBusy) {
-      setHudToast('A mission is already running. Wait for its result before starting another.', 'error');
-      return;
-    }
-    state.taskBusy = true;
-    state.lastHudTask = {
-      prompt,
-      agentId: 'desktop.atlas',
-      status: 'running',
-      output: 'Waiting for your approval in the native Windows dialog…',
-      taskId: '',
-    };
-    document.body.classList.add('mission-running');
-    const sendButton = $('#hud-command-send');
-    const directButton = $('#hud-direct-send');
-    const mainTaskButton = $('#run-task');
-    const missionButton = $('#mk-mission-send');
-    [sendButton, directButton, mainTaskButton, missionButton].forEach(button => { if (button) button.disabled = true; });
-    if ($('#task-result')) {
-      $('#task-result').classList.remove('hidden');
-      $('#result-title').textContent = 'Atlas waiting for approval';
-      $('#result-meta').textContent = 'LOCAL WINDOWS COMPANION · desktop.atlas';
-      $('#result-output').textContent = 'Review the exact action list and select Yes in the native Windows permission dialog. Nothing runs before approval.';
-    }
-    renderMissionWidget();
-    renderHudFocusPanel();
-    setHudToast('Atlas is asking the Windows companion for permission. Approve or deny the exact action list on this PC.');
-    try {
-      const result = await localDesktopApi('/v1/execute', { task: prompt }, 155000);
-      const completedSteps = (result.completed || []).map(item => 'Step ' + item.step + ': ' + item.detail);
-      const details = [
-        result.message || (result.ok ? 'All approved actions completed.' : 'The task stopped.'),
-        ...completedSteps,
-        ...(result.failed_step ? ['Failed step ' + result.failed_step + ': ' + (result.error || 'No detail supplied.')] : []),
-      ].join('\n');
-      state.lastHudTask = {
-        ...state.lastHudTask,
-        status: result.ok ? 'succeeded' : 'failed',
-        output: details,
-        finishedAt: new Date().toISOString(),
-      };
-      if ($('#result-title')) {
-        $('#result-title').textContent = result.ok ? 'Atlas completed the task' : 'Atlas stopped the task';
-        $('#result-meta').textContent = 'desktop.atlas · ' + (result.ok ? 'succeeded' : 'failed') + ' · local approval required';
-        $('#result-output').textContent = details;
-      }
-      setHudToast(result.ok ? 'Atlas completed the approved desktop actions.' : 'Atlas stopped at the first failed action. Check which steps already ran.', result.ok ? 'success' : 'error');
-    } catch (error) {
-      state.lastHudTask = {
-        ...state.lastHudTask,
-        status: 'failed',
-        output: error.message,
-        finishedAt: new Date().toISOString(),
-      };
-      if ($('#result-title')) {
-        $('#result-title').textContent = 'Atlas could not complete the task';
-        $('#result-meta').textContent = 'No success reported · desktop.atlas';
-        $('#result-output').textContent = error.message;
-      }
-      setHudToast(error.message, 'error');
-    } finally {
-      state.taskBusy = false;
-      document.body.classList.remove('mission-running');
-      [sendButton, directButton, mainTaskButton, missionButton].forEach(button => { if (button) button.disabled = false; });
-      if ($('#hud-command-prompt')) $('#hud-command-prompt').value = '';
-      if ($('#hud-direct-prompt')) $('#hud-direct-prompt').value = '';
-      if ($('#mk-mission-prompt')) $('#mk-mission-prompt').value = '';
-      if ($('#task-prompt')) {
-        $('#task-prompt').value = '';
-        if ($('#char-count')) $('#char-count').textContent = '0 / 6000';
-      }
-      renderMissionWidget();
-      renderHudFocusPanel();
-      renderLivingNetwork();
-      if (state.hudPanel === 'mission' || state.currentView === 'overview') openHudPanel('mission');
-    }
-  }
 
   async function runTask(prompt, agentId) {
     prompt = String(prompt || '').trim();
     if (!prompt) { setHudToast('Enter a task before sending it to JARVIS.', 'error'); return; }
     if (state.taskBusy) { setHudToast('A mission is already running. Wait for its result before starting another.', 'error'); return; }
     const targetAgentId = agentId || 'voice.jarvis';
-    // Desktop intent goes to the same-device Atlas companion, never to the hosted
-    // agent API. The companion validates actions and requests native Windows approval.
-    if (targetAgentId === 'desktop.atlas' || isDesktopControlRequest(prompt)) {
-      await runLocalDesktopTask(prompt);
-      return;
-    }
     state.taskBusy = true;
     state.lastHudTask = { prompt, agentId: targetAgentId, status: 'queued', output: '', taskId: '' };
     if (state.hudPanel === 'mission') openHudPanel('mission');
@@ -1409,7 +1266,7 @@
       const prompt = $('#mk-mission-prompt')?.value || '';
       let target = state.missionTarget || 'voice.jarvis';
       const requestedAgent = state.agents.find(agent => agent.agent_id === target);
-      if (target !== 'voice.jarvis' && target !== 'desktop.atlas' && (!requestedAgent || !['ready', 'busy'].includes(hudStatus(requestedAgent)))) {
+      if (target !== 'voice.jarvis' && (!requestedAgent || !['ready', 'busy'].includes(hudStatus(requestedAgent)))) {
         setHudToast(`${requestedAgent?.name || target} has no executable handler. Routing through JARVIS for safe coordination.`);
         target = 'voice.jarvis';
       }
@@ -1441,9 +1298,7 @@
     $('#hud-direct-form').addEventListener('submit', event => {
       event.preventDefault();
       const selected = state.agents.find(a => a.agent_id === state.selectedAgentId) || state.agents.find(a => a.agent_id === 'coding.forge');
-      const target = selected?.agent_id === 'desktop.atlas'
-        ? 'desktop.atlas'
-        : (selected && ['ready', 'busy'].includes(hudStatus(selected)) ? selected.agent_id : 'voice.jarvis');
+      const target = selected && ['ready', 'busy'].includes(hudStatus(selected)) ? selected.agent_id : 'voice.jarvis';
       if (target === 'voice.jarvis' && selected?.agent_id !== 'voice.jarvis') setHudToast(`${selected?.name || 'Selected agent'} has no executable handler. Routing this request through JARVIS instead.`);
       runTask($('#hud-direct-prompt').value, target);
     });

@@ -91,7 +91,11 @@ def test_quant_routes_serve_dedicated_page_assets_and_payload(monkeypatch):
         for route, content_type in (("/quant", "text/html"), ("/assets/quant.css", "text/css"), ("/assets/quant.js", "text/javascript")):
             with urlopen(base + route, timeout=3) as response:
                 assert response.status == 200
-                assert content_type in response.headers.get("Content-Type", "")
+                actual_content_type = response.headers.get("Content-Type", "").lower()
+                if content_type == "text/javascript":
+                    assert actual_content_type.startswith(("text/javascript", "application/javascript"))
+                else:
+                    assert content_type in actual_content_type
                 body = response.read()
                 assert body
         with urlopen(base + "/api/quant/dashboard", timeout=3) as response:

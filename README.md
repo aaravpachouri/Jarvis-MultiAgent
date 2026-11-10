@@ -1,7 +1,6 @@
-<<<<<<< HEAD
 # JARVIS Agent Network
 
-A **new, standalone project** for an expandable multi-agent AI network. It is not an overlay and does not depend on the existing `JARVIS-X` desktop repository. You can extract this project anywhere and develop it independently.
+A **new, standalone project** for an expandable multi-agent AI network. It is not an overlay and does not depend on the existing `JARVIS-X` repository. You can extract this project anywhere and develop it independently.
 
 ## Phase 2: JARVIS Voice Agent
 
@@ -30,7 +29,7 @@ Common social conversation works without an API key. The local handler recognise
 - A persistent registry in `data/agent_registry.json`, seeded from the individual agent manifests.
 - Filesystem-based agent discovery: each specialist has a dedicated folder containing `manifest.json`, `agent.py`, and `instructions.md`.
 - Capability and keyword routing, asynchronous task execution, bounded concurrency, per-task timeouts, task correlation IDs, agent delegation and targeted agent inboxes.
-- Nine specialist folders: JARVIS Voice/Main Handler, Scout Search, Forge Coding, Atlas Desktop, Quant Trading, Athena Research, Scribe Documentation, Launch Deployment and Planner.
+- Nine specialist folders: JARVIS Voice/Main Handler, Scout Search, Forge Coding, Atlas Systems & API Orchestration (profile-only), Quant Trading, Athena Research, Scribe Documentation, Launch Deployment and Planner.
 - Scribe creates evidence-grounded documentation drafts from supplied context without writing files or claiming verification.
 - Athena can analyze supplied notes and conversation context offline; source-linked web research remains an optional Scout-backed mode.
 - Planner creates ordered task plans, dependencies, checklists, risks and validation gates without requiring web search or code execution.
@@ -39,7 +38,7 @@ Common social conversation works without an API key. The local handler recognise
 
 ## Current implementation status (important)
 
-JARVIS's text-first main handler and optional microphone/speech output interface are implemented. Scribe, Athena and Planner have executable handlers and offline tests. Athena's web-research mode delegates to Scout; context-only analysis does not. Forge remains present but is intentionally out of scope for this development pass. Atlas and Launch remain profile-only until their real handlers are implemented; Quant now has a read-only market-research handler. The CLI marks an identity as `registered` rather than `ready` until its handler is real and callable. JARVIS will not fake research, code changes, trades, desktop actions, documentation updates or deployments.
+JARVIS's text-first main handler and optional microphone/speech output interface are implemented. Scribe, Athena and Planner have executable handlers and offline tests. Athena's web-research mode delegates to Scout; context-only analysis does not. Forge remains present but is intentionally out of scope for this development pass. Atlas and Launch remain profile-only until their real handlers are implemented; Quant now has a read-only market-research handler. The CLI marks an identity as `registered` rather than `ready` until its handler is real and callable. JARVIS will not fake research, code changes, trades, systems operations, documentation updates or deployments.
 
 The shared event bus is currently in-process. Durable cloud workers, authenticated cross-device transport, long-running monitoring, a live dashboard and 24/7 hosting remain later phases. Local voice mode requires the local machine and microphone to be available.
 
@@ -51,7 +50,7 @@ JARVIS_Agent_Network/
 │   ├── voice_agent/        # JARVIS main handler + optional audio adapters
 │   ├── search_agent/       # Scout
 │   ├── coding_agent/       # Forge
-│   ├── desktop_agent/      # Atlas
+│   ├── atlas_agent/        # Atlas (systems/API orchestration profile)
 │   ├── trading_agent/      # Quant
 │   ├── research_agent/     # Athena
 │   ├── documentation_agent/# Scribe
@@ -499,12 +498,15 @@ Mission results are rendered as readable dashboard cards rather than a single cl
 - Embedded Chromium interaction check with deterministic `/api/overview` and `/api/events` fixtures: Mission Control opened, cinematic mission banner visible, miniature suit visible, clicking switched the suit profile from MARK III to MARK V, and no browser JavaScript exceptions occurred.
 - The suit uses absolute positioning inside the existing drawer header; the header's width and height remained the same when toggling the suit. The dashboard grid wasn't given a new layout track.
 - The full browser check used fixture API data because the build environment blocks direct navigation to the local server from Chromium. This verifies the actual UI markup, styling and interaction, not live provider behavior.
-=======
 # JARVIS MultiAgent
 
-Cinematic AI command center with specialist agents for research, coding, desktop automation, planning, memory, voice, and Quant market intelligence. Includes the Phase 27 Iron Man-inspired HUD, mission orchestration, interactive agent identities, runtime telemetry, and Quant market-data recovery paths.
+Cinematic AI command center with specialist agents for research, coding, systems and API orchestration, planning, memory, voice, and Quant market intelligence. Includes the Phase 27 Iron Man-inspired HUD, mission orchestration, interactive agent identities, runtime telemetry, and Quant market-data recovery paths.
 
 ## Project source
 
 The source and implementation overlays are being published in follow-up commits. Do not commit `.env` files, API keys, personal memory notes, or generated market reports.
->>>>>>> origin/main
+
+
+## Atlas scope
+
+The optional Windows desktop companion has been removed from this project. Atlas is a profile-only systems/API orchestration identity (`systems.atlas`); it has no local desktop-control capability. No desktop bridge, pairing flow, screenshot capture, keyboard/mouse automation, or desktop-specific dependencies are included.

@@ -11,7 +11,7 @@ HTML_PATH = ROOT / "dashboard" / "index.html"
 CSS_PATH = ROOT / "dashboard" / "assets" / "styles.css"
 JS_PATH = ROOT / "dashboard" / "assets" / "app.js"
 EXPECTED_AGENT_IDS = {
-    "research.athena", "desktop.atlas", "coding.forge", "voice.jarvis",
+    "research.athena", "systems.atlas", "coding.forge", "voice.jarvis",
     "deployment.launch", "memory.notes", "planning.planner", "trading.quant",
     "search.scout", "documentation.scribe",
 }
