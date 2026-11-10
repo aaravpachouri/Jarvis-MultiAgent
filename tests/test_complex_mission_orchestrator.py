@@ -175,3 +175,71 @@ def test_planner_dependency_graph_validator_rejects_invalid_graphs(steps, expect
 def test_planner_dependency_graph_validator_rejects_non_list_and_empty_steps() -> None:
     assert VoiceAgent._validate_planner_steps(None)[1]
     assert VoiceAgent._validate_planner_steps([])[1]
+
+
+def test_planner_assigns_specialists_only_from_available_capabilities() -> None:
+    planner = PlannerAgent()
+    assignments = [
+        {"agent_id": "research.athena", "capabilities": ["research.deep", "research.synthesize"]},
+        {"agent_id": "coding.forge", "capabilities": ["code.write", "code.test"]},
+    ]
+    assert planner._assign_specialist("Research the evidence", assignments) == {
+        "agent_id": "research.athena", "capability": "research.deep"
+    }
+    assert planner._assign_specialist("Implement the feature", assignments) == {
+        "agent_id": "coding.forge", "capability": "code.write"
+    }
+    assert planner._assign_specialist("Discuss project goals", assignments) is None
+
+
+def test_planner_dependency_assignment_is_validated_and_executable() -> None:
+    steps, error = VoiceAgent._validate_planner_steps([
+        {"id": "research", "title": "Research evidence", "depends_on": [],
+         "agent_id": "research.athena", "capability": "research.deep"},
+        {"id": "build", "title": "Implement feature", "depends_on": ["research"],
+         "agent_id": "coding.forge", "capability": "code.write"},
+    ])
+    assert error is None
+    assert steps[1]["depends_on"] == ["research"]
+    assert steps[1]["agent_id"] == "coding.forge"
+
+
+@pytest.mark.asyncio
+async def test_complex_mission_translates_planner_edges_into_workstream_dependencies() -> None:
+    registry = AgentRegistry()
+    runtime = AgentRuntime(registry=registry, bus=EventBus(), max_delegation_depth=6)
+    voice = VoiceAgent()
+    runtime.register_agent(_spec("voice.jarvis", "JARVIS", ("conversation.handle", "task.coordinate")), voice)
+
+    class AssignedPlanner:
+        async def __call__(self, task, context):
+            return {"summary": "Assigned plan", "steps": [
+                {"id": "r", "title": "Research evidence", "depends_on": [],
+                 "agent_id": "research.athena", "capability": "research.deep"},
+                {"id": "c", "title": "Implement feature", "depends_on": ["r"],
+                 "agent_id": "coding.forge", "capability": "code.write"},
+            ]}
+
+    runtime.register_agent(_spec("planning.planner", "Planner", ("planning.breakdown",)), AssignedPlanner())
+    order: list[str] = []
+
+    async def athena(task, context):
+        order.append("research")
+        return {"summary": "verified research output"}
+
+    async def forge(task, context):
+        order.append("forge")
+        deps = task.context.get("dependency_results", {})
+        assert any("verified research output" in str(value) for value in deps.values())
+        return {"summary": "implemented from research"}
+
+    runtime.register_agent(_spec("research.athena", "Athena", ("research.deep",), ("research", "evidence")), athena)
+    runtime.register_agent(_spec("coding.forge", "Forge", ("code.write", "code.test"), ("implement", "build", "code")), forge)
+    result = await runtime.run_task(TaskRequest(
+        prompt="Orchestrate this complex end-to-end mission: research the evidence, then implement the feature.",
+        target_agent_id="voice.jarvis",
+    ))
+    assert result.status is TaskStatus.SUCCEEDED, result.error or result.output
+    assert order == ["research", "forge"]
+    assert "workstream_1" in str(result.output)
+    assert "workstream_2" in str(result.output)
