@@ -94,3 +94,31 @@ def test_athena_can_use_existing_conversation_context_without_scout():
     result = asyncio.run(ResearchAgent()(task, NoSearchContext()))
     assert result["analysis_mode"] == "offline_context_analysis"
     assert "We need a local planner" in result["summary"]
+
+
+def test_repeated_source_across_queries_does_not_mark_athena_partial():
+    agent = ResearchAgent()
+    queries = agent._build_queries("FastAPI stable release")
+    shared = {
+        "title": "Official docs",
+        "url": "https://fastapi.tiangolo.com/",
+        "domain": "fastapi.tiangolo.com",
+        "snippet": "Official documentation",
+    }
+    context = FakeContext({
+        query: {
+            "results": [shared],
+            "provider": "Tavily Search API",
+            "retrieved_at": "2026-11-10T14:00:00+00:00",
+            "partial": False,
+            "retrieval_status": "complete",
+        }
+        for query in queries
+    })
+
+    result = asyncio.run(agent(SimpleNamespace(prompt="FastAPI stable release"), context))
+
+    assert result["source_count"] == 1  # Global source list remains deduplicated.
+    assert result["research_status"] == "retrieval_complete_unverified"
+    assert result["complete"] is True
+    assert [item["status"] for item in result["query_provenance"]] == ["complete"] * 3
