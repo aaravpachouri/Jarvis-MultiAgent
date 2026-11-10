@@ -7,9 +7,13 @@ Failed prerequisites block descendants rather than allowing fabricated inputs.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Awaitable, Callable, Mapping
+
+from .checkpoint_store import WorkflowCheckpointStore
 
 
 class WorkflowStepStatus(str, Enum):
@@ -117,11 +121,39 @@ class DependencyWorkflow:
         for step_id in self.steps:
             visit(step_id)
 
-    async def run(self, initial_context: Mapping[str, Any] | None = None) -> WorkflowResult:
+    async def run(
+        self,
+        initial_context: Mapping[str, Any] | None = None,
+        *,
+        checkpoint_store: WorkflowCheckpointStore | None = None,
+        workflow_id: str | None = None,
+    ) -> WorkflowResult:
+        if (checkpoint_store is None) != (workflow_id is None):
+            raise ValueError("checkpoint_store and workflow_id must be supplied together.")
+        fingerprint_payload = [
+            {"step_id": step.step_id, "depends_on": list(step.depends_on), "label": step.label}
+            for step in self.steps.values()
+        ]
+        fingerprint = hashlib.sha256(
+            json.dumps(fingerprint_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        restored = checkpoint_store.load(workflow_id, fingerprint) if checkpoint_store else {}
         results = {
             step_id: WorkflowStepResult(step_id=step_id, depends_on=step.depends_on)
             for step_id, step in self.steps.items()
         }
+        for step_id, saved in restored.items():
+            if step_id not in results:
+                raise ValueError(f"Checkpoint contains unknown step {step_id!r}.")
+            if saved["status"] == WorkflowStepStatus.SUCCEEDED.value:
+                results[step_id].status = WorkflowStepStatus.SUCCEEDED
+                results[step_id].output = saved["output"]
+            elif saved["status"] in {"interrupted", WorkflowStepStatus.FAILED.value}:
+                results[step_id].status = WorkflowStepStatus.FAILED
+                results[step_id].error = saved["error"] or "Previous execution failed; explicit review required."
+            elif saved["status"] == WorkflowStepStatus.BLOCKED.value:
+                results[step_id].status = WorkflowStepStatus.BLOCKED
+                results[step_id].error = saved["error"] or "A required dependency did not succeed."
         semaphore = asyncio.Semaphore(self.max_parallel)
         context = dict(initial_context or {})
 
@@ -134,19 +166,32 @@ class DependencyWorkflow:
                                 if item.status is WorkflowStepStatus.SUCCEEDED
                             }}
             result.status = WorkflowStepStatus.RUNNING
+            if checkpoint_store:
+                checkpoint_store.save(workflow_id, fingerprint, step.step_id, "running")
             try:
                 async with semaphore:
                     result.output = await step.run(step_context)
                 result.status = WorkflowStepStatus.SUCCEEDED
+                if checkpoint_store:
+                    checkpoint_store.save(
+                        workflow_id, fingerprint, step.step_id, "succeeded", output=result.output
+                    )
             except asyncio.CancelledError:
                 result.status = WorkflowStepStatus.FAILED
                 result.error = "Cancelled"
+                if checkpoint_store:
+                    checkpoint_store.save(workflow_id, fingerprint, step.step_id, "failed", error=result.error)
                 raise
             except Exception as exc:  # surfaced in result; descendants are blocked
                 result.status = WorkflowStepStatus.FAILED
                 result.error = f"{type(exc).__name__}: {exc}"
+                if checkpoint_store:
+                    checkpoint_store.save(workflow_id, fingerprint, step.step_id, "failed", error=result.error)
 
-        pending = set(self.steps)
+        pending = {
+            step_id for step_id, result in results.items()
+            if result.status is WorkflowStepStatus.PENDING
+        }
         while pending:
             # If a prerequisite failed/blocked, mark descendants blocked without running.
             blocked_now = []
@@ -158,6 +203,10 @@ class DependencyWorkflow:
             for step_id in blocked_now:
                 results[step_id].status = WorkflowStepStatus.BLOCKED
                 results[step_id].error = "A required dependency did not succeed."
+                if checkpoint_store:
+                    checkpoint_store.save(
+                        workflow_id, fingerprint, step_id, "blocked", error=results[step_id].error
+                    )
                 pending.remove(step_id)
 
             ready = [step_id for step_id in self.steps
