@@ -94,7 +94,7 @@ class ResearchAgent:
                 })
                 query_results += 1
             retrieval_status = str(outcome.get("retrieval_status") or ("partial" if outcome.get("partial") else "complete"))
-            if query_results and not outcome.get("error"):
+            if query_results and not outcome.get("error") and not outcome.get("partial"):
                 successful_queries.append(query)
             query_provenance.append({
                 "query": query,
