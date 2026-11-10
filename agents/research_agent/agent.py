@@ -77,7 +77,13 @@ class ResearchAgent:
                 if not isinstance(item, dict):
                     continue
                 url = str(item.get("url", "")).strip()
-                if not url.startswith(("https://", "http://")) or url in seen_urls:
+                if not url.startswith(("https://", "http://")):
+                    continue
+                # Count each query's valid retrieval before cross-query
+                # deduplication. Reusing a source URL does not make a later
+                # successful query a failed retrieval.
+                query_results += 1
+                if url in seen_urls:
                     continue
                 seen_urls.add(url)
                 parsed = urlparse(url)
@@ -92,7 +98,6 @@ class ResearchAgent:
                     "source_type": str(item.get("source_type", "")).strip() or "web_search_result",
                     "publication_date": str(item.get("publication_date", "")).strip(),
                 })
-                query_results += 1
             retrieval_status = str(outcome.get("retrieval_status") or ("partial" if outcome.get("partial") else "complete"))
             query_is_partial = bool(outcome.get("partial")) or retrieval_status == "partial" or bool(outcome.get("error"))
             if query_results and not query_is_partial:
