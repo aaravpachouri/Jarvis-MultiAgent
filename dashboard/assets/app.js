@@ -425,6 +425,7 @@
       return;
     }
     const positions = {
+      'systems.atlas': [69, 12],
       'research.athena': [31, 12],
       'documentation.scribe': [16, 29],
       'coding.forge': [84, 29],
