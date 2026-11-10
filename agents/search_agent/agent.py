@@ -524,8 +524,14 @@ class SearchAgent:
             )
             failure["providers_attempted"] = [item["provider"] for item in failures]
             failure["provider_failures"] = failures
+            failure["requested_result_count"] = self.result_count
+            failure["result_count"] = 0
+            failure["partial"] = True
+            failure["retrieval_status"] = "failed"
+            failure["evidence_level"] = "no_retrieved_evidence"
             return failure
 
+        retrieval_is_partial = bool(failures) or len(combined_results) < self.result_count
         lines = [f"Scout search results for: {query}", f"Retrieved: {retrieved_at}"]
         for index, result in enumerate(combined_results, start=1):
             lines.append(f"\n{index}. {result['title']} ({result['domain']})")
@@ -545,8 +551,8 @@ class SearchAgent:
             "provider_failures": failures,
             "requested_result_count": self.result_count,
             "result_count": len(combined_results),
-            "partial": len(combined_results) < self.result_count,
-            "retrieval_status": "partial" if failures or len(combined_results) < self.result_count else "complete",
+            "partial": retrieval_is_partial,
+            "retrieval_status": "partial" if retrieval_is_partial else "complete",
             "evidence_level": "search_snippets_not_independently_verified",
         }
 
