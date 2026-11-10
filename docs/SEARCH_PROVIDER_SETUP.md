@@ -23,7 +23,7 @@ JARVIS_SEARCH_TIMEOUT=8
 JARVIS_SEARCH_RESULTS=5
 ```
 
-Do not commit real API keys, put them in frontend variables, or paste them into chat. API-provider plans, quotas and terms apply. If only one key is configured, Scout uses that provider and falls back to DuckDuckGo. If neither key is configured, Scout uses DuckDuckGo only.
+Do not commit real API keys, put them in frontend variables, or paste them into chat. API-provider plans, quotas and terms apply. If only one key is configured, Scout uses that provider and falls back to DuckDuckGo. If neither key is configured, general web searches use DuckDuckGo and explicit academic searches try Crossref followed by DuckDuckGo.
 
 ## Recovery behavior
 
