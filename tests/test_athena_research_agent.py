@@ -38,16 +38,25 @@ def test_research_returns_deduplicated_source_linked_evidence():
     assert result["source_count"] == 1
     assert result["sources"][0]["url"] == "https://fastapi.tiangolo.com/"
     assert result["evidence_level"] == "search_snippets_not_independently_verified"
+    assert result["research_status"] == "retrieval_complete_unverified"
+    assert result["complete"] is True
+    assert result["sources"][0]["provider"] == "unspecified"
+    assert result["sources"][0]["retrieved_at"] is None
     assert len(context.calls) == 3
     assert "not independently opened or verified" in result["summary"]
 
 
-def test_research_fails_when_no_search_produces_sources():
+def test_research_reports_insufficient_evidence_when_all_searches_fail():
     agent = ResearchAgent()
     queries = agent._build_queries("test topic")
     context = FakeContext({query: {"results": [], "error": "provider unavailable"} for query in queries})
-    with pytest.raises(RuntimeError, match="could not retrieve research sources"):
-        asyncio.run(agent(SimpleNamespace(prompt="test topic"), context))
+    result = asyncio.run(agent(SimpleNamespace(prompt="test topic"), context))
+    assert result["research_status"] == "insufficient_evidence"
+    assert result["evidence_level"] == "no_retrieved_evidence"
+    assert result["source_count"] == 0
+    assert result["complete"] is False
+    assert len(result["failures"]) == 3
+    assert "No findings have been inferred or fabricated" in result["summary"]
 
 
 def test_empty_prompt_is_rejected():
