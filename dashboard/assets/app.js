@@ -1407,11 +1407,15 @@
     $('#mk-mission-form')?.addEventListener('submit', event => {
       event.preventDefault();
       const prompt = $('#mk-mission-prompt')?.value || '';
-      let target = state.missionTarget || 'voice.jarvis';
+      // The visible route control is authoritative. Never silently redirect an
+      // explicitly selected specialist mission through JARVIS, where a different
+      // specialist (for example desktop.atlas) could be chosen.
+      const activeRoute = $('[data-mission-route].active');
+      const target = activeRoute?.dataset.missionRoute || state.missionTarget || 'voice.jarvis';
       const requestedAgent = state.agents.find(agent => agent.agent_id === target);
-      if (target !== 'voice.jarvis' && target !== 'desktop.atlas' && (!requestedAgent || !['ready', 'busy'].includes(hudStatus(requestedAgent)))) {
-        setHudToast(`${requestedAgent?.name || target} has no executable handler. Routing through JARVIS for safe coordination.`);
-        target = 'voice.jarvis';
+      if (target !== 'voice.jarvis' && (!requestedAgent || !['ready', 'busy'].includes(hudStatus(requestedAgent)))) {
+        setHudToast(`${requestedAgent?.name || target} is not executable right now. Mission not sent; choose a ready route or retry after the specialist is available.`, 'error');
+        return;
       }
       runTask(prompt, target);
     });
@@ -1441,10 +1445,11 @@
     $('#hud-direct-form').addEventListener('submit', event => {
       event.preventDefault();
       const selected = state.agents.find(a => a.agent_id === state.selectedAgentId) || state.agents.find(a => a.agent_id === 'coding.forge');
-      const target = selected?.agent_id === 'desktop.atlas'
-        ? 'desktop.atlas'
-        : (selected && ['ready', 'busy'].includes(hudStatus(selected)) ? selected.agent_id : 'voice.jarvis');
-      if (target === 'voice.jarvis' && selected?.agent_id !== 'voice.jarvis') setHudToast(`${selected?.name || 'Selected agent'} has no executable handler. Routing this request through JARVIS instead.`);
+      if (selected && !['ready', 'busy'].includes(hudStatus(selected))) {
+        setHudToast(`${selected.name || selected.agent_id} is not executable right now. Mission not sent; choose a ready specialist or retry later.`, 'error');
+        return;
+      }
+      const target = selected?.agent_id || 'voice.jarvis';
       runTask($('#hud-direct-prompt').value, target);
     });
     $('#hud-command-mic')?.addEventListener('click', () => startHudDictation($('#hud-command-prompt')));
