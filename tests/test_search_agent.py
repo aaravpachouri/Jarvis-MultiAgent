@@ -117,6 +117,7 @@ async def test_agent_uses_brave_json_api_when_configured(monkeypatch) -> None:
         }]
 
     monkeypatch.setattr(module, "_fetch_brave_results", fake_brave)
+    monkeypatch.setattr(module, "_fetch_html", lambda query, *, timeout: "<html>challenge</html>")
     output = await SearchAgent(result_count=1)(SimpleNamespace(prompt="search the web for FastAPI official docs"), None)
     assert output["provider"] == "Brave Search API"
     assert output["results"][0]["url"] == "https://fastapi.tiangolo.com/"
@@ -170,6 +171,7 @@ async def test_agent_uses_tavily_json_api_when_configured(monkeypatch) -> None:
         }]
 
     monkeypatch.setattr(module, "_fetch_tavily_results", fake_tavily)
+    monkeypatch.setattr(module, "_fetch_html", lambda query, *, timeout: "<html>challenge</html>")
     output = await SearchAgent(result_count=1)(SimpleNamespace(prompt="search the web for FastAPI official docs"), None)
     assert output["provider"] == "Tavily Search API"
     assert output["results"][0]["url"] == "https://fastapi.tiangolo.com/"
@@ -419,7 +421,8 @@ async def test_explicit_tavily_provider_still_falls_back_to_brave(monkeypatch):
         "title": "Brave result", "url": "https://example.com/", "domain": "example.com", "snippet": "Recovered"
     }])
 
-    output = await SearchAgent()(SimpleNamespace(prompt="research topic"), None)
+    monkeypatch.setattr(module, "_fetch_html", lambda query, *, timeout: "<html>challenge</html>")
+    output = await SearchAgent(result_count=1)(SimpleNamespace(prompt="research topic"), None)
 
     assert output["provider"] == "Brave Search API"
     assert output["results"][0]["url"] == "https://example.com/"
