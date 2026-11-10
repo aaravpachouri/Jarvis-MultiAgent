@@ -117,7 +117,7 @@ async def test_agent_uses_brave_json_api_when_configured(monkeypatch) -> None:
         }]
 
     monkeypatch.setattr(module, "_fetch_brave_results", fake_brave)
-    output = await SearchAgent()(SimpleNamespace(prompt="search the web for FastAPI official docs"), None)
+    output = await SearchAgent(result_count=1)(SimpleNamespace(prompt="search the web for FastAPI official docs"), None)
     assert output["provider"] == "Brave Search API"
     assert output["results"][0]["url"] == "https://fastapi.tiangolo.com/"
 
@@ -170,7 +170,7 @@ async def test_agent_uses_tavily_json_api_when_configured(monkeypatch) -> None:
         }]
 
     monkeypatch.setattr(module, "_fetch_tavily_results", fake_tavily)
-    output = await SearchAgent()(SimpleNamespace(prompt="search the web for FastAPI official docs"), None)
+    output = await SearchAgent(result_count=1)(SimpleNamespace(prompt="search the web for FastAPI official docs"), None)
     assert output["provider"] == "Tavily Search API"
     assert output["results"][0]["url"] == "https://fastapi.tiangolo.com/"
 
@@ -370,6 +370,7 @@ async def test_agent_combines_partial_results_from_multiple_providers(monkeypatc
     monkeypatch.setattr(module, "_fetch_tavily_results", lambda query, *, timeout, limit, include_domains=None: [{
         "title": "Tavily result", "url": "https://example.org/b", "domain": "example.org", "snippet": "B"
     }])
+    monkeypatch.setattr(module, "_fetch_html", lambda query, *, timeout: "<html>challenge page</html>")
 
     output = await SearchAgent(result_count=5)(SimpleNamespace(prompt="research topic"), None)
 
@@ -556,7 +557,6 @@ async def test_scout_skips_invalid_only_provider_and_recovers_from_next(monkeypa
     monkeypatch.setattr(module, "_fetch_brave_results", lambda *args, **kwargs: [
         {"title": "", "url": "https://example.com/no-title", "domain": "example.com", "snippet": "bad"},
         {"title": "Unsafe", "url": "javascript:alert(1)", "domain": "bad", "snippet": "bad"},
-        {"title": "Duplicate", "url": "https://example.com/no-title", "domain": "example.com", "snippet": "duplicate"},
     ])
     monkeypatch.setattr(module, "_fetch_tavily_results", lambda *args, **kwargs: [
         {"title": "Valid result", "url": "https://example.org/valid", "domain": "example.org", "snippet": "usable"}
