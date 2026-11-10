@@ -366,19 +366,16 @@ async def test_agent_combines_partial_results_from_multiple_providers(monkeypatc
     monkeypatch.setenv("TAVILY_API_KEY", "test-key-not-real")
     monkeypatch.delenv("JARVIS_SEARCH_PROVIDER", raising=False)
 
-    monkeypatch.setattr(module, "_fetch_brave_results", lambda query, *, timeout, limit: [{
-        "title": "Brave result", "url": "https://example.com/a", "domain": "example.com", "snippet": "A"
-    }])
+    monkeypatch.setattr(module, "_fetch_brave_results", lambda query, *, timeout, limit: [])
     monkeypatch.setattr(module, "_fetch_tavily_results", lambda query, *, timeout, limit, include_domains=None: [{
         "title": "Tavily result", "url": "https://example.org/b", "domain": "example.org", "snippet": "B"
     }])
 
     output = await SearchAgent(result_count=5)(SimpleNamespace(prompt="research topic"), None)
 
-    assert [item["url"] for item in output["results"]] == [
-        "https://example.com/a", "https://example.org/b"
-    ]
-    assert output["provider"] == "Brave Search API, Tavily Search API"
+    assert [item["url"] for item in output["results"]] == ["https://example.org/b"]
+    assert output["provider"] == "Tavily Search API"
+    assert output["provider_failures"][0]["error_code"] == "empty_results"
     assert output["partial"] is True
 
 
