@@ -2086,11 +2086,19 @@ class VoiceAgent:
                     return [], f"Planner step {step_id!r} repeats dependency {dependency_id!r}."
                 dependencies.append(dependency_id)
             identifiers.add(step_id)
+            assignment = raw.get("agent_id")
+            capability = raw.get("capability")
+            if assignment is not None and (not isinstance(assignment, str) or not assignment.strip()):
+                return [], f"Planner step {step_id!r} has an invalid agent assignment."
+            if capability is not None and (not isinstance(capability, str) or not capability.strip()):
+                return [], f"Planner step {step_id!r} has an invalid capability assignment."
             normalized.append({
                 **dict(raw),
                 "id": step_id,
                 "title": title.strip(),
                 "depends_on": dependencies,
+                "agent_id": assignment.strip() if isinstance(assignment, str) else None,
+                "capability": capability.strip() if isinstance(capability, str) else None,
             })
 
         known_ids = {step["id"] for step in normalized}
@@ -2176,6 +2184,14 @@ class VoiceAgent:
         plan_output = plan_result.output
         raw_plan_steps = plan_output.get("steps") if isinstance(plan_output, Mapping) else None
         plan_steps, plan_error = self._validate_planner_steps(raw_plan_steps)
+        available_agent_ids = {item["agent_id"] for item in workstreams}
+        if not plan_error:
+            unknown_assignments = sorted({
+                item["agent_id"] for item in plan_steps
+                if item.get("agent_id") and item["agent_id"] not in available_agent_ids
+            })
+            if unknown_assignments:
+                plan_error = "Planner assigned steps to unavailable executable agents: " + ", ".join(unknown_assignments) + "."
         plan_view = {
             "task_id": plan_result.task_id,
             "agent_id": plan_result.agent_id,
@@ -2183,7 +2199,8 @@ class VoiceAgent:
             "summary": str(plan_output.get("summary", ""))[:1000] if isinstance(plan_output, Mapping) else str(plan_output)[:1000],
             "steps": [
                 {"id": item["id"], "title": item["title"][:350],
-                 "depends_on": list(item["depends_on"])}
+                 "depends_on": list(item["depends_on"]),
+                 "agent_id": item.get("agent_id"), "capability": item.get("capability")}
                 for item in plan_steps[:12]
             ],
             "dependency_graph_validated": plan_error is None,
@@ -2236,7 +2253,24 @@ class VoiceAgent:
                 continue
             step_id = f"workstream_{index}"
             dependencies = ["plan"]
-            if sequential and research_steps and agent_id in code_steps:
+            # Translate the Planner's declared edges into executable workstream
+            # edges. Multiple plan steps assigned to one specialist are grouped
+            # into that specialist's single bounded child task.
+            assigned_plan_steps = [step for step in plan_steps if step.get("agent_id") == agent_id]
+            assigned_step_ids = {step["id"] for step in assigned_plan_steps}
+            planner_edges_used = any(step.get("agent_id") for step in plan_steps)
+            if planner_edges_used:
+                agent_to_workstream = {
+                    candidate["agent_id"]: f"workstream_{workstreams.index(candidate) + 1}"
+                    for candidate in workstreams
+                }
+                for planned_step in assigned_plan_steps:
+                    for dependency_id in planned_step["depends_on"]:
+                        dependency_step = next(step for step in plan_steps if step["id"] == dependency_id)
+                        dependency_agent = dependency_step.get("agent_id")
+                        if dependency_agent and dependency_agent != agent_id:
+                            dependencies.append(agent_to_workstream[dependency_agent])
+            elif sequential and research_steps and agent_id in code_steps:
                 dependencies.extend(
                     f"workstream_{workstreams.index(next(candidate for candidate in workstreams if candidate['agent_id'] == research_id)) + 1}"
                     for research_id in research_steps if research_id != agent_id
@@ -2289,6 +2323,7 @@ class VoiceAgent:
                     "parent_task_id": context.task.task_id,
                     "correlation_id": child.metadata.get("correlation_id") if isinstance(child.metadata, Mapping) else None,
                     "depends_on": list(_dependencies),
+                    "planner_step_ids": [step["id"] for step in plan_steps if step.get("agent_id") == _agent_id],
                     "output": output_text[:6000],
                     "artifacts": list(child.artifacts),
                     "error": str(child.error or "")[:1200] if not child.succeeded else None,
@@ -2360,7 +2395,7 @@ class VoiceAgent:
             "", "## Evidence boundaries",
             "Task-context transfer is visible in delegated request context; it is not the same as direct agent inbox delivery.",
             "Only runtime child-task results and available action/message events count as execution evidence.",
-            "The graph executes independent workstreams in parallel up to its configured concurrency and enforces explicit research-before-code dependencies when the mission wording indicates sequencing.",
+            "The graph executes independent workstreams in parallel up to its configured concurrency. When Planner supplies validated executable-agent assignments, its declared dependencies are translated into actual workstream edges; otherwise explicit research-before-code wording remains the fallback.",
         ])
         output = "\n".join(lines)
         failure_details = [
