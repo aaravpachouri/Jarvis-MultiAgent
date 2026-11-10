@@ -148,9 +148,12 @@ class DependencyWorkflow:
             if saved["status"] == WorkflowStepStatus.SUCCEEDED.value:
                 results[step_id].status = WorkflowStepStatus.SUCCEEDED
                 results[step_id].output = saved["output"]
-            elif saved["status"] == "interrupted":
+            elif saved["status"] in {"interrupted", WorkflowStepStatus.FAILED.value}:
                 results[step_id].status = WorkflowStepStatus.FAILED
-                results[step_id].error = saved["error"]
+                results[step_id].error = saved["error"] or "Previous execution failed; explicit review required."
+            elif saved["status"] == WorkflowStepStatus.BLOCKED.value:
+                results[step_id].status = WorkflowStepStatus.BLOCKED
+                results[step_id].error = saved["error"] or "A required dependency did not succeed."
         semaphore = asyncio.Semaphore(self.max_parallel)
         context = dict(initial_context or {})
 
