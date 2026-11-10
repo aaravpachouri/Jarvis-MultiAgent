@@ -586,3 +586,40 @@ async def test_scout_reports_shortfall_and_retrieval_diagnostics_when_providers_
     assert output["partial"] is True
     assert output["retrieval_status"] == "partial"
     assert output["evidence_level"] == "search_snippets_not_independently_verified"
+
+
+@pytest.mark.asyncio
+async def test_scout_marks_shortfall_partial_even_without_provider_exception(monkeypatch):
+    import agents.search_agent.agent as module
+
+    monkeypatch.delenv("BRAVE_SEARCH_API_KEY", raising=False)
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    monkeypatch.delenv("JARVIS_SEARCH_PROVIDER", raising=False)
+    monkeypatch.setattr(module, "_fetch_html", lambda query, *, timeout: SAMPLE_HTML)
+    output = await SearchAgent(result_count=5)(
+        SimpleNamespace(prompt="search for Python docs"), None
+    )
+    assert output["result_count"] == 2
+    assert output["requested_result_count"] == 5
+    assert output["partial"] is True
+    assert output["retrieval_status"] == "partial"
+
+
+@pytest.mark.asyncio
+async def test_scout_marks_provider_failure_partial_when_another_provider_returns_results(monkeypatch):
+    import agents.search_agent.agent as module
+
+    monkeypatch.setenv("BRAVE_SEARCH_API_KEY", "test-key-not-real")
+    monkeypatch.setenv("TAVILY_API_KEY", "test-key-not-real")
+    monkeypatch.delenv("JARVIS_SEARCH_PROVIDER", raising=False)
+    monkeypatch.setattr(module, "_fetch_brave_results", lambda *args, **kwargs: (_ for _ in ()).throw(TimeoutError("timeout")))
+    monkeypatch.setattr(module, "_fetch_tavily_results", lambda *args, **kwargs: [
+        {"title": "Found", "url": "https://example.com/found", "domain": "example.com", "snippet": "Found"}
+    ])
+    output = await SearchAgent(result_count=1)(
+        SimpleNamespace(prompt="search for a source"), None
+    )
+    assert output["results"]
+    assert output["partial"] is True
+    assert output["retrieval_status"] == "partial"
+    assert output["provider_failures"][0]["provider"] == "Brave Search API"
