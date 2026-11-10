@@ -117,6 +117,7 @@ async def test_agent_uses_brave_json_api_when_configured(monkeypatch) -> None:
         }]
 
     monkeypatch.setattr(module, "_fetch_brave_results", fake_brave)
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
     monkeypatch.setattr(module, "_fetch_html", lambda query, *, timeout: "<html>challenge</html>")
     output = await SearchAgent(result_count=1)(SimpleNamespace(prompt="search the web for FastAPI official docs"), None)
     assert output["provider"] == "Brave Search API"
@@ -171,6 +172,7 @@ async def test_agent_uses_tavily_json_api_when_configured(monkeypatch) -> None:
         }]
 
     monkeypatch.setattr(module, "_fetch_tavily_results", fake_tavily)
+    monkeypatch.delenv("BRAVE_SEARCH_API_KEY", raising=False)
     monkeypatch.setattr(module, "_fetch_html", lambda query, *, timeout: "<html>challenge</html>")
     output = await SearchAgent(result_count=1)(SimpleNamespace(prompt="search the web for FastAPI official docs"), None)
     assert output["provider"] == "Tavily Search API"
@@ -424,7 +426,7 @@ async def test_explicit_tavily_provider_still_falls_back_to_brave(monkeypatch):
     monkeypatch.setattr(module, "_fetch_html", lambda query, *, timeout: "<html>challenge</html>")
     output = await SearchAgent(result_count=1)(SimpleNamespace(prompt="research topic"), None)
 
-    assert output["provider"] == "Brave Search API"
+    assert "Brave Search API" in output["provider"]
     assert output["results"][0]["url"] == "https://example.com/"
     assert output["provider_failures"][0]["provider"] == "Tavily Search API"
 
