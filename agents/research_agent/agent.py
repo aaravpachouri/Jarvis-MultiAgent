@@ -102,9 +102,14 @@ class ResearchAgent:
             query_is_partial = bool(outcome.get("partial")) or retrieval_status == "partial" or bool(outcome.get("error"))
             if query_results and not query_is_partial:
                 successful_queries.append(query)
+            query_status = (
+                "partial" if query_results and query_is_partial
+                else "failed" if not query_results
+                else "complete"
+            )
             query_provenance.append({
                 "query": query,
-                "status": "partial" if query_is_partial else ("complete" if query_results else "failed"),
+                "status": query_status,
                 "provider": str(outcome.get("provider", "")).strip(),
                 "providers_attempted": list(outcome.get("providers_attempted", []) or []),
                 "provider_failures": list(outcome.get("provider_failures", []) or []),
