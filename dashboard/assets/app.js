@@ -7,7 +7,7 @@
   const agentIdentities = {
     'voice.jarvis': { slug: 'jarvis', short: 'JARVIS', specialty: 'COMMAND & VOICE', motto: '“I’m always here.”', persona: 'Calm, precise, and quietly anticipatory', color: '#ff5968' },
     'research.athena': { slug: 'athena', short: 'Athena', specialty: 'RESEARCH & ANALYSIS', motto: '“Turning information into intelligence.”', persona: 'Curious, evidence-led, and methodical', color: '#42dcff' },
-    'desktop.atlas': { slug: 'atlas', short: 'Atlas', specialty: 'SYSTEMS & API ORCHESTRATION', motto: '“Connecting systems with care.”', persona: 'Grounded, cautious, and operational', color: '#45e6c5' },
+    'systems.atlas': { slug: 'atlas', short: 'Atlas', specialty: 'SYSTEMS & API ORCHESTRATION', motto: '“Connecting systems with care.”', persona: 'Grounded, cautious, and operational', color: '#45e6c5' },
     'coding.forge': { slug: 'forge', short: 'Forge', specialty: 'CODE & DEVELOPMENT', motto: '“Building what’s next.”', persona: 'Direct, systematic, and quality-focused', color: '#ff5965' },
     'trading.quant': { slug: 'quant', short: 'Quant', specialty: 'MARKET & TRADING RESEARCH', motto: '“Data. Patterns. Edge.”', persona: 'Quantitative, skeptical, and timestamp-aware', color: '#35e0b8' },
     'search.scout': { slug: 'scout', short: 'Scout', specialty: 'WEB SEARCH & INTEL', motto: '“Finding what others miss.”', persona: 'Fast, curious, and source-aware', color: '#b58cff' },
@@ -16,7 +16,7 @@
     'memory.notes': { slug: 'memory', short: 'Memory', specialty: 'MEMORY & KNOWLEDGE', motto: '“I remember so you don’t have to.”', persona: 'Discreet, user-controlled, and detail-oriented', color: '#45dff5' },
     'deployment.launch': { slug: 'launch', short: 'Launch', specialty: 'DEPLOYMENT & TOOLS', motto: '“From idea to impact.”', persona: 'Mission-minded, measured, and release-conscious', color: '#ff974c' },
   };
-  const agentDockOrder = ['voice.jarvis', 'research.athena', 'desktop.atlas', 'coding.forge', 'trading.quant', 'search.scout', 'planning.planner', 'documentation.scribe', 'memory.notes', 'deployment.launch'];
+  const agentDockOrder = ['voice.jarvis', 'research.athena', 'systems.atlas', 'coding.forge', 'trading.quant', 'search.scout', 'planning.planner', 'documentation.scribe', 'memory.notes', 'deployment.launch'];
   const identityFor = agent => agentIdentities[agent?.agent_id] || { slug: 'jarvis', short: agent?.name || agent?.agent_id || 'Agent', specialty: agent?.role || 'SPECIALIST', motto: 'Runtime-registered specialist.', persona: 'Identity details were not supplied by the local registry.', color: '#45eaff' };
   const titles = { overview: 'Overview', agents: 'Agent network', tasks: 'Task center', markets: 'Market intelligence', reports: 'Reports & artifacts' };
   const escapeHTML = (value) => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch]));
@@ -436,7 +436,7 @@
       'voice.jarvis': [68, 85],
     };
     const colors = {
-      'research.athena': '#38d8ff', 'desktop.atlas': '#35efc5',
+      'research.athena': '#38d8ff', 'systems.atlas': '#35efc5',
       'documentation.scribe': '#35efc5', 'coding.forge': '#ff605f',
       'search.scout': '#9d8aff', 'deployment.launch': '#9d8aff',
       'planning.planner': '#ffd36b', 'memory.notes': '#f3ca68',
