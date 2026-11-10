@@ -34,7 +34,7 @@ async def test_launch_creates_evidence_based_read_only_preflight(tmp_path: Path)
 
     assert result["status"] == "ready_for_review"
     assert {item["path"] for item in result["evidence"]} >= {"package.json", "vercel.json", ".github/workflows"}
-    assert result["package_metadata"]["scripts"] == {"build": "vite build", "test": "vitest run"}
+    assert result["package_metadata"]["scripts"] == {"build": "vite build", "test": "vitest run", "dev": "vite"}
     assert ".env.local" not in {item["path"] for item in result["evidence"]}
     assert result["executed_commands"] == []
     assert result["deployment_performed"] is False
