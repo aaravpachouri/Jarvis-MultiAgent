@@ -41,7 +41,7 @@ def test_planner_returns_dependency_aware_plan_without_delegation():
     assert result["steps"][1]["depends_on"] == []
     assert result["steps"][-1]["status"] == "not_started"
     assert all(step["acceptance_criteria"] for step in result["steps"])
-    assert result["parallel_groups"][0] == [1, 2, 3, 4]
+    assert result["parallel_groups"] == [[step["id"] for step in result["steps"]]]
     assert result["deadline"] == "2026-11-15"
     assert result["success_criteria"] == ["Public landing page works", "Smoke tests pass"]
     assert result["execution_status"] == "plan_only_not_executed"
