@@ -423,3 +423,62 @@ async def test_explicit_tavily_provider_still_falls_back_to_brave(monkeypatch):
     assert output["provider"] == "Brave Search API"
     assert output["results"][0]["url"] == "https://example.com/"
     assert output["provider_failures"][0]["provider"] == "Tavily Search API"
+
+
+@pytest.mark.asyncio
+async def test_scientific_research_uses_crossref_without_api_keys(monkeypatch):
+    import agents.search_agent.agent as module
+
+    monkeypatch.delenv("BRAVE_SEARCH_API_KEY", raising=False)
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    monkeypatch.delenv("JARVIS_SEARCH_PROVIDER", raising=False)
+    calls = []
+
+    def fake_crossref(query, *, timeout, limit):
+        calls.append((query, timeout, limit))
+        return [{
+            "title": "A peer-reviewed scientific paper",
+            "url": "https://doi.org/10.1234/example",
+            "domain": "doi.org",
+            "snippet": "Published: 2025-03-01. Example journal record.",
+            "publication_date": "2025-03-01",
+            "source_type": "scholarly_record",
+        }]
+
+    def fail_ddg(query, *, timeout):
+        raise AssertionError("DuckDuckGo should not be needed after Crossref returns usable links")
+
+    monkeypatch.setattr(module, "_fetch_crossref_results", fake_crossref)
+    monkeypatch.setattr(module, "_fetch_html", fail_ddg)
+    output = await SearchAgent()(SimpleNamespace(prompt="Find recent scientific papers on room-temperature superconductivity"), None)
+
+    assert len(calls) == 1
+    assert output["provider"] == "Crossref scholarly works API"
+    assert output["results"][0]["url"] == "https://doi.org/10.1234/example"
+    assert output["results"][0]["publication_date"] == "2025-03-01"
+
+
+def test_crossref_parser_extracts_doi_title_and_publication_date(monkeypatch):
+    import json
+    import agents.search_agent.agent as module
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            return False
+        def read(self):
+            return json.dumps({"message": {"items": [{
+                "title": ["A scholarly paper"],
+                "URL": "https://doi.org/10.1234/example",
+                "published": {"date-parts": [[2024, 7, 9]]},
+                "container-title": ["Journal of Examples"],
+                "abstract": "<jats:p>Study abstract</jats:p>",
+            }]}}).encode()
+
+    monkeypatch.setattr(module, "urlopen", lambda request, timeout: FakeResponse())
+    results = module._fetch_crossref_results("scholarly paper", timeout=2, limit=5)
+    assert results[0]["title"] == "A scholarly paper"
+    assert results[0]["url"] == "https://doi.org/10.1234/example"
+    assert results[0]["publication_date"] == "2024-07-09"
+    assert "Study abstract" in results[0]["snippet"]
