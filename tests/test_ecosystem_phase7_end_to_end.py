@@ -136,6 +136,7 @@ def test_failed_scout_prevents_forge_and_is_not_reported_as_success(integrated_r
         return []
 
     monkeypatch.setattr(search_module, "_fetch_tavily_results", empty_tavily)
+    monkeypatch.setattr(search_module, "_fetch_html", lambda query, *, timeout: (_ for _ in ()).throw(OSError("offline")))
     root = TaskRequest(
         prompt=(
             "Research Flask official documentation and deployment requirements, then use Forge to create "
