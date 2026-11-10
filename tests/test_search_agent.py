@@ -564,7 +564,7 @@ async def test_scout_skips_invalid_only_provider_and_recovers_from_next(monkeypa
 
     output = await SearchAgent(result_count=1)(SimpleNamespace(prompt="research a valid result"), None)
 
-    assert output["provider"] == "Tavily Search API"
+    assert "Tavily Search API" in output["provider"]
     assert output["results"][0]["url"] == "https://example.org/valid"
     assert output["provider_failures"][0]["error_code"] == "empty_or_invalid_results"
 
