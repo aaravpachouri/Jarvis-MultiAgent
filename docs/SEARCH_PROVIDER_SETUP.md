@@ -29,11 +29,20 @@ Do not commit real API keys, put them in frontend variables, or paste them into 
 
 - A timeout, network error, temporary provider error, authentication error, or empty/unparseable response is recorded against that provider.
 - Scout moves to the next configured provider instead of ending the request immediately.
-- The first provider that returns usable source links supplies the result set; Scout does not make extra paid calls merely to fill the requested result count.
-- Partial result counts are explicit. Provider failures and attempted providers are retained in the output for diagnostics.
+- Scout accumulates valid, unique, titled links and continues to the next configured provider until the requested count is reached or every relevant provider has been tried. Duplicates, malformed URLs, provider-internal links, and untitled entries are discarded.
+- Partial result counts and `retrieval_status` are explicit. Each returned source carries its provider. Provider failures, provider attempts, timestamps, and result counts are retained for diagnostics.
 - If every provider fails, Scout returns a structured failure. The runtime marks it failed rather than showing a false success.
-- Crossref results are scholarly metadata, not proof that a paper's claims are correct; full-text availability varies. Search snippets are leads, not verified facts. Research answers must open/check primary sources before presenting claims as confirmed.
+- Crossref results are scholarly metadata, not proof that a paper's claims are correct; full-text availability varies. Search snippets are discovery leads, not verified facts. Scout does not claim to have independently opened or verified pages. Source-opening/validation must be a separate explicit stage before claims are called verified.
 
 ## Operational boundary
 
 This reduces failures caused by an individual provider. It cannot guarantee that every request will return results if the user's network is offline, all providers are unavailable, credentials are invalid, quotas are exhausted, or a query has no relevant results. The correct behavior in those cases is a clear failure with provider diagnostics, never fabricated sources.
+
+## Result contract
+
+Successful Scout responses include:
+- `query`, `retrieved_at`, `provider`, `providers_attempted`, and `provider_failures`
+- `results`, each with a validated HTTP(S) URL, title, domain, snippet, and source provider
+- `requested_result_count`, `result_count`, `partial`, `retrieval_status`, and `evidence_level`
+
+A `retrieval_status=complete` means the requested number of valid, unique search-result records were collected. It does **not** mean the target pages were fetched, read, or fact-checked. Athena should preserve per-query status and mark its overall research partial when any query fails or returns partial evidence.
