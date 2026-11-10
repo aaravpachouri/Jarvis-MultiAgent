@@ -108,7 +108,7 @@ async def test_agent_uses_brave_json_api_when_configured(monkeypatch) -> None:
 
     def fake_brave(query, *, timeout, limit):
         assert query == "FastAPI official docs"
-        assert limit == 5
+        assert limit == 1
         return [{
             "title": "FastAPI",
             "url": "https://fastapi.tiangolo.com/",
@@ -163,7 +163,7 @@ async def test_agent_uses_tavily_json_api_when_configured(monkeypatch) -> None:
 
     def fake_tavily(query, *, timeout, limit):
         assert query == "FastAPI official docs"
-        assert limit == 5
+        assert limit == 1
         return [{
             "title": "FastAPI",
             "url": "https://fastapi.tiangolo.com/",
