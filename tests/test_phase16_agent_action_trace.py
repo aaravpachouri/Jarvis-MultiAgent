@@ -87,7 +87,7 @@ def test_search_agent_emits_real_provider_action_without_network(monkeypatch) ->
     monkeypatch.setenv("JARVIS_SEARCH_PROVIDER", "duckduckgo")
     monkeypatch.delenv("BRAVE_SEARCH_API_KEY", raising=False)
     monkeypatch.delenv("TAVILY_API_KEY", raising=False)
-    monkeypatch.setattr(search_module, "_fetch_html", lambda query, *, timeout: "<html></html>")
+    monkeypatch.setattr(search_module, "_fetch_html", lambda query, *, timeout: '<a class="result__a" href="https://example.com/test">Test source</a><a class="result__snippet">A valid test result.</a>')
     runtime = AgentRuntime(registry=AgentRegistry())
     runtime.register_agent(_spec("search.scout", "web.search"), SearchAgent(result_count=2))
 
