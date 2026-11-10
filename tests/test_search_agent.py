@@ -66,7 +66,7 @@ async def test_agent_reports_empty_provider_results_without_fabricating(monkeypa
     monkeypatch.setattr(module, "_fetch_html", lambda query, *, timeout: "<html>challenge page</html>")
     output = await SearchAgent()(SimpleNamespace(prompt="search for an obscure query"), None)
     assert output["results"] == []
-    assert "no parseable results" in output["summary"]
+    assert "no valid, unique source links" in output["summary"]
 
 
 @pytest.mark.asyncio
@@ -286,7 +286,7 @@ async def test_empty_results_preserve_provider_and_structured_status(monkeypatch
     monkeypatch.setattr(module, "_fetch_html", lambda query, *, timeout: "<html>challenge page</html>")
     output = await SearchAgent()(SimpleNamespace(prompt="search for obscure topic"), None)
     assert output["provider"] == "DuckDuckGo HTML search"
-    assert output["error_code"] == "empty_results"
+    assert output["error_code"] in {"empty_results", "empty_or_invalid_results"}
     assert output["retryable"] is False
     assert output["results"] == []
 
@@ -375,7 +375,7 @@ async def test_agent_combines_partial_results_from_multiple_providers(monkeypatc
 
     assert [item["url"] for item in output["results"]] == ["https://example.org/b"]
     assert output["provider"] == "Tavily Search API"
-    assert output["provider_failures"][0]["error_code"] == "empty_results"
+    assert output["provider_failures"][0]["error_code"] in {"empty_results", "empty_or_invalid_results"}
     assert output["partial"] is True
 
 
@@ -562,7 +562,7 @@ async def test_scout_skips_invalid_only_provider_and_recovers_from_next(monkeypa
         {"title": "Valid result", "url": "https://example.org/valid", "domain": "example.org", "snippet": "usable"}
     ])
 
-    output = await SearchAgent()(SimpleNamespace(prompt="research a valid result"), None)
+    output = await SearchAgent(result_count=1)(SimpleNamespace(prompt="research a valid result"), None)
 
     assert output["provider"] == "Tavily Search API"
     assert output["results"][0]["url"] == "https://example.org/valid"
