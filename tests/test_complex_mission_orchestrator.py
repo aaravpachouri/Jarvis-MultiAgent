@@ -142,3 +142,36 @@ async def test_complex_mission_reports_failed_specialist_as_parent_failure() -> 
     assert result.status is TaskStatus.FAILED
     assert "coding.forge=failed" in str(result.error)
     assert "PARTIAL/FAILED" in str(result.output)
+
+
+def test_planner_dependency_graph_validator_accepts_valid_graph() -> None:
+    steps, error = VoiceAgent._validate_planner_steps([
+        {"id": 1, "title": "Research", "depends_on": []},
+        {"id": 2, "title": "Implement", "depends_on": [1]},
+        {"id": 3, "title": "Verify", "depends_on": [2]},
+    ])
+    assert error is None
+    assert [step["id"] for step in steps] == ["1", "2", "3"]
+    assert steps[2]["depends_on"] == ["2"]
+
+
+@pytest.mark.parametrize(
+    ("steps", "expected"),
+    [
+        ([{"id": 1, "title": "A", "depends_on": [99]}], "unknown dependencies"),
+        ([{"id": 1, "title": "A", "depends_on": [2]}, {"id": 2, "title": "B", "depends_on": [1]}], "cycle"),
+        ([{"id": 1, "title": "A", "depends_on": [1]}], "self dependency"),
+        ([{"id": 1, "title": "A", "depends_on": "2"}], "must be a list"),
+        ([{"id": 1, "title": ""}], "non-empty title"),
+        ([{"id": 1, "title": "A"}, {"id": 1, "title": "Duplicate"}], "duplicate ID"),
+    ],
+)
+def test_planner_dependency_graph_validator_rejects_invalid_graphs(steps, expected) -> None:
+    normalized, error = VoiceAgent._validate_planner_steps(steps)
+    assert normalized == []
+    assert expected in error
+
+
+def test_planner_dependency_graph_validator_rejects_non_list_and_empty_steps() -> None:
+    assert VoiceAgent._validate_planner_steps(None)[1]
+    assert VoiceAgent._validate_planner_steps([])[1]

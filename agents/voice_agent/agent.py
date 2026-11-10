@@ -2045,6 +2045,85 @@ class VoiceAgent:
                 return cap
         return caps[0] if caps else ""
 
+    @staticmethod
+    def _validate_planner_steps(raw_steps: Any) -> tuple[list[dict[str, Any]], str | None]:
+        """Validate Planner's declared dependency graph before any specialist runs.
+
+        Planner output is untrusted structured data: IDs must be unique, every
+        dependency must resolve, and the graph must be acyclic. This validation
+        does not imply that a planning step has been executed.
+        """
+        if not isinstance(raw_steps, list) or not raw_steps:
+            return [], "Planner result must contain a non-empty steps list."
+        if len(raw_steps) > 50:
+            return [], "Planner returned more than 50 steps; execution is bounded to 50."
+
+        normalized: list[dict[str, Any]] = []
+        identifiers: set[str] = set()
+        for index, raw in enumerate(raw_steps):
+            if not isinstance(raw, Mapping):
+                return [], f"Planner step {index + 1} must be an object."
+            raw_id = raw.get("id")
+            if isinstance(raw_id, bool) or not isinstance(raw_id, (str, int)):
+                return [], f"Planner step {index + 1} has an invalid ID."
+            step_id = str(raw_id).strip()
+            title = raw.get("title")
+            if not step_id or step_id in identifiers:
+                return [], f"Planner step {index + 1} has an empty or duplicate ID."
+            if not isinstance(title, str) or not title.strip():
+                return [], f"Planner step {step_id!r} must have a non-empty title."
+            raw_dependencies = raw.get("depends_on", [])
+            if not isinstance(raw_dependencies, list):
+                return [], f"Planner step {step_id!r} dependencies must be a list."
+            dependencies: list[str] = []
+            for dependency in raw_dependencies:
+                if isinstance(dependency, bool) or not isinstance(dependency, (str, int)):
+                    return [], f"Planner step {step_id!r} has an invalid dependency ID."
+                dependency_id = str(dependency).strip()
+                if not dependency_id or dependency_id == step_id:
+                    return [], f"Planner step {step_id!r} has an empty or self dependency."
+                if dependency_id in dependencies:
+                    return [], f"Planner step {step_id!r} repeats dependency {dependency_id!r}."
+                dependencies.append(dependency_id)
+            identifiers.add(step_id)
+            normalized.append({
+                **dict(raw),
+                "id": step_id,
+                "title": title.strip(),
+                "depends_on": dependencies,
+            })
+
+        known_ids = {step["id"] for step in normalized}
+        for step in normalized:
+            missing = set(step["depends_on"]) - known_ids
+            if missing:
+                return [], (
+                    f"Planner step {step['id']!r} references unknown dependencies: "
+                    + ", ".join(sorted(missing)) + "."
+                )
+
+        graph = {step["id"]: step["depends_on"] for step in normalized}
+        visiting: set[str] = set()
+        visited: set[str] = set()
+
+        def visit(step_id: str) -> bool:
+            if step_id in visiting:
+                return False
+            if step_id in visited:
+                return True
+            visiting.add(step_id)
+            for dependency in graph[step_id]:
+                if not visit(dependency):
+                    return False
+            visiting.remove(step_id)
+            visited.add(step_id)
+            return True
+
+        for step_id in graph:
+            if not visit(step_id):
+                return [], f"Planner dependency graph contains a cycle involving {step_id!r}."
+        return normalized, None
+
     async def _run_complex_mission(
         self, prompt: str, context: Any, workstreams: list[dict[str, Any]]
     ) -> TaskResult:
@@ -2095,24 +2174,27 @@ class VoiceAgent:
                 output={"plan_task_id": plan_result.task_id, "plan_status": plan_result.status.value},
             )
         plan_output = plan_result.output
-        plan_steps = plan_output.get("steps", []) if isinstance(plan_output, dict) else []
+        raw_plan_steps = plan_output.get("steps") if isinstance(plan_output, Mapping) else None
+        plan_steps, plan_error = self._validate_planner_steps(raw_plan_steps)
         plan_view = {
             "task_id": plan_result.task_id,
             "agent_id": plan_result.agent_id,
             "status": plan_result.status.value,
-            "summary": str(plan_output.get("summary", ""))[:1000] if isinstance(plan_output, dict) else str(plan_output)[:1000],
+            "summary": str(plan_output.get("summary", ""))[:1000] if isinstance(plan_output, Mapping) else str(plan_output)[:1000],
             "steps": [
-                {"id": item.get("id"), "title": str(item.get("title", ""))[:350],
-                 "depends_on": item.get("depends_on", [])}
-                for item in plan_steps[:12] if isinstance(item, dict)
+                {"id": item["id"], "title": item["title"][:350],
+                 "depends_on": list(item["depends_on"])}
+                for item in plan_steps[:12]
             ],
+            "dependency_graph_validated": plan_error is None,
         }
-        if not isinstance(plan_steps, list) or not plan_steps:
+        if plan_error:
             return TaskResult(
                 task_id=context.task.task_id, agent_id=context.agent.agent_id,
                 status=TaskStatus.FAILED,
-                summary="Complex mission stopped: Planner returned no usable steps.",
-                error="Planner result missing a non-empty steps list.", output={"plan": plan_view},
+                summary="Complex mission stopped: Planner returned an invalid dependency graph.",
+                error=plan_error,
+                output={"plan": plan_view},
             )
 
         # Protect user intent: if this is an explicitly read-only request, tell all
