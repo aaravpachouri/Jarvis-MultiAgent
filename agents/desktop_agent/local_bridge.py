@@ -1780,6 +1780,11 @@ class DesktopActionExecutor:
                                                 caller_thread, thread_id, False
                                             )
 
+                            except Exception:
+                                # Desktop activation is best-effort. The foreground
+                                # identity check below remains the safety gate.
+                                pass
+
                     actual = self._foreground_window_identity()
                     actual_pid, actual_handle, actual_title = actual
                     expected_pid, expected_handle, expected_title = identity
