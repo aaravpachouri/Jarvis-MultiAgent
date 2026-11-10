@@ -1,6 +1,6 @@
 # JARVIS Agent Network
 
-A **new, standalone project** for an expandable multi-agent AI network. It is not an overlay and does not depend on the existing `JARVIS-X` desktop repository. You can extract this project anywhere and develop it independently.
+A **new, standalone project** for an expandable multi-agent AI network. It is not an overlay and does not depend on the existing `JARVIS-X` repository. You can extract this project anywhere and develop it independently.
 
 ## Phase 2: JARVIS Voice Agent
 
@@ -38,7 +38,7 @@ Common social conversation works without an API key. The local handler recognise
 
 ## Current implementation status (important)
 
-JARVIS's text-first main handler and optional microphone/speech output interface are implemented. Scribe, Athena and Planner have executable handlers and offline tests. Athena's web-research mode delegates to Scout; context-only analysis does not. Forge remains present but is intentionally out of scope for this development pass. Atlas and Launch remain profile-only until their real handlers are implemented; Quant now has a read-only market-research handler. The CLI marks an identity as `registered` rather than `ready` until its handler is real and callable. JARVIS will not fake research, code changes, trades, desktop actions, documentation updates or deployments.
+JARVIS's text-first main handler and optional microphone/speech output interface are implemented. Scribe, Athena and Planner have executable handlers and offline tests. Athena's web-research mode delegates to Scout; context-only analysis does not. Forge remains present but is intentionally out of scope for this development pass. Atlas and Launch remain profile-only until their real handlers are implemented; Quant now has a read-only market-research handler. The CLI marks an identity as `registered` rather than `ready` until its handler is real and callable. JARVIS will not fake research, code changes, trades, systems operations, documentation updates or deployments.
 
 The shared event bus is currently in-process. Durable cloud workers, authenticated cross-device transport, long-running monitoring, a live dashboard and 24/7 hosting remain later phases. Local voice mode requires the local machine and microphone to be available.
 
@@ -50,7 +50,7 @@ JARVIS_Agent_Network/
 │   ├── voice_agent/        # JARVIS main handler + optional audio adapters
 │   ├── search_agent/       # Scout
 │   ├── coding_agent/       # Forge
-│   ├── desktop_agent/      # Atlas
+│   ├── atlas_agent/        # Atlas (systems/API orchestration profile)
 │   ├── trading_agent/      # Quant
 │   ├── research_agent/     # Athena
 │   ├── documentation_agent/# Scribe
@@ -507,6 +507,6 @@ Cinematic AI command center with specialist agents for research, coding, systems
 The source and implementation overlays are being published in follow-up commits. Do not commit `.env` files, API keys, personal memory notes, or generated market reports.
 
 
-## Desktop companion status
+## Atlas scope
 
-The optional Windows desktop companion has been removed from this project. Atlas remains a profile-only systems/API orchestration identity; it has no local desktop-control capability. No desktop bridge, pairing flow, screenshot capture, keyboard/mouse automation, or desktop-specific dependencies are included.
+The optional Windows desktop companion has been removed from this project. Atlas is a profile-only systems/API orchestration identity (`systems.atlas`); it has no local desktop-control capability. No desktop bridge, pairing flow, screenshot capture, keyboard/mouse automation, or desktop-specific dependencies are included.
