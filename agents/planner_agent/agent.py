@@ -12,7 +12,7 @@ from core.action_scope import action_scope
 
 
 class PlannerAgent:
-    """Build a structured action plan with dependencies and verification gates."""
+    """Build a structured action plan with explicit dependencies and verification gates."""
 
     async def __call__(self, task: Any, context: Any) -> dict[str, Any]:
         async with action_scope(context, "planner.plan.build", action_type="workflow", metadata={"operation": "goal_decomposition"}):
@@ -47,18 +47,25 @@ class PlannerAgent:
             step_titles = self._default_steps(goal)
             plan_basis = "goal_decomposition"
 
+        # A list is an order, not proof of a dependency. Only language that
+        # explicitly describes a sequence creates edges automatically.
+        sequential = (
+            plan_basis == "steps_extracted_from_request"
+            and bool(re.search(r"\b(?:then|after that|once|when completed)\b", prompt, re.IGNORECASE))
+        )
         available_agents = supplied.get("available_executable_agents", [])
         if not isinstance(available_agents, list):
             available_agents = []
         steps: list[dict[str, Any]] = []
         for index, title in enumerate(step_titles, start=1):
-            dependencies = [index - 1] if index > 1 else []
+            dependencies = [index - 1] if sequential and index > 1 else []
             step = {
                 "id": index,
                 "title": title,
                 "action": title if title.endswith((".", "!", "?")) else title + ".",
                 "depends_on": dependencies,
                 "deliverable": self._deliverable_for(title),
+                "acceptance_criteria": self._acceptance_criteria_for(title),
                 "verification": self._verification_for(title),
                 "status": "not_started",
             }
@@ -68,22 +75,22 @@ class PlannerAgent:
                 step["capability"] = assignment["capability"]
             steps.append(step)
 
-        checklist = [
-            f"[ ] {step['title']}" for step in steps
-        ]
+        checklist = [f"[ ] {step['title']}" for step in steps]
         risks = self._risks(constraints, deadline, resources)
         assumptions = []
         if not success_criteria:
-            assumptions.append("No explicit success criteria were supplied; define measurable completion conditions before execution.")
+            assumptions.append("No mission-level success criteria were supplied; confirm the measurable completion conditions before execution.")
         if not deadline:
-            assumptions.append("No deadline was supplied; order is based on dependencies rather than calendar dates.")
+            assumptions.append("No deadline was supplied; schedule is based on dependencies and available capacity.")
         if not resources:
             assumptions.append("Available resources were not specified; confirm ownership, tools and access before execution.")
 
+        parallel_groups = self._parallel_groups(steps)
         return {
             "goal": goal,
             "plan_basis": plan_basis,
             "steps": steps,
+            "parallel_groups": parallel_groups,
             "checklist": checklist,
             "constraints": constraints,
             "available_resources": resources,
@@ -94,6 +101,24 @@ class PlannerAgent:
             "execution_status": "plan_only_not_executed",
             "summary": f"Planner created a {len(steps)}-step plan for: {goal}",
         }
+
+    @staticmethod
+    def _parallel_groups(steps: list[dict[str, Any]]) -> list[list[int]]:
+        """Return dependency layers suitable for parallel execution."""
+        completed: set[int] = set()
+        remaining = {step["id"]: set(step["depends_on"]) for step in steps}
+        groups: list[list[int]] = []
+        while remaining:
+            ready = sorted(step_id for step_id, deps in remaining.items() if set(deps).issubset(completed))
+            if not ready:
+                # Planner-generated edges are acyclic by construction. Keep this
+                # defensive guard so malformed future changes never loop forever.
+                raise ValueError("Planner generated a cyclic dependency graph.")
+            groups.append(ready)
+            completed.update(ready)
+            for step_id in ready:
+                remaining.pop(step_id)
+        return groups
 
     @staticmethod
     def _assign_specialist(title: str, available_agents: list[Any]) -> dict[str, str] | None:
@@ -140,11 +165,9 @@ class PlannerAgent:
 
     @staticmethod
     def _extract_requested_steps(prompt: str) -> list[str]:
-        # Prefer explicit numbered/bulleted actions supplied by the user.
         explicit = re.findall(r"(?:^|\n)\s*(?:\d+[.)]|[-*])\s+(.+)", prompt)
         if len(explicit) >= 2:
             return [item.strip().rstrip(".; ") for item in explicit if item.strip()]
-        # Parse simple sequential requests without pretending to understand arbitrary prose perfectly.
         body = re.sub(r"^(?:please\s+)?(?:make|create|build|give me|prepare)\s+(?:me\s+)?(?:a\s+)?(?:plan|roadmap|checklist)\s*(?:for|to|of)?\s*", "", prompt, flags=re.I)
         parts = re.split(r"\s*(?:;|\n|\bthen\b|\bafter that\b)\s*", body, flags=re.I)
         cleaned = [part.strip(" .;:-") for part in parts if part.strip(" .;:-")]
@@ -188,12 +211,27 @@ class PlannerAgent:
         return "A reviewable output or recorded result for this step"
 
     @staticmethod
+    def _acceptance_criteria_for(title: str) -> list[str]:
+        text = title.casefold()
+        if any(word in text for word in ("test", "validate", "verify", "compile")):
+            return ["The exact command/check and exit status are recorded", "All required checks pass or each failure is explicitly listed"]
+        if any(word in text for word in ("research", "investigate", "evidence", "compare")):
+            return ["Findings include traceable source/evidence references", "Uncertainty, conflicts and missing evidence are called out"]
+        if any(word in text for word in ("implement", "build", "develop", "fix", "refactor")):
+            return ["A concrete change or artifact is produced", "Relevant tests or validation are run and their results are recorded"]
+        if any(word in text for word in ("document", "report", "write-up")):
+            return ["The document covers the requested scope", "Claims are traceable to verified inputs and limitations are stated"]
+        return ["The named deliverable exists and is reviewable", "Completion is supported by observable evidence"]
+
+    @staticmethod
     def _verification_for(title: str) -> str:
         text = title.casefold()
-        if any(word in text for word in ("test", "validate", "verify", "review")):
+        if any(word in text for word in ("test", "validate", "verify", "review", "compile")):
             return "Record the check performed, expected result, actual result and any remaining failure."
-        if any(word in text for word in ("define", "clarify", "criteria", "scope")):
-            return "Confirm the goal and measurable completion conditions with the requester."
+        if any(word in text for word in ("research", "investigate", "evidence", "compare")):
+            return "Check source relevance, dates, provenance and whether the evidence supports each finding."
+        if any(word in text for word in ("implement", "build", "develop", "fix", "refactor")):
+            return "Inspect the changed artifact and run the relevant automated or manual validation."
         return "Confirm the deliverable exists, meets its stated purpose and has no blocking dependency."
 
     @staticmethod

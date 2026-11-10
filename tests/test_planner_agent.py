@@ -38,19 +38,40 @@ def test_planner_returns_dependency_aware_plan_without_delegation():
     assert result["goal"] == "Launch the app"
     assert len(result["steps"]) >= 4
     assert result["steps"][0]["depends_on"] == []
-    assert result["steps"][1]["depends_on"] == [1]
+    assert result["steps"][1]["depends_on"] == []
     assert result["steps"][-1]["status"] == "not_started"
+    assert all(step["acceptance_criteria"] for step in result["steps"])
+    assert result["parallel_groups"] == [[step["id"] for step in result["steps"]]]
     assert result["deadline"] == "2026-11-15"
     assert result["success_criteria"] == ["Public landing page works", "Smoke tests pass"]
     assert result["execution_status"] == "plan_only_not_executed"
     assert len(result["checklist"]) == len(result["steps"])
 
 
-def test_planner_preserves_user_provided_tasks_in_order():
+def test_planner_preserves_user_provided_tasks_as_independent_by_default():
     task = SimpleNamespace(prompt="Organize these tasks", context={"tasks": ["Create outline", "Draft content", "Review draft"]})
     result = asyncio.run(PlannerAgent()(task, NoNetworkContext()))
     assert [step["title"] for step in result["steps"]] == ["Create outline", "Draft content", "Review draft"]
+    assert [step["depends_on"] for step in result["steps"]] == [[], [], []]
     assert result["plan_basis"] == "user_supplied_tasks"
+    assert result["parallel_groups"] == [[1, 2, 3]]
+
+
+def test_explicit_then_language_creates_sequential_dependencies():
+    task = SimpleNamespace(
+        prompt="Plan research the evidence, then implement the feature, then verify the result",
+        context={},
+    )
+    result = asyncio.run(PlannerAgent()(task, NoNetworkContext()))
+    assert [step["depends_on"] for step in result["steps"]] == [[], [1], [2]]
+    assert result["parallel_groups"] == [[1], [2], [3]]
+
+
+def test_semicolon_separated_workstreams_remain_independent():
+    task = SimpleNamespace(prompt="Plan research alternatives; build a prototype; draft documentation", context={})
+    result = asyncio.run(PlannerAgent()(task, NoNetworkContext()))
+    assert [step["depends_on"] for step in result["steps"]] == [[], [], []]
+    assert result["parallel_groups"] == [[1, 2, 3]]
 
 
 def test_planner_rejects_empty_goal():
