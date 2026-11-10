@@ -33,7 +33,7 @@ def test_research_returns_deduplicated_source_linked_evidence():
     agent = ResearchAgent()
     queries = agent._build_queries("FastAPI stable release")
     shared = {"title": "Official docs", "url": "https://fastapi.tiangolo.com/", "domain": "fastapi.tiangolo.com", "snippet": "Official documentation"}
-    context = FakeContext({query: {"results": [shared], "provider": "Tavily Search API", "retrieved_at": "2026-11-10T14:00:00+00:00"} for query in queries})
+    context = FakeContext({query: {"results": [shared], "provider": "Tavily Search API", "retrieved_at": "2026-11-10T14:00:00+00:00", "partial": False, "retrieval_status": "complete"} for query in queries})
     result = asyncio.run(agent(SimpleNamespace(prompt="FastAPI stable release"), context))
     assert result["source_count"] == 1
     assert result["sources"][0]["url"] == "https://fastapi.tiangolo.com/"
