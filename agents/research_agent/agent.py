@@ -82,14 +82,40 @@ class ResearchAgent:
                     "domain": str(item.get("domain", "")).strip() or parsed.netloc.removeprefix("www."),
                     "snippet": str(item.get("snippet", "")).strip(),
                     "search_query": query,
+                    "provider": str(outcome.get("provider", "")).strip() or "unspecified",
+                    "retrieved_at": str(outcome.get("retrieved_at", "")).strip() or None,
                 })
 
         sources = self._prioritize_primary_sources(prompt, sources)
+        primary_count = sum(self._is_primary_source(prompt, item["url"]) for item in sources)
         if not sources:
             detail = "; ".join(failures) if failures else "Scout returned no parseable results."
-            raise RuntimeError(f"Athena could not retrieve research sources. {detail}")
-
-        primary_count = sum(self._is_primary_source(prompt, item["url"]) for item in sources)
+            return {
+                "summary": "\\n".join([
+                    f"Athena research attempt: {prompt}",
+                    "",
+                    "Status: INSUFFICIENT EVIDENCE",
+                    "No usable source URLs were returned by Scout.",
+                    "No findings have been inferred or fabricated.",
+                    "",
+                    "Queries attempted:",
+                    *[f"- {query}" for query in queries],
+                    "",
+                    "Search failures / limitations:",
+                    f"- {detail}",
+                    "",
+                    "Next step: restore the search provider or quota, then rerun this research request.",
+                ]),
+                "question": prompt,
+                "queries": queries,
+                "sources": [],
+                "source_count": 0,
+                "primary_source_count": 0,
+                "failures": failures or ["Scout returned no parseable results."],
+                "evidence_level": "no_retrieved_evidence",
+                "research_status": "insufficient_evidence",
+                "complete": False,
+            }
         lines = [
             f"Athena research brief: {prompt}",
             "",
@@ -131,7 +157,8 @@ class ResearchAgent:
             "primary_source_count": primary_count,
             "failures": failures,
             "evidence_level": "search_snippets_not_independently_verified",
-            "complete": not failures,
+            "research_status": "partial" if failures else "retrieval_complete_unverified",
+            "complete": not failures and bool(sources),
         }
 
     @staticmethod
