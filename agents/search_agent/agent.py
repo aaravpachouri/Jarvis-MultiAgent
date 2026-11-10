@@ -25,6 +25,7 @@ MAX_RESULT_COUNT = 10
 SEARCH_ENDPOINT = "https://html.duckduckgo.com/html/"
 BRAVE_SEARCH_ENDPOINT = "https://api.search.brave.com/res/v1/web/search"
 TAVILY_SEARCH_ENDPOINT = "https://api.tavily.com/search"
+CROSSREF_SEARCH_ENDPOINT = "https://api.crossref.org/works"
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
@@ -113,6 +114,7 @@ def _provider_label(provider: str) -> str:
         "brave": "Brave Search API",
         "duckduckgo": "DuckDuckGo HTML search",
         "ddg": "DuckDuckGo HTML search",
+        "crossref": "Crossref scholarly works API",
     }.get(provider, provider or "unspecified")
 
 
@@ -246,6 +248,52 @@ def _fetch_tavily_results(
     return results
 
 
+def _fetch_crossref_results(query: str, *, timeout: float, limit: int) -> list[dict[str, str]]:
+    """Search Crossref's public scholarly works API (no API key required)."""
+    from urllib.parse import urlencode
+
+    params = urlencode({"query.bibliographic": query, "rows": limit, "select": "DOI,title,URL,author,published,created,container-title,type,abstract"})
+    request = Request(
+        f"{CROSSREF_SEARCH_ENDPOINT}?{params}",
+        headers={"Accept": "application/json", "User-Agent": "JARVIS-Scout/1.0 (scholarly search; mailto:" + os.getenv("JARVIS_SEARCH_CONTACT_EMAIL", "support@example.invalid") + ")"},
+    )
+    with urlopen(request, timeout=timeout) as response:
+        payload = json.loads(response.read().decode("utf-8", errors="replace"))
+    message = payload.get("message", {}) if isinstance(payload, dict) else {}
+    items = message.get("items", []) if isinstance(message, dict) else []
+    results: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        titles = item.get("title") or []
+        title = " ".join(str(titles[0]).split()) if titles else ""
+        url_value = str(item.get("URL", "")).strip()
+        if not title or not _is_public_http_url(url_value) or url_value in seen:
+            continue
+        seen.add(url_value)
+        date_parts = (item.get("published") or item.get("created") or {}).get("date-parts", [[]])
+        date = "-".join(str(part).zfill(2) if index > 0 else str(part) for index, part in enumerate(date_parts[0])) if date_parts and date_parts[0] else ""
+        container = item.get("container-title") or []
+        abstract = re.sub(r"<[^>]+>", " ", str(item.get("abstract", "")))
+        abstract = " ".join(abstract.split())
+        snippet = f"Publication: {container[0]}. " if container else ""
+        if date:
+            snippet += f"Published: {date}. "
+        if abstract:
+            snippet += abstract
+        results.append({"title": title, "url": url_value, "domain": urlparse(url_value).netloc.removeprefix("www."), "snippet": snippet.strip(), "publication_date": date, "source_type": "scholarly_record"})
+        if len(results) >= limit:
+            break
+    return results
+
+
+def _looks_like_scientific_research(query: str) -> bool:
+    text = query.casefold()
+    signals = ("scientific research", "peer-reviewed", "peer reviewed", "research paper", "research papers", "scholarly", "academic paper", "academic papers", "journal article", "journal articles", "systematic review", "meta-analysis", "doi:", "arxiv", "pubmed", "clinical trial", "scientific study", "scientific studies", "research on", "studies on")
+    return any(signal in text for signal in signals)
+
+
 def _parse_results(html: str, limit: int) -> list[dict[str, str]]:
     parser = _DuckDuckGoParser()
     parser.feed(html)
@@ -321,6 +369,8 @@ class SearchAgent:
             available.append("brave")
         if os.getenv("TAVILY_API_KEY", "").strip():
             available.append("tavily")
+        if _looks_like_scientific_research(query):
+            available.append("crossref")
         available.append("duckduckgo")
 
         if configured:
@@ -356,6 +406,11 @@ class SearchAgent:
                     async with action_scope(context, "web.search.request", action_type="tool", metadata={"tool_name": "web_search", "provider": "tavily"}):
                         results = await asyncio.to_thread(
                             _fetch_tavily_results, provider_query, **tavily_kwargs
+                        )
+                elif selected_provider == "crossref":
+                    async with action_scope(context, "web.search.request", action_type="tool", metadata={"tool_name": "web_search", "provider": "crossref"}):
+                        results = await asyncio.to_thread(
+                            _fetch_crossref_results, query, timeout=self.timeout_seconds, limit=self.result_count
                         )
                 elif selected_provider == "brave":
                     async with action_scope(context, "web.search.request", action_type="tool", metadata={"tool_name": "web_search", "provider": "brave"}):
