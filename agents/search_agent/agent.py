@@ -345,8 +345,8 @@ class SearchAgent:
             provider_name = _provider_label(selected_provider)
             try:
                 if selected_provider == "tavily":
-                    requested_domains = re.findall(r"\\bsite:([A-Za-z0-9.-]+)", query, re.IGNORECASE)
-                    provider_query = re.sub(r"\\s+site:[A-Za-z0-9./_-]+", "", query, flags=re.IGNORECASE).strip()
+                    requested_domains = re.findall(r"\bsite:([A-Za-z0-9.-]+)", query, re.IGNORECASE)
+                    provider_query = re.sub(r"\s+site:[A-Za-z0-9./_-]+", "", query, flags=re.IGNORECASE).strip()
                     tavily_kwargs: dict[str, Any] = {
                         "timeout": self.timeout_seconds,
                         "limit": self.result_count,
@@ -372,8 +372,8 @@ class SearchAgent:
                     failures.append({
                         "provider": provider_name,
                         "error_code": "empty_results",
-                        "error": "Provider returned no usable results.",
-                        "retryable": True,
+                        "error": "Provider returned no parseable results.",
+                        "retryable": False,
                     })
                     continue
 
@@ -450,20 +450,20 @@ class SearchAgent:
 
         lines = [f"Scout search results for: {query}", f"Retrieved: {retrieved_at}"]
         for index, result in enumerate(combined_results, start=1):
-            lines.append(f"\\n{index}. {result['title']} ({result['domain']})")
+            lines.append(f"\n{index}. {result['title']} ({result['domain']})")
             lines.append(f"   {result['url']}")
             if result.get("snippet"):
                 lines.append(f"   {result['snippet']}")
-        lines.append("\\nThese are search results, not independently verified claims. Open primary sources before relying on details.")
+        lines.append("\nThese are search results, not independently verified claims. Open primary sources before relying on details.")
         if failures:
-            lines.append("\\nSome providers were unavailable; results were recovered from the providers that responded.")
+            lines.append("\nSome providers were unavailable; results were recovered from the providers that responded.")
         return {
             "summary": "\\n".join(lines),
             "query": query,
             "results": combined_results,
             "retrieved_at": retrieved_at,
             "provider": ", ".join(successful_providers),
-            "providers_attempted": order[:len(successful_providers) + len(failures)],
+            "providers_attempted": [_provider_label(item) for item in order[:len(successful_providers) + len(failures)]],
             "provider_failures": failures,
             "partial": len(combined_results) < self.result_count,
         }
