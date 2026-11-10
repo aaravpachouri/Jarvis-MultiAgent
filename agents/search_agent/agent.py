@@ -432,28 +432,42 @@ class SearchAgent:
                     results = _parse_results(html, self.result_count)
 
                 provider_name = _provider_label(selected_provider)
-                if not results:
+                accepted: list[dict[str, str]] = []
+                for item in results or []:
+                    if not isinstance(item, dict):
+                        continue
+                    url_value = str(item.get("url", "")).strip()
+                    title = " ".join(str(item.get("title", "")).split())
+                    if not title or not _is_public_http_url(url_value) or url_value in seen_urls:
+                        continue
+                    parsed_url = urlparse(url_value)
+                    if parsed_url.netloc.casefold().endswith("duckduckgo.com"):
+                        continue
+                    accepted.append({
+                        **item,
+                        "title": title,
+                        "url": url_value,
+                        "domain": str(item.get("domain") or parsed_url.netloc.removeprefix("www.")),
+                        "snippet": " ".join(str(item.get("snippet", "")).split()),
+                        "provider": provider_name,
+                    })
+                    seen_urls.add(url_value)
+
+                if not accepted:
                     failures.append({
                         "provider": provider_name,
-                        "error_code": "empty_results",
-                        "error": "Provider returned no parseable results.",
+                        "error_code": "empty_or_invalid_results",
+                        "error": "Provider returned no valid, unique source links with titles.",
                         "retryable": False,
                     })
                     continue
 
                 successful_providers.append(provider_name)
-                for item in results:
-                    url_value = str(item.get("url", "")).strip()
-                    if not _is_public_http_url(url_value) or url_value in seen_urls:
-                        continue
-                    seen_urls.add(url_value)
-                    combined_results.append(item)
-                    if len(combined_results) >= self.result_count:
-                        break
-                # A non-empty provider response is usable. Avoid extra quota
-                # and latency merely to fill the target count; fail over only
-                # when a provider yields no usable links.
-                if combined_results:
+                combined_results.extend(accepted)
+                # Stop only after collecting enough accepted links. If the
+                # provider returned a weak/short result set, try the next
+                # configured source and preserve every accepted result.
+                if len(combined_results) >= self.result_count:
                     break
 
             except HTTPError as exc:
@@ -510,8 +524,17 @@ class SearchAgent:
             )
             failure["providers_attempted"] = [item["provider"] for item in failures]
             failure["provider_failures"] = failures
+            failure["error_code"] = "empty_results" if all(
+                item.get("error_code") in {"empty_results", "empty_or_invalid_results"} for item in failures
+            ) else failure.get("error_code")
+            failure["requested_result_count"] = self.result_count
+            failure["result_count"] = 0
+            failure["partial"] = True
+            failure["retrieval_status"] = "failed"
+            failure["evidence_level"] = "no_retrieved_evidence"
             return failure
 
+        retrieval_is_partial = bool(failures) or len(combined_results) < self.result_count
         lines = [f"Scout search results for: {query}", f"Retrieved: {retrieved_at}"]
         for index, result in enumerate(combined_results, start=1):
             lines.append(f"\n{index}. {result['title']} ({result['domain']})")
@@ -526,10 +549,16 @@ class SearchAgent:
             "query": query,
             "results": combined_results,
             "retrieved_at": retrieved_at,
-            "provider": ", ".join(successful_providers),
+            "provider": ", ".join(dict.fromkeys(
+                [item["provider"] for item in combined_results]
+            )),
             "providers_attempted": [_provider_label(item) for item in order[:len(successful_providers) + len(failures)]],
             "provider_failures": failures,
-            "partial": len(combined_results) < self.result_count,
+            "requested_result_count": self.result_count,
+            "result_count": len(combined_results),
+            "partial": retrieval_is_partial,
+            "retrieval_status": "partial" if retrieval_is_partial else "complete",
+            "evidence_level": "search_snippets_not_independently_verified",
         }
 
     @staticmethod

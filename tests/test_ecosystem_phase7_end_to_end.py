@@ -55,7 +55,7 @@ def integrated_runtime(monkeypatch):
     runtime = AgentRuntime(registry=registry, bus=EventBus(), max_delegation_depth=6)
     voice = VoiceAgent()
     athena = ResearchAgent()
-    scout = SearchAgent(timeout_seconds=2, result_count=3)
+    scout = SearchAgent(timeout_seconds=2, result_count=1)
     forge_calls: list[dict] = []
 
     async def forge_handler(task, context):
@@ -174,3 +174,51 @@ def test_runtime_task_records_have_real_parent_and_correlation_metadata(integrat
         assert child.metadata.get("correlation_id") == root.correlation_id
         assert child.metadata.get("parent_task_id")
         assert child.metadata.get("delegation_depth", 0) >= 1
+
+
+def test_athena_marks_three_query_research_partial_when_any_query_fails(monkeypatch):
+    from types import SimpleNamespace
+    from agents.search_agent.agent import _utc_now
+    from agents.research_agent.agent import ResearchAgent
+
+    agent = ResearchAgent()
+    calls = []
+
+    class Context:
+        async def delegate(self, *, prompt, capabilities, agent_id, context):
+            calls.append(context["research_query"])
+            if len(calls) == 2:
+                return SimpleNamespace(
+                    succeeded=False, error="provider timeout", summary="search failed",
+                    output={"results": [], "provider_failures": [{"provider": "DuckDuckGo", "error_code": "network_error"}]},
+                )
+            return SimpleNamespace(
+                succeeded=True,
+                error=None,
+                output={
+                    "results": [{
+                        "title": "Official Flask docs",
+                        "url": "https://flask.palletsprojects.com/en/stable/",
+                        "domain": "flask.palletsprojects.com",
+                        "snippet": "Documentation",
+                        "provider": "Tavily Search API",
+                    }],
+                    "provider": "Tavily Search API",
+                    "retrieved_at": _utc_now(),
+                    "retrieval_status": "complete",
+                    "partial": False,
+                },
+            )
+
+    task = SimpleNamespace(
+        prompt="Research Flask official documentation and deployment requirements",
+        context={},
+    )
+    result = asyncio.run(agent._research(task, Context()))
+
+    assert result["source_count"] == 1
+    assert result["research_status"] == "partial"
+    assert result["complete"] is False
+    assert len(result["query_provenance"]) == 3
+    assert any(entry["status"] == "failed" for entry in result["query_provenance"])
+    assert "Search coverage: PARTIAL" in result["summary"]

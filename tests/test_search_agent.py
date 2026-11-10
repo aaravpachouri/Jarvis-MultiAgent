@@ -66,7 +66,7 @@ async def test_agent_reports_empty_provider_results_without_fabricating(monkeypa
     monkeypatch.setattr(module, "_fetch_html", lambda query, *, timeout: "<html>challenge page</html>")
     output = await SearchAgent()(SimpleNamespace(prompt="search for an obscure query"), None)
     assert output["results"] == []
-    assert "no parseable results" in output["summary"]
+    assert "no valid, unique source links" in output["summary"]
 
 
 @pytest.mark.asyncio
@@ -108,7 +108,7 @@ async def test_agent_uses_brave_json_api_when_configured(monkeypatch) -> None:
 
     def fake_brave(query, *, timeout, limit):
         assert query == "FastAPI official docs"
-        assert limit == 5
+        assert limit == 1
         return [{
             "title": "FastAPI",
             "url": "https://fastapi.tiangolo.com/",
@@ -117,7 +117,9 @@ async def test_agent_uses_brave_json_api_when_configured(monkeypatch) -> None:
         }]
 
     monkeypatch.setattr(module, "_fetch_brave_results", fake_brave)
-    output = await SearchAgent()(SimpleNamespace(prompt="search the web for FastAPI official docs"), None)
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    monkeypatch.setattr(module, "_fetch_html", lambda query, *, timeout: "<html>challenge</html>")
+    output = await SearchAgent(result_count=1)(SimpleNamespace(prompt="search the web for FastAPI official docs"), None)
     assert output["provider"] == "Brave Search API"
     assert output["results"][0]["url"] == "https://fastapi.tiangolo.com/"
 
@@ -161,7 +163,7 @@ async def test_agent_uses_tavily_json_api_when_configured(monkeypatch) -> None:
 
     def fake_tavily(query, *, timeout, limit):
         assert query == "FastAPI official docs"
-        assert limit == 5
+        assert limit == 1
         return [{
             "title": "FastAPI",
             "url": "https://fastapi.tiangolo.com/",
@@ -170,7 +172,9 @@ async def test_agent_uses_tavily_json_api_when_configured(monkeypatch) -> None:
         }]
 
     monkeypatch.setattr(module, "_fetch_tavily_results", fake_tavily)
-    output = await SearchAgent()(SimpleNamespace(prompt="search the web for FastAPI official docs"), None)
+    monkeypatch.delenv("BRAVE_SEARCH_API_KEY", raising=False)
+    monkeypatch.setattr(module, "_fetch_html", lambda query, *, timeout: "<html>challenge</html>")
+    output = await SearchAgent(result_count=1)(SimpleNamespace(prompt="search the web for FastAPI official docs"), None)
     assert output["provider"] == "Tavily Search API"
     assert output["results"][0]["url"] == "https://fastapi.tiangolo.com/"
 
@@ -286,7 +290,7 @@ async def test_empty_results_preserve_provider_and_structured_status(monkeypatch
     monkeypatch.setattr(module, "_fetch_html", lambda query, *, timeout: "<html>challenge page</html>")
     output = await SearchAgent()(SimpleNamespace(prompt="search for obscure topic"), None)
     assert output["provider"] == "DuckDuckGo HTML search"
-    assert output["error_code"] == "empty_results"
+    assert output["error_code"] in {"empty_results", "empty_or_invalid_results"}
     assert output["retryable"] is False
     assert output["results"] == []
 
@@ -370,12 +374,13 @@ async def test_agent_combines_partial_results_from_multiple_providers(monkeypatc
     monkeypatch.setattr(module, "_fetch_tavily_results", lambda query, *, timeout, limit, include_domains=None: [{
         "title": "Tavily result", "url": "https://example.org/b", "domain": "example.org", "snippet": "B"
     }])
+    monkeypatch.setattr(module, "_fetch_html", lambda query, *, timeout: "<html>challenge page</html>")
 
     output = await SearchAgent(result_count=5)(SimpleNamespace(prompt="research topic"), None)
 
     assert [item["url"] for item in output["results"]] == ["https://example.org/b"]
     assert output["provider"] == "Tavily Search API"
-    assert output["provider_failures"][0]["error_code"] == "empty_results"
+    assert output["provider_failures"][0]["error_code"] in {"empty_results", "empty_or_invalid_results"}
     assert output["partial"] is True
 
 
@@ -418,9 +423,10 @@ async def test_explicit_tavily_provider_still_falls_back_to_brave(monkeypatch):
         "title": "Brave result", "url": "https://example.com/", "domain": "example.com", "snippet": "Recovered"
     }])
 
-    output = await SearchAgent()(SimpleNamespace(prompt="research topic"), None)
+    monkeypatch.setattr(module, "_fetch_html", lambda query, *, timeout: "<html>challenge</html>")
+    output = await SearchAgent(result_count=1)(SimpleNamespace(prompt="research topic"), None)
 
-    assert output["provider"] == "Brave Search API"
+    assert "Brave Search API" in output["provider"]
     assert output["results"][0]["url"] == "https://example.com/"
     assert output["provider_failures"][0]["provider"] == "Tavily Search API"
 
@@ -503,3 +509,122 @@ async def test_general_query_does_not_use_crossref_as_web_search_fallback(monkey
     assert output["provider"] == "DuckDuckGo HTML search"
     assert output["error_code"] == "empty_results"
     assert output["providers_attempted"] == ["DuckDuckGo HTML search"]
+
+
+@pytest.mark.asyncio
+async def test_scout_continues_to_next_provider_when_first_returns_too_few_valid_links(monkeypatch):
+    import agents.search_agent.agent as module
+
+    monkeypatch.setenv("BRAVE_SEARCH_API_KEY", "test-key-not-real")
+    monkeypatch.setenv("TAVILY_API_KEY", "test-key-not-real")
+    monkeypatch.delenv("JARVIS_SEARCH_PROVIDER", raising=False)
+    calls = []
+
+    def brave(query, *, timeout, limit):
+        calls.append("brave")
+        return [{
+            "title": "Only one result",
+            "url": "https://example.com/one",
+            "domain": "example.com",
+            "snippet": "One",
+        }]
+
+    def tavily(query, *, timeout, limit, include_domains=None):
+        calls.append("tavily")
+        return [
+            {"title": "Second", "url": "https://example.org/two", "domain": "example.org", "snippet": "Two"},
+            {"title": "Third", "url": "https://example.net/three", "domain": "example.net", "snippet": "Three"},
+            {"title": "Fourth", "url": "https://example.edu/four", "domain": "example.edu", "snippet": "Four"},
+            {"title": "Fifth", "url": "https://example.info/five", "domain": "example.info", "snippet": "Five"},
+        ]
+
+    monkeypatch.setattr(module, "_fetch_brave_results", brave)
+    monkeypatch.setattr(module, "_fetch_tavily_results", tavily)
+    output = await SearchAgent(result_count=5)(
+        SimpleNamespace(prompt="research resilient provider failover"), None
+    )
+
+    assert calls == ["brave", "tavily"]
+    assert len(output["results"]) == 5
+    assert output["partial"] is False
+    assert output["retrieval_status"] == "complete"
+    assert output["provider"] == "Brave Search API, Tavily Search API"
+    assert all(item.get("provider") for item in output["results"])
+
+
+@pytest.mark.asyncio
+async def test_scout_skips_invalid_only_provider_and_recovers_from_next(monkeypatch):
+    import agents.search_agent.agent as module
+
+    monkeypatch.setenv("BRAVE_SEARCH_API_KEY", "test-key-not-real")
+    monkeypatch.setenv("TAVILY_API_KEY", "test-key-not-real")
+    monkeypatch.delenv("JARVIS_SEARCH_PROVIDER", raising=False)
+    monkeypatch.setattr(module, "_fetch_brave_results", lambda *args, **kwargs: [
+        {"title": "", "url": "https://example.com/no-title", "domain": "example.com", "snippet": "bad"},
+        {"title": "Unsafe", "url": "javascript:alert(1)", "domain": "bad", "snippet": "bad"},
+    ])
+    monkeypatch.setattr(module, "_fetch_tavily_results", lambda *args, **kwargs: [
+        {"title": "Valid result", "url": "https://example.org/valid", "domain": "example.org", "snippet": "usable"}
+    ])
+
+    output = await SearchAgent(result_count=1)(SimpleNamespace(prompt="research a valid result"), None)
+
+    assert "Tavily Search API" in output["provider"]
+    assert output["results"][0]["url"] == "https://example.org/valid"
+    assert output["provider_failures"][0]["error_code"] == "empty_or_invalid_results"
+
+
+@pytest.mark.asyncio
+async def test_scout_reports_shortfall_and_retrieval_diagnostics_when_providers_exhausted(monkeypatch):
+    import agents.search_agent.agent as module
+
+    monkeypatch.delenv("BRAVE_SEARCH_API_KEY", raising=False)
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    monkeypatch.delenv("JARVIS_SEARCH_PROVIDER", raising=False)
+    monkeypatch.setattr(module, "_fetch_html", lambda query, *, timeout: SAMPLE_HTML)
+    output = await SearchAgent(result_count=5)(
+        SimpleNamespace(prompt="search for Python docs"), None
+    )
+
+    assert output["result_count"] == 2
+    assert output["requested_result_count"] == 5
+    assert output["partial"] is True
+    assert output["retrieval_status"] == "partial"
+    assert output["evidence_level"] == "search_snippets_not_independently_verified"
+
+
+@pytest.mark.asyncio
+async def test_scout_marks_shortfall_partial_even_without_provider_exception(monkeypatch):
+    import agents.search_agent.agent as module
+
+    monkeypatch.delenv("BRAVE_SEARCH_API_KEY", raising=False)
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    monkeypatch.delenv("JARVIS_SEARCH_PROVIDER", raising=False)
+    monkeypatch.setattr(module, "_fetch_html", lambda query, *, timeout: SAMPLE_HTML)
+    output = await SearchAgent(result_count=5)(
+        SimpleNamespace(prompt="search for Python docs"), None
+    )
+    assert output["result_count"] == 2
+    assert output["requested_result_count"] == 5
+    assert output["partial"] is True
+    assert output["retrieval_status"] == "partial"
+
+
+@pytest.mark.asyncio
+async def test_scout_marks_provider_failure_partial_when_another_provider_returns_results(monkeypatch):
+    import agents.search_agent.agent as module
+
+    monkeypatch.setenv("BRAVE_SEARCH_API_KEY", "test-key-not-real")
+    monkeypatch.setenv("TAVILY_API_KEY", "test-key-not-real")
+    monkeypatch.delenv("JARVIS_SEARCH_PROVIDER", raising=False)
+    monkeypatch.setattr(module, "_fetch_brave_results", lambda *args, **kwargs: (_ for _ in ()).throw(TimeoutError("timeout")))
+    monkeypatch.setattr(module, "_fetch_tavily_results", lambda *args, **kwargs: [
+        {"title": "Found", "url": "https://example.com/found", "domain": "example.com", "snippet": "Found"}
+    ])
+    output = await SearchAgent(result_count=1)(
+        SimpleNamespace(prompt="search for a source"), None
+    )
+    assert output["results"]
+    assert output["partial"] is True
+    assert output["retrieval_status"] == "partial"
+    assert output["provider_failures"][0]["provider"] == "Brave Search API"

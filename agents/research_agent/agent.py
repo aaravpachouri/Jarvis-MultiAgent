@@ -61,18 +61,29 @@ class ResearchAgent:
 
         sources: list[dict[str, str]] = []
         failures: list[str] = []
+        successful_queries: list[str] = []
+        query_provenance: list[dict[str, Any]] = []
         seen_urls: set[str] = set()
         for query, outcome in zip(queries, outcomes):
             if isinstance(outcome, BaseException):
-                failures.append(f"{query}: {type(outcome).__name__}: {outcome}")
+                detail = f"{type(outcome).__name__}: {outcome}"
+                failures.append(f"{query}: {detail}")
+                query_provenance.append({"query": query, "status": "failed", "error": detail})
                 continue
             if outcome.get("error"):
                 failures.append(f"{query}: {outcome['error']}")
+            query_results = 0
             for item in outcome.get("results", []) or []:
                 if not isinstance(item, dict):
                     continue
                 url = str(item.get("url", "")).strip()
-                if not url.startswith(("https://", "http://")) or url in seen_urls:
+                if not url.startswith(("https://", "http://")):
+                    continue
+                # Count each query's valid retrieval before cross-query
+                # deduplication. Reusing a source URL does not make a later
+                # successful query a failed retrieval.
+                query_results += 1
+                if url in seen_urls:
                     continue
                 seen_urls.add(url)
                 parsed = urlparse(url)
@@ -82,16 +93,37 @@ class ResearchAgent:
                     "domain": str(item.get("domain", "")).strip() or parsed.netloc.removeprefix("www."),
                     "snippet": str(item.get("snippet", "")).strip(),
                     "search_query": query,
-                    "provider": str(outcome.get("provider", "")).strip() or "unspecified",
+                    "provider": str(item.get("provider") or outcome.get("provider", "")).strip() or "unspecified",
                     "retrieved_at": str(outcome.get("retrieved_at", "")).strip() or None,
+                    "source_type": str(item.get("source_type", "")).strip() or "web_search_result",
+                    "publication_date": str(item.get("publication_date", "")).strip(),
                 })
+            retrieval_status = str(outcome.get("retrieval_status") or ("partial" if outcome.get("partial") else "complete"))
+            query_is_partial = bool(outcome.get("partial")) or retrieval_status == "partial" or bool(outcome.get("error"))
+            if query_results and not query_is_partial:
+                successful_queries.append(query)
+            query_status = (
+                "partial" if query_results and query_is_partial
+                else "failed" if not query_results
+                else "complete"
+            )
+            query_provenance.append({
+                "query": query,
+                "status": query_status,
+                "provider": str(outcome.get("provider", "")).strip(),
+                "providers_attempted": list(outcome.get("providers_attempted", []) or []),
+                "provider_failures": list(outcome.get("provider_failures", []) or []),
+                "result_count": query_results,
+                "retrieval_status": retrieval_status,
+            })
 
         sources = self._prioritize_primary_sources(prompt, sources)
         primary_count = sum(self._is_primary_source(prompt, item["url"]) for item in sources)
+        has_partial_failure = bool(failures) or len(successful_queries) < len(queries)
         if not sources:
             detail = "; ".join(failures) if failures else "Scout returned no parseable results."
             return {
-                "summary": "\\n".join([
+                "summary": "\n".join([
                     f"Athena research attempt: {prompt}",
                     "",
                     "Status: INSUFFICIENT EVIDENCE",
@@ -104,10 +136,11 @@ class ResearchAgent:
                     "Search failures / limitations:",
                     f"- {detail}",
                     "",
-                    "Next step: restore the search provider or quota, then rerun this research request.",
+                    "Next step: restore a relevant search provider or quota, then rerun this research request.",
                 ]),
                 "question": prompt,
                 "queries": queries,
+                "query_provenance": query_provenance,
                 "sources": [],
                 "source_count": 0,
                 "primary_source_count": 0,
@@ -126,6 +159,7 @@ class ResearchAgent:
             f"- Recognized primary-source URLs: {primary_count} of {len(sources)} retrieved sources.",
             "",
             f"Queries run: {len(queries)}",
+            f"Queries with usable, non-failed retrieval: {len(successful_queries)}",
             f"Distinct source URLs: {len(sources)}",
             "",
             "Evidence discovered:",
@@ -136,6 +170,8 @@ class ResearchAgent:
             if source["snippet"]:
                 lines.append(f"   Search snippet (unverified): {source['snippet']}")
             lines.append(f"   Query: {source['search_query']}")
+        if has_partial_failure:
+            lines.extend(["", "Search coverage: PARTIAL — one or more queries/providers failed or returned partial results."])
         if failures:
             lines.extend(["", "Search failures / limitations:"])
             lines.extend(f"- {failure}" for failure in failures)
@@ -152,13 +188,14 @@ class ResearchAgent:
             "summary": "\n".join(lines),
             "question": prompt,
             "queries": queries,
+            "query_provenance": query_provenance,
             "sources": sources,
             "source_count": len(sources),
             "primary_source_count": primary_count,
             "failures": failures,
             "evidence_level": "search_snippets_not_independently_verified",
-            "research_status": "partial" if failures else "retrieval_complete_unverified",
-            "complete": not failures and bool(sources),
+            "research_status": "partial" if has_partial_failure else "retrieval_complete_unverified",
+            "complete": not has_partial_failure and bool(sources),
         }
 
     @staticmethod

@@ -1,8 +1,8 @@
 {
   "agent_id": "search.scout",
   "name": "Scout",
-  "role": "Fast web search and technical discovery specialist",
-  "description": "Searches public web results and returns source URLs, domains, snippets, and retrieval timestamps for fast, traceable discovery.",
+  "role": "Reliable web search, scholarly discovery, and source-retrieval specialist",
+  "description": "Searches configured web and scholarly providers with bounded failover, retains valid unique source links and per-provider diagnostics, and reports partial retrieval honestly. Search snippets are discovery evidence, not independent page verification.",
   "capabilities": [
     "web.search",
     "github.discover",
@@ -39,11 +39,12 @@
   "metadata": {
     "profile_only": false,
     "folder": "search_agent",
-    "provider": "Brave Search API when configured; DuckDuckGo HTML fallback",
+    "provider": "Brave and Tavily APIs when configured; DuckDuckGo broad-web fallback; Crossref scholarly metadata for explicit academic queries",
     "endpoint_env": "JARVIS_SEARCH_ENDPOINT",
     "timeout_env": "JARVIS_SEARCH_TIMEOUT",
     "result_count_env": "JARVIS_SEARCH_RESULTS",
     "provider_env": "JARVIS_SEARCH_PROVIDER",
-    "api_key_env": "BRAVE_SEARCH_API_KEY"
+    "api_key_env": "BRAVE_SEARCH_API_KEY, TAVILY_API_KEY",
+    "scholarly_provider": "Crossref (no API key; explicit scholarly searches only)"
   }
 }
