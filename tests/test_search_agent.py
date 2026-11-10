@@ -503,3 +503,67 @@ async def test_general_query_does_not_use_crossref_as_web_search_fallback(monkey
     assert output["provider"] == "DuckDuckGo HTML search"
     assert output["error_code"] == "empty_results"
     assert output["providers_attempted"] == ["DuckDuckGo HTML search"]
+
+
+@pytest.mark.asyncio
+async def test_scout_continues_to_next_provider_when_first_returns_too_few_valid_links(monkeypatch):
+    import agents.search_agent.agent as module
+
+    monkeypatch.setenv("BRAVE_SEARCH_API_KEY", "test-key-not-real")
+    monkeypatch.setenv("TAVILY_API_KEY", "test-key-not-real")
+    monkeypatch.delenv("JARVIS_SEARCH_PROVIDER", raising=False)
+    calls = []
+
+    def brave(query, *, timeout, limit):
+        calls.append("brave")
+        return [{
+            "title": "Only one result",
+            "url": "https://example.com/one",
+            "domain": "example.com",
+            "snippet": "One",
+        }]
+
+    def tavily(query, *, timeout, limit, include_domains=None):
+        calls.append("tavily")
+        return [
+            {"title": "Second", "url": "https://example.org/two", "domain": "example.org", "snippet": "Two"},
+            {"title": "Third", "url": "https://example.net/three", "domain": "example.net", "snippet": "Three"},
+            {"title": "Fourth", "url": "https://example.edu/four", "domain": "example.edu", "snippet": "Four"},
+            {"title": "Fifth", "url": "https://example.info/five", "domain": "example.info", "snippet": "Five"},
+        ]
+
+    monkeypatch.setattr(module, "_fetch_brave_results", brave)
+    monkeypatch.setattr(module, "_fetch_tavily_results", tavily)
+    output = await SearchAgent(result_count=5)(
+        SimpleNamespace(prompt="research resilient provider failover"), None
+    )
+
+    assert calls == ["brave", "tavily"]
+    assert len(output["results"]) == 5
+    assert output["partial"] is False
+    assert output["retrieval_status"] == "complete"
+    assert output["provider"] == "Brave Search API, Tavily Search API"
+    assert all(item.get("provider") for item in output["results"])
+
+
+@pytest.mark.asyncio
+async def test_scout_skips_invalid_only_provider_and_recovers_from_next(monkeypatch):
+    import agents.search_agent.agent as module
+
+    monkeypatch.setenv("BRAVE_SEARCH_API_KEY", "test-key-not-real")
+    monkeypatch.setenv("TAVILY_API_KEY", "test-key-not-real")
+    monkeypatch.delenv("JARVIS_SEARCH_PROVIDER", raising=False)
+    monkeypatch.setattr(module, "_fetch_brave_results", lambda *args, **kwargs: [
+        {"title": "", "url": "https://example.com/no-title", "domain": "example.com", "snippet": "bad"},
+        {"title": "Unsafe", "url": "javascript:alert(1)", "domain": "bad", "snippet": "bad"},
+        {"title": "Duplicate", "url": "https://example.com/no-title", "domain": "example.com", "snippet": "duplicate"},
+    ])
+    monkeypatch.setattr(module, "_fetch_tavily_results", lambda *args, **kwargs: [
+        {"title": "Valid result", "url": "https://example.org/valid", "domain": "example.org", "snippet": "usable"}
+    ])
+
+    output = await SearchAgent()(SimpleNamespace(prompt="research a valid result"), None)
+
+    assert output["provider"] == "Tavily Search API"
+    assert output["results"][0]["url"] == "https://example.org/valid"
+    assert output["provider_failures"][0]["error_code"] == "empty_or_invalid_results"
