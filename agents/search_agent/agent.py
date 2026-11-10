@@ -370,8 +370,12 @@ class SearchAgent:
         if os.getenv("TAVILY_API_KEY", "").strip():
             available.append("tavily")
         if _looks_like_scientific_research(query):
-            available.append("crossref")
-        available.append("duckduckgo")
+            # Prefer scholarly records for explicit scientific/academic research.
+            available.extend(["crossref", "duckduckgo"])
+        else:
+            # Keep broad web search first, but use scholarly metadata as a
+            # genuine no-key recovery source if the HTML provider is blocked.
+            available.extend(["duckduckgo", "crossref"])
 
         if configured:
             order = [configured]
