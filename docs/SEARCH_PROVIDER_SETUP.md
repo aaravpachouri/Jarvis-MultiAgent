@@ -6,8 +6,8 @@ Scout now treats the selected search provider as a preference rather than a sing
 
 - If `JARVIS_SEARCH_PROVIDER` is set, Scout tries that provider first.
 - If it fails or returns no usable links, Scout tries other providers whose API keys are configured.
-- DuckDuckGo HTML is always retained as the final no-key fallback.
-- Without API keys, only DuckDuckGo is available. No code can guarantee a live result when the only reachable public provider is offline or blocking requests.
+- DuckDuckGo HTML is retained as the broad web-search fallback. Crossref's public scholarly works API requires no API key and is used only for explicit scientific/academic paper discovery; it is not a substitute for general web search or live official data.
+- Without API keys, general web queries use DuckDuckGo; explicit scientific/academic paper queries try Crossref and then DuckDuckGo. No code can guarantee a live result when the relevant public providers are offline or blocking requests.
 
 Supported values: `brave`, `tavily`, `duckduckgo` (or `ddg`).
 
@@ -32,7 +32,7 @@ Do not commit real API keys, put them in frontend variables, or paste them into 
 - The first provider that returns usable source links supplies the result set; Scout does not make extra paid calls merely to fill the requested result count.
 - Partial result counts are explicit. Provider failures and attempted providers are retained in the output for diagnostics.
 - If every provider fails, Scout returns a structured failure. The runtime marks it failed rather than showing a false success.
-- Search snippets are leads, not verified facts. Research answers must open/check primary sources before presenting claims as confirmed.
+- Crossref results are scholarly metadata, not proof that a paper's claims are correct; full-text availability varies. Search snippets are leads, not verified facts. Research answers must open/check primary sources before presenting claims as confirmed.
 
 ## Operational boundary
 
