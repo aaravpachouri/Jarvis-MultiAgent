@@ -165,3 +165,38 @@ def test_failed_verification_removes_newly_created_files(tmp_path, monkeypatch):
         asyncio.run(agent._implement("create app"))
 
     assert not (tmp_path / "new_app.py").exists()
+
+
+@pytest.mark.parametrize("existing", [True, False])
+def test_partial_write_failure_rolls_back_current_target(tmp_path, monkeypatch, existing):
+    target = tmp_path / "app.py"
+    original = "original = True\\n"
+    if existing:
+        target.write_text(original, encoding="utf-8")
+
+    model = FakeModel(json.dumps({
+        "summary": "Attempted update.",
+        "files": [{"path": "app.py", "content": "replacement = True\\n"}],
+    }))
+    agent = ForgeAgent(workspace=tmp_path, model=model)
+
+    original_write_text = type(target).write_text
+
+    def partially_write_then_fail(path, data, *args, **kwargs):
+        if path == target:
+            path.write_bytes(b"partial write")
+            raise OSError("simulated disk write failure")
+        return original_write_text(path, data, *args, **kwargs)
+
+    monkeypatch.setattr(type(target), "write_text", partially_write_then_fail)
+
+    with pytest.raises(ForgeError, match="Writing implementation failed"):
+        asyncio.run(agent._implement("update app"))
+
+    if existing:
+        assert target.read_text(encoding="utf-8") == original
+        backups = list((tmp_path / ".jarvis_forge_backups").rglob("app.py"))
+        assert len(backups) == 1
+        assert backups[0].read_text(encoding="utf-8") == original
+    else:
+        assert not target.exists()
