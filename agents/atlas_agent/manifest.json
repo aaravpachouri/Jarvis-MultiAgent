@@ -1,0 +1,37 @@
+{
+  "agent_id": "desktop.atlas",
+  "name": "Atlas",
+  "role": "Systems and API orchestration specialist",
+  "description": "Profile-only specialist for coordinating software services, APIs, and infrastructure workflows. It has no local desktop-control capability.",
+  "capabilities": [
+    "systems.orchestration",
+    "api.integration",
+    "software.workflow"
+  ],
+  "routing_keywords": [
+    "systems integration",
+    "API orchestration",
+    "service integration",
+    "software services",
+    "infrastructure workflow"
+  ],
+  "tags": [
+    "systems",
+    "api",
+    "orchestration"
+  ],
+  "requires_approval_for": [
+    "external_send",
+    "infrastructure.change",
+    "data.write"
+  ],
+  "max_concurrency": 1,
+  "timeout_seconds": 120,
+  "version": "0.1.0",
+  "enabled": true,
+  "metadata": {
+    "profile_only": true,
+    "folder": "atlas_agent",
+    "execution_mode": "profile_only"
+  }
+}
