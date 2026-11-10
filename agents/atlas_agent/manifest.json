@@ -1,5 +1,5 @@
 {
-  "agent_id": "desktop.atlas",
+  "agent_id": "systems.atlas",
   "name": "Atlas",
   "role": "Systems and API orchestration specialist",
   "description": "Profile-only specialist for coordinating software services, APIs, and infrastructure workflows. It has no local desktop-control capability.",
