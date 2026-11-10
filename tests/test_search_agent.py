@@ -567,3 +567,22 @@ async def test_scout_skips_invalid_only_provider_and_recovers_from_next(monkeypa
     assert output["provider"] == "Tavily Search API"
     assert output["results"][0]["url"] == "https://example.org/valid"
     assert output["provider_failures"][0]["error_code"] == "empty_or_invalid_results"
+
+
+@pytest.mark.asyncio
+async def test_scout_reports_shortfall_and_retrieval_diagnostics_when_providers_exhausted(monkeypatch):
+    import agents.search_agent.agent as module
+
+    monkeypatch.delenv("BRAVE_SEARCH_API_KEY", raising=False)
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    monkeypatch.delenv("JARVIS_SEARCH_PROVIDER", raising=False)
+    monkeypatch.setattr(module, "_fetch_html", lambda query, *, timeout: SAMPLE_HTML)
+    output = await SearchAgent(result_count=5)(
+        SimpleNamespace(prompt="search for Python docs"), None
+    )
+
+    assert output["result_count"] == 2
+    assert output["requested_result_count"] == 5
+    assert output["partial"] is True
+    assert output["retrieval_status"] == "partial"
+    assert output["evidence_level"] == "search_snippets_not_independently_verified"
