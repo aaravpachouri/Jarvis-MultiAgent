@@ -253,9 +253,13 @@ def _fetch_crossref_results(query: str, *, timeout: float, limit: int) -> list[d
     from urllib.parse import urlencode
 
     params = urlencode({"query.bibliographic": query, "rows": limit, "select": "DOI,title,URL,author,published,created,container-title,type,abstract"})
+    contact_email = os.getenv("JARVIS_SEARCH_CONTACT_EMAIL", "").strip()
+    user_agent = "JARVIS-Scout/1.0 (scholarly search)"
+    if contact_email:
+        user_agent += f" (mailto:{contact_email})"
     request = Request(
         f"{CROSSREF_SEARCH_ENDPOINT}?{params}",
-        headers={"Accept": "application/json", "User-Agent": "JARVIS-Scout/1.0 (scholarly search; mailto:" + os.getenv("JARVIS_SEARCH_CONTACT_EMAIL", "support@example.invalid") + ")"},
+        headers={"Accept": "application/json", "User-Agent": user_agent},
     )
     with urlopen(request, timeout=timeout) as response:
         payload = json.loads(response.read().decode("utf-8", errors="replace"))
@@ -370,12 +374,13 @@ class SearchAgent:
         if os.getenv("TAVILY_API_KEY", "").strip():
             available.append("tavily")
         if _looks_like_scientific_research(query):
-            # Prefer scholarly records for explicit scientific/academic research.
+            # Crossref is a scholarly metadata source, not a general web index.
+            # Use it only for explicit scientific/academic paper discovery.
             available.extend(["crossref", "duckduckgo"])
         else:
-            # Keep broad web search first, but use scholarly metadata as a
-            # genuine no-key recovery source if the HTML provider is blocked.
-            available.extend(["duckduckgo", "crossref"])
+            # General research must stay on broad-web providers. A Crossref
+            # match is not a valid substitute for current facts or official pages.
+            available.append("duckduckgo")
 
         if configured:
             order = [configured]
