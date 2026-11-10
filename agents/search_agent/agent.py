@@ -290,7 +290,7 @@ def _fetch_crossref_results(query: str, *, timeout: float, limit: int) -> list[d
 
 def _looks_like_scientific_research(query: str) -> bool:
     text = query.casefold()
-    signals = ("scientific research", "peer-reviewed", "peer reviewed", "research paper", "research papers", "scholarly", "academic paper", "academic papers", "journal article", "journal articles", "systematic review", "meta-analysis", "doi:", "arxiv", "pubmed", "clinical trial", "scientific study", "scientific studies", "research on", "studies on")
+    signals = ("scientific research", "scientific papers", "scientific paper", "peer-reviewed", "peer reviewed", "research paper", "research papers", "scholarly", "academic paper", "academic papers", "journal article", "journal articles", "systematic review", "meta-analysis", "doi:", "arxiv", "pubmed", "clinical trial", "scientific study", "scientific studies", "research on", "studies on")
     return any(signal in text for signal in signals)
 
 
@@ -384,7 +384,7 @@ class SearchAgent:
         elif "tavily" in available:
             order = ["tavily"] + [provider for provider in available if provider != "tavily"]
         else:
-            order = ["duckduckgo"]
+            order = list(available)
 
         failures: list[dict[str, Any]] = []
         combined_results: list[dict[str, str]] = []
