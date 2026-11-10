@@ -263,3 +263,74 @@ async def test_agent_passes_site_filter_to_tavily(monkeypatch) -> None:
     assert seen["query"] == "FastAPI release notes"
     assert seen["include_domains"] == ["fastapi.tiangolo.com"]
     assert output["results"][0]["url"] == "https://fastapi.tiangolo.com/release-notes/"
+
+
+
+def test_result_url_validation_rejects_non_http_and_userinfo_urls():
+    from agents.search_agent.agent import _is_public_http_url
+
+    assert _is_public_http_url("https://docs.python.org/3/")
+    assert _is_public_http_url("http://example.com/path")
+    assert not _is_public_http_url("javascript:alert(1)")
+    assert not _is_public_http_url("file:///etc/passwd")
+    assert not _is_public_http_url("https://user:password@example.com/")
+    assert not _is_public_http_url("https://")
+
+
+@pytest.mark.asyncio
+async def test_empty_results_preserve_provider_and_structured_status(monkeypatch):
+    import agents.search_agent.agent as module
+
+    monkeypatch.setenv("JARVIS_SEARCH_PROVIDER", "duckduckgo")
+    monkeypatch.delenv("BRAVE_SEARCH_API_KEY", raising=False)
+    monkeypatch.setattr(module, "_fetch_html", lambda query, *, timeout: "<html>challenge page</html>")
+    output = await SearchAgent()(SimpleNamespace(prompt="search for obscure topic"), None)
+    assert output["provider"] == "DuckDuckGo HTML search"
+    assert output["error_code"] == "empty_results"
+    assert output["retryable"] is False
+    assert output["results"] == []
+
+
+@pytest.mark.asyncio
+async def test_network_failure_preserves_provider_and_retryability(monkeypatch):
+    import agents.search_agent.agent as module
+
+    monkeypatch.setenv("JARVIS_SEARCH_PROVIDER", "duckduckgo")
+    monkeypatch.setattr(module, "_fetch_html", lambda query, *, timeout: (_ for _ in ()).throw(OSError("offline")))
+    output = await SearchAgent()(SimpleNamespace(prompt="search for Python"), None)
+    assert output["provider"] == "DuckDuckGo HTML search"
+    assert output["error_code"] == "network_error"
+    assert output["retryable"] is True
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_error_is_explicit_and_preserves_retry_after(monkeypatch):
+    import email.message
+    import urllib.error
+    import agents.search_agent.agent as module
+
+    monkeypatch.setenv("JARVIS_SEARCH_PROVIDER", "duckduckgo")
+    headers = email.message.Message()
+    headers["Retry-After"] = "60"
+
+    def rate_limited(query, *, timeout):
+        raise urllib.error.HTTPError("https://search.example", 429, "Too Many Requests", headers, None)
+
+    monkeypatch.setattr(module, "_fetch_html", rate_limited)
+    output = await SearchAgent()(SimpleNamespace(prompt="search for Python"), None)
+    assert output["error_code"] == "rate_limited"
+    assert output["retryable"] is True
+    assert output["retry_after"] == "60"
+    assert output["provider"] == "DuckDuckGo HTML search"
+
+
+def test_invalid_search_environment_values_use_safe_defaults(monkeypatch):
+    monkeypatch.setenv("JARVIS_SEARCH_TIMEOUT", "not-a-number")
+    monkeypatch.setenv("JARVIS_SEARCH_RESULTS", "many")
+    agent = SearchAgent()
+    assert agent.timeout_seconds == 12.0
+    assert agent.result_count == 5
+
+
+def test_search_timeout_is_capped():
+    assert SearchAgent(timeout_seconds=999).timeout_seconds == 60.0
