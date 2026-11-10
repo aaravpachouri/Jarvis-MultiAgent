@@ -85,11 +85,35 @@ def _unwrap_result_url(href: str) -> str:
     if href.startswith("//"):
         href = "https:" + href
     parsed = urlparse(href)
-    if parsed.netloc.endswith("duckduckgo.com") and parsed.path.startswith("/l/"):
+    if parsed.netloc.casefold().endswith("duckduckgo.com") and parsed.path.startswith("/l/"):
         target = parse_qs(parsed.query).get("uddg", [None])[0]
         if target:
             return target
     return href
+
+
+def _is_public_http_url(value: str) -> bool:
+    """Accept only ordinary HTTP(S) source links with a real host and no userinfo."""
+    try:
+        parsed = urlparse(str(value).strip())
+        return (
+            parsed.scheme.casefold() in {"http", "https"}
+            and bool(parsed.hostname)
+            and parsed.username is None
+            and parsed.password is None
+            and not any(char.isspace() for char in str(value))
+        )
+    except (TypeError, ValueError):
+        return False
+
+
+def _provider_label(provider: str) -> str:
+    return {
+        "tavily": "Tavily Search API",
+        "brave": "Brave Search API",
+        "duckduckgo": "DuckDuckGo HTML search",
+        "ddg": "DuckDuckGo HTML search",
+    }.get(provider, provider or "unspecified")
 
 
 def _normalise_query(prompt: str) -> str:
@@ -159,7 +183,7 @@ def _fetch_brave_results(query: str, *, timeout: float, limit: int) -> list[dict
         if not isinstance(item, dict):
             continue
         url_value = str(item.get("url", "")).strip()
-        if not url_value.startswith(("https://", "http://")) or url_value in seen:
+        if not _is_public_http_url(url_value) or url_value in seen:
             continue
         seen.add(url_value)
         domain = urlparse(url_value).netloc.removeprefix("www.")
@@ -207,7 +231,7 @@ def _fetch_tavily_results(
         if not isinstance(item, dict):
             continue
         url_value = str(item.get("url", "")).strip()
-        if not url_value.startswith(("https://", "http://")) or url_value in seen:
+        if not _is_public_http_url(url_value) or url_value in seen:
             continue
         seen.add(url_value)
         domain = urlparse(url_value).netloc.removeprefix("www.")
@@ -229,7 +253,7 @@ def _parse_results(html: str, limit: int) -> list[dict[str, str]]:
     seen: set[str] = set()
     for index, item in enumerate(parser.results):
         url = item["url"]
-        if not url.startswith(("http://", "https://")) or url in seen:
+        if not _is_public_http_url(url) or url in seen:
             continue
         parsed_url = urlparse(url)
         # DuckDuckGo's /y.js URLs are sponsored-ad click trackers, not useful
@@ -254,11 +278,20 @@ class SearchAgent:
     """Search the public web and return concise, source-linked results."""
 
     def __init__(self, *, timeout_seconds: float | None = None, result_count: int | None = None) -> None:
-        self.timeout_seconds = timeout_seconds or float(os.getenv("JARVIS_SEARCH_TIMEOUT", "12"))
-        self.result_count = result_count or int(os.getenv("JARVIS_SEARCH_RESULTS", str(DEFAULT_RESULT_COUNT)))
+        configured_timeout = timeout_seconds if timeout_seconds is not None else os.getenv("JARVIS_SEARCH_TIMEOUT", "12")
+        configured_count = result_count if result_count is not None else os.getenv("JARVIS_SEARCH_RESULTS", str(DEFAULT_RESULT_COUNT))
+        try:
+            self.timeout_seconds = float(configured_timeout)
+        except (TypeError, ValueError):
+            self.timeout_seconds = 12.0
+        try:
+            parsed_count = int(configured_count)
+        except (TypeError, ValueError):
+            parsed_count = DEFAULT_RESULT_COUNT
         if self.timeout_seconds <= 0:
             raise ValueError("Search timeout must be positive.")
-        self.result_count = max(1, min(MAX_RESULT_COUNT, self.result_count))
+        self.timeout_seconds = min(self.timeout_seconds, 60.0)
+        self.result_count = max(1, min(MAX_RESULT_COUNT, parsed_count))
 
     async def __call__(self, task: Any, context: Any) -> dict[str, Any]:
         query = _normalise_query(task.prompt)
@@ -283,6 +316,7 @@ class SearchAgent:
             selected_provider = "tavily"
         else:
             selected_provider = "duckduckgo"
+        provider_name = _provider_label(selected_provider)
         try:
             if selected_provider == "tavily":
                 requested_domains = re.findall(r"\bsite:([A-Za-z0-9.-]+)", query, re.IGNORECASE)
@@ -307,14 +341,27 @@ class SearchAgent:
                 results = _parse_results(html, self.result_count)
                 provider_name = "DuckDuckGo HTML search"
             else:
-                return self._failure(query, f"Unknown JARVIS_SEARCH_PROVIDER '{selected_provider}'. Choose tavily, brave, or duckduckgo.")
+                return self._failure(query, f"Unknown JARVIS_SEARCH_PROVIDER '{selected_provider}'. Choose tavily, brave, or duckduckgo.", provider=provider_name, error_code="unknown_provider", retryable=False)
         except HTTPError as exc:
-            return self._failure(query, f"The search provider returned HTTP {exc.code}. Check the provider configuration and API quota.")
+            if exc.code == 429:
+                reason = "The search provider rate-limited this request (HTTP 429). Wait for its quota window or reduce request frequency."
+                code, retryable = "rate_limited", True
+            elif exc.code in {500, 502, 503, 504}:
+                reason = f"The search provider is temporarily unavailable (HTTP {exc.code}). Retry later."
+                code, retryable = "provider_unavailable", True
+            elif exc.code in {401, 403}:
+                reason = f"The search provider rejected authentication or access (HTTP {exc.code}). Check the configured API key and plan."
+                code, retryable = "provider_auth", False
+            else:
+                reason = f"The search provider returned HTTP {exc.code}. Check provider configuration and quota."
+                code, retryable = "provider_http_error", False
+            retry_after = exc.headers.get("Retry-After") if exc.headers else None
+            return self._failure(query, reason, provider=provider_name, error_code=code, retryable=retryable, retry_after=retry_after)
         except (TimeoutError, URLError, OSError) as exc:
             detail = getattr(exc, "reason", None) or str(exc)
-            return self._failure(query, f"The search request failed: {detail}")
+            return self._failure(query, f"The search request failed: {detail}", provider=provider_name, error_code="network_error", retryable=True)
         except Exception as exc:
-            return self._failure(query, f"Search failed ({type(exc).__name__}): {exc}")
+            return self._failure(query, f"Search failed ({type(exc).__name__}): {exc}", provider=provider_name, error_code="provider_error", retryable=False)
 
         retrieved_at = _utc_now()
         if not results:
@@ -327,6 +374,9 @@ class SearchAgent:
                 "query": query,
                 "results": [],
                 "retrieved_at": retrieved_at,
+                "provider": provider_name,
+                "error_code": "empty_results",
+                "retryable": False,
             }
 
         lines = [f"Scout search results for: {query}", f"Retrieved: {retrieved_at}"]
@@ -345,14 +395,28 @@ class SearchAgent:
         }
 
     @staticmethod
-    def _failure(query: str, reason: str) -> dict[str, Any]:
-        return {
+    def _failure(
+        query: str,
+        reason: str,
+        *,
+        provider: str = "unspecified",
+        error_code: str = "search_error",
+        retryable: bool = False,
+        retry_after: str | None = None,
+    ) -> dict[str, Any]:
+        result = {
             "summary": f"Scout couldn't retrieve search results for '{query}'. {reason} No results have been fabricated.",
             "query": query,
             "results": [],
             "retrieved_at": _utc_now(),
+            "provider": provider,
             "error": reason,
+            "error_code": error_code,
+            "retryable": retryable,
         }
+        if retry_after:
+            result["retry_after"] = retry_after
+        return result
 
 
 def _utc_now() -> str:
