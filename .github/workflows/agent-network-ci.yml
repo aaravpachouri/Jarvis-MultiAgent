@@ -46,6 +46,6 @@ jobs:
       - name: Compile application and tests
         run: python -m compileall -q agents core tests dashboard_server.py main.py
       - name: Run dashboard API proxy regression tests
-        run: node --test dashboard/tests/backend-proxy.test.cjs
+        run: node --test dashboard/tests/*.test.cjs
       - name: Run full regression suite
         run: python -m pytest -q
