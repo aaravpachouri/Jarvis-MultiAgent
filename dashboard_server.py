@@ -10,6 +10,7 @@ import json
 import hmac
 import mimetypes
 import os
+import secrets
 import threading
 import time
 import uuid
@@ -18,6 +19,7 @@ from urllib.parse import parse_qs
 from concurrent.futures import TimeoutError as FutureTimeout
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.cookies import SimpleCookie
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -34,6 +36,53 @@ HISTORY = ROOT / "data" / "task_history.jsonl"
 HOST = os.environ.get("JARVIS_DASHBOARD_HOST", "127.0.0.1")
 PORT = int(os.environ.get("JARVIS_DASHBOARD_PORT", "8765"))
 MAX_BODY = 16_384
+AUTH_COOKIE_NAME = "jarvis_dashboard_session"
+AUTH_SESSION_TTL_SECONDS = 12 * 60 * 60
+_AUTH_ATTEMPTS: dict[str, deque[float]] = {}
+_AUTH_ATTEMPTS_LOCK = threading.Lock()
+
+
+def _session_signing_key() -> bytes:
+    configured = os.environ.get("JARVIS_DASHBOARD_ACCESS_KEY", "").strip()
+    return hmac.new(configured.encode("utf-8"), b"jarvis-dashboard-session-v1", "sha256").digest()
+
+
+def _create_session_token(now: int | None = None) -> str:
+    issued = int(time.time() if now is None else now)
+    nonce = secrets.token_urlsafe(24)
+    payload = f"{issued}.{nonce}"
+    signature = hmac.new(_session_signing_key(), payload.encode("utf-8"), "sha256").hexdigest()
+    return f"{payload}.{signature}"
+
+
+def _valid_session_token(token: str, now: int | None = None) -> bool:
+    expected_key = os.environ.get("JARVIS_DASHBOARD_ACCESS_KEY", "").strip()
+    if not expected_key or not token or len(token) > 512:
+        return False
+    try:
+        issued_text, nonce, supplied_signature = token.split(".", 2)
+        issued = int(issued_text)
+    except (ValueError, TypeError):
+        return False
+    current = int(time.time() if now is None else now)
+    if not nonce or issued > current + 60 or current - issued > AUTH_SESSION_TTL_SECONDS:
+        return False
+    payload = f"{issued}.{nonce}"
+    expected = hmac.new(_session_signing_key(), payload.encode("utf-8"), "sha256").hexdigest()
+    return hmac.compare_digest(supplied_signature, expected)
+
+
+def _auth_rate_limited(client_ip: str, now: float | None = None) -> bool:
+    current = time.time() if now is None else now
+    with _AUTH_ATTEMPTS_LOCK:
+        attempts = _AUTH_ATTEMPTS.setdefault(client_ip, deque())
+        while attempts and current - attempts[0] > 15 * 60:
+            attempts.popleft()
+        if len(attempts) >= 8:
+            return True
+        attempts.append(current)
+        return False
+
 
 
 def _read_json(path: Path):
@@ -530,22 +579,81 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(raw)
 
+    def _session_token_from_cookie(self) -> str:
+        cookie = SimpleCookie()
+        try:
+            cookie.load(self.headers.get("Cookie", ""))
+            morsel = cookie.get(AUTH_COOKIE_NAME)
+            return morsel.value if morsel else ""
+        except Exception:
+            return ""
+
     def _authorize_api(self) -> bool:
-        """Require a private access key for every API endpoint when deployed."""
+        """Require a signed, short-lived HttpOnly login session for protected APIs."""
         expected = os.environ.get("JARVIS_DASHBOARD_ACCESS_KEY", "").strip()
         if not expected:
             if os.environ.get("RENDER"):
                 self._send(503, {"error": "Dashboard access protection is not configured."})
                 return False
             return True
-        supplied = self.headers.get("X-JARVIS-Access-Key", "")
-        if not hmac.compare_digest(supplied, expected):
-            self._send(401, {"error": "JARVIS access key missing or invalid."})
-            return False
-        return True
+        if _valid_session_token(self._session_token_from_cookie()):
+            return True
+        self._send(401, {"error": "Your JARVIS session has expired. Please sign in again."})
+        return False
+
+    def _set_session_cookie(self, token: str, max_age: int) -> None:
+        secure = "Secure; " if self.headers.get("X-Forwarded-Proto", "").lower() == "https" or os.environ.get("RENDER") else ""
+        self.send_header("Set-Cookie", f"{AUTH_COOKIE_NAME}={token}; Path=/; Max-Age={max_age}; HttpOnly; {secure}SameSite=Lax")
+
+    def _auth_login(self) -> None:
+        forwarded_for = self.headers.get("X-Forwarded-For", "").split(",", 1)[0].strip()
+        client_ip = forwarded_for or (self.client_address[0] if self.client_address else "unknown")
+        if _auth_rate_limited(client_ip):
+            return self._send(429, {"error": "Too many sign-in attempts. Wait 15 minutes and try again."})
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if length < 1 or length > 4096:
+                return self._send(400, {"error": "Invalid sign-in request."})
+            body = json.loads(self.rfile.read(length).decode("utf-8"))
+            supplied = str(body.get("access_key", "")) if isinstance(body, dict) else ""
+        except (ValueError, UnicodeError, json.JSONDecodeError):
+            return self._send(400, {"error": "Invalid sign-in request."})
+        expected = os.environ.get("JARVIS_DASHBOARD_ACCESS_KEY", "").strip()
+        if not expected:
+            return self._send(503, {"error": "Dashboard access protection is not configured."})
+        if not hmac.compare_digest(supplied.strip(), expected):
+            return self._send(401, {"error": "Incorrect dashboard password."})
+        token = _create_session_token()
+        payload = json.dumps({"ok": True, "authenticated": True}).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self._set_session_cookie(token, AUTH_SESSION_TTL_SECONDS)
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def _auth_logout(self) -> None:
+        payload = json.dumps({"ok": True, "authenticated": False}).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Cache-Control", "no-store")
+        secure = "Secure; " if self.headers.get("X-Forwarded-Proto", "").lower() == "https" or os.environ.get("RENDER") else ""
+        self.send_header("Set-Cookie", f"{AUTH_COOKIE_NAME}=; Path=/; Max-Age=0; HttpOnly; {secure}SameSite=Lax")
+        self.end_headers()
+        self.wfile.write(payload)
 
     def do_GET(self):
         path = urlparse(self.path).path
+        if path == "/api/auth/session":
+            configured = bool(os.environ.get("JARVIS_DASHBOARD_ACCESS_KEY", "").strip())
+            if not configured and os.environ.get("RENDER"):
+                return self._send(503, {"authenticated": False, "error": "Dashboard access protection is not configured."})
+            authenticated = not configured or _valid_session_token(self._session_token_from_cookie())
+            return self._send(200, {"authenticated": authenticated, "auth_required": configured})
         if path.startswith("/api/") and not self._authorize_api():
             return
         if path == "/api/overview":
@@ -650,6 +758,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urlparse(self.path).path
+        if path == "/api/auth/login":
+            return self._auth_login()
+        if path == "/api/auth/logout":
+            return self._auth_logout()
         if path.startswith("/api/") and not self._authorize_api():
             return
         if path not in {"/api/tasks", "/api/missions", "/api/quant/refresh"}:

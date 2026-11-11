@@ -29,36 +29,15 @@
     const el = $('#q-toast'); el.textContent = message; el.classList.toggle('error', error); el.classList.add('show');
     clearTimeout(toast.timer); toast.timer = setTimeout(() => el.classList.remove('show'), 4200);
   };
-  let accessKeyRejected = false;
+  try { localStorage.removeItem('jarvisAccessKey'); sessionStorage.removeItem('jarvisAccessKey'); } catch {}
   async function api(path, options = {}) {
     const headers = {...(options.body ? {'Content-Type':'application/json'} : {}), ...(options.headers || {})};
-    if (path.startsWith('/api/')) {
-      if (accessKeyRejected) throw new Error('JARVIS access key rejected. Reload this page to try again.');
-      let accessKey = localStorage.getItem('jarvisAccessKey');
-      // Migrate a key saved by the previous session-only version.
-      if (!accessKey) {
-        const sessionKey = sessionStorage.getItem('jarvisAccessKey');
-        if (sessionKey) {
-          accessKey = sessionKey;
-          localStorage.setItem('jarvisAccessKey', accessKey);
-        }
-      }
-      if (!accessKey) {
-        accessKey = window.prompt('JARVIS MultiAgent is private. Enter the dashboard access key configured in Render:');
-        if (!accessKey || !accessKey.trim()) throw new Error('A JARVIS access key is required to connect.');
-        accessKey = accessKey.trim();
-        localStorage.setItem('jarvisAccessKey', accessKey);
-      }
-      headers['X-JARVIS-Access-Key'] = accessKey;
-    }
-    const response = await fetch(path, {cache:'no-store', ...options, headers});
+    const response = await fetch(path, {cache:'no-store', credentials:'same-origin', ...options, headers});
     let payload;
     try { payload = await response.json(); } catch { payload = {error:`Unexpected response (${response.status})`}; }
     if (response.status === 401) {
-      localStorage.removeItem('jarvisAccessKey');
-      sessionStorage.removeItem('jarvisAccessKey');
-      accessKeyRejected = true;
-      throw new Error('JARVIS access key was rejected. Reload the page to try again.');
+      window.location.assign('/');
+      throw new Error('Your JARVIS session has expired. Sign in on the command center to continue.');
     }
     if (!response.ok) throw new Error(payload.error || `Request failed (${response.status})`);
     return payload;

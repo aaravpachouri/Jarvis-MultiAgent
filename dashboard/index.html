@@ -11,6 +11,19 @@
   <script src="/assets/app.js" defer></script>
 </head>
 <body class="hud-active">
+  <div id="login-screen" class="login-screen" hidden>
+    <form id="login-form" class="login-card" autocomplete="on">
+      <div class="login-mark" aria-hidden="true"><span>J</span></div>
+      <div class="login-eyebrow">PRIVATE SYSTEM · AUTHENTICATED ACCESS</div>
+      <h1>Welcome back.</h1>
+      <p class="login-copy">Sign in to your JARVIS command center.</p>
+      <label for="login-access-key">Dashboard password</label>
+      <input id="login-access-key" name="password" type="password" autocomplete="current-password" required maxlength="512" placeholder="Enter your dashboard password">
+      <p id="login-error" class="login-error" role="alert" aria-live="polite"></p>
+      <button id="login-submit" type="submit">SIGN IN <span aria-hidden="true">↗</span></button>
+      <div class="login-foot"><span class="login-lock" aria-hidden="true">⬡</span> Encrypted session · 12-hour expiry</div>
+    </form>
+  </div>
   <div class="app-shell">
     <aside class="sidebar" id="sidebar">
       <a class="brand" href="#overview" aria-label="JARVIS overview">
@@ -33,7 +46,7 @@
           <div class="side-meter"><span id="side-meter-fill"></span></div>
           <div class="side-system-foot"><span>Loopback only</span><span>v1.0</span></div>
         </div>
-        <div class="sidebar-user"><div class="user-orbit">J</div><div class="user-copy"><strong>Operator</strong><small>LOCAL SESSION</small></div><span class="user-status"></span></div>
+        <div class="sidebar-user"><div class="user-orbit">J</div><div class="user-copy"><strong>Operator</strong><small>SECURE SESSION</small></div><button id="logout-button" class="logout-button" type="button" title="Sign out" aria-label="Sign out">↗</button><span class="user-status"></span></div>
       </div>
     </aside>
 
