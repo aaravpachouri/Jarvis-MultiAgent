@@ -1107,7 +1107,8 @@
       || /^click\s+(?:(?:at|on)\s+)?\d{1,5}(?:\s*,|\s)\s*\d{1,5}(?:\s+(?:left|right))?$/i.test(text)
       || /^click\s+(?:(?:the\s+)?(?:button|link)\b|.+\s+(?:button|link)\s+in\s+)/i.test(text)
       || /^(?:press|hotkey)\s+(?:ctrl[+]|control[+]|alt[+]|enter\b|tab\b|escape\b|esc\b|space\b|up\b|down\b|left\b|right\b|home\b|end\b)/i.test(text)
-      || /^(?:search(?:\s+the\s+web)?\s+for|google)\s+\S/i.test(text)
+      // Generic web-search language belongs to Scout, not the local desktop
+      // companion. Keep this classifier limited to explicit UI/browser actions.
       || /^(?:open|visit|go to|navigate to)\s+(?:https?:\/\/|www\.)/i.test(text);
   }
 
