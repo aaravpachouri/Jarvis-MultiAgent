@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - diagnose/auth-post-json
+  pull_request:
+    branches:
+      - publish/jarvis-multiagent
 
 jobs:
   production-auth-json:
