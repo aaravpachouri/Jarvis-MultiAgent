@@ -128,7 +128,7 @@
     if (!text) return '<div class="result-note">The runtime did not return result text.</div>';
     // Scout emits structured Markdown with provider provenance and linked sources.
     // Preserve that hierarchy instead of flattening it into generic paragraphs.
-    if (/^# Scout Search\\s*$/m.test(text)) {
+    if (/^# Scout Search\s*$/m.test(text)) {
       return `<section class="result-rich result-scout-search${compact ? ' compact' : ''}" aria-label="Formatted Scout search result">${renderMarkdownDocument(text)}${renderRawDetails(text, 'Raw Scout output')}</section>`;
     }
     const lines = text.replace(/\r/g, '').split('\n').map(line => line.trim()).filter(Boolean);
