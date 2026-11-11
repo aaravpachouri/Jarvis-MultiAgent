@@ -17,6 +17,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          echo 'Checking live production auth API routing (no secrets used).'
           code="$(curl --silent --show-error --max-time 20 --dump-header session.headers --output session.body --write-out '%{http_code}' 'https://jarvis-multiagent-dashboard.vercel.app/api/auth/session')"
           echo "Session endpoint HTTP status: $code"
           test "$code" = "200"
