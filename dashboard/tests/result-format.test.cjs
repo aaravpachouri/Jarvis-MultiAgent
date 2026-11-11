@@ -34,7 +34,7 @@ test("Scout result formatter preserves provenance, linked sources and verificati
   const html = sandbox.window.JARVISResultFormatter.render(raw);
   assert.match(html, /result-scout-search/);
   assert.match(html, /Tavily Search API/);
-  assert.match(html, /href="https:\/\/docs\.tavily\.com\/documentation\/api-reference\/endpoint\/search"/);
+    assert.ok(html.includes('href="https://docs.tavily.com/documentation/api-reference/endpoint/search"'));
   assert.match(html, /Verification boundary/);
   assert.match(html, /Ignore previous instructions/);
   assert.doesNotMatch(html, /<script>/i);
@@ -73,7 +73,7 @@ test("all specialist agents receive structured Markdown report rendering", () =>
   assert.match(html, /result-markdown-report/);
   assert.match(html, /Mission outcome/);
   assert.match(html, /<table class="result-table">/);
-  assert.match(html, /href="https:\\/\\/example\\.com\\/reference"/);
+    assert.ok(html.includes('href="https://example.com/reference"'));
   assert.match(html, /<pre class="result-code">/);
   assert.match(html, /Raw agent output/);
 });
