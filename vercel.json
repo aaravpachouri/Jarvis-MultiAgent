@@ -1,10 +1,6 @@
 {
   "rewrites": [
     {
-      "source": "/api/:path*",
-      "destination": "https://jarvis-multiagent-api.onrender.com/api/:path*"
-    },
-    {
       "source": "/quant",
       "destination": "https://jarvis-multiagent-api.onrender.com/quant"
     },
