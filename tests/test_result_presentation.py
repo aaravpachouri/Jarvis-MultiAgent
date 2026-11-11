@@ -89,7 +89,7 @@ def test_generic_result_output_is_escaped_and_formatted_with_raw_fallback():
     html = result.stdout
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
     assert "<script>alert(1)</script>" not in html
-    assert "<h4>Result</h4>" in html
+    assert "<h2>Result</h2>" in html
     assert "Check one" in html
     assert "Full runtime output" in html
 

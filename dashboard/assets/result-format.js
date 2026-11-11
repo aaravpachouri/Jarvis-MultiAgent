@@ -129,7 +129,12 @@
     // Scout emits structured Markdown with provider provenance and linked sources.
     // Preserve that hierarchy instead of flattening it into generic paragraphs.
     if (/^# Scout Search\s*$/m.test(text)) {
-      return `<section class="result-rich result-scout-search${compact ? ' compact' : ''}" aria-label="Formatted Scout search result">${renderMarkdownDocument(text)}${renderRawDetails(text, 'Raw Scout output')}</section>`;
+      return `<section class="result-rich result-scout-search result-markdown-report${compact ? ' compact' : ''}" aria-label="Formatted Scout search result">${renderMarkdownDocument(text)}${renderRawDetails(text, 'Raw Scout output')}</section>`;
+    }
+    const hasMarkdownStructure = /^\s*(?:#{1,4}\s+|[-*+]\s+|\d+[.)]\s+|>\s?|\|.*\|\s*$|\x60{3})/m.test(text)
+      || /\[[^\]]+\]\(https?:\/\//.test(text);
+    if (hasMarkdownStructure) {
+      return `<section class="result-rich result-markdown-report${compact ? ' compact' : ''}" aria-label="Formatted agent report">${renderMarkdownDocument(text)}${renderRawDetails(text, 'Full runtime output')}</section>`;
     }
     const lines = text.replace(/\r/g, '').split('\n').map(line => line.trim()).filter(Boolean);
     const content = [];
