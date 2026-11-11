@@ -2,6 +2,8 @@
   'use strict';
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+  // Remove credentials persisted by the retired browser-prompt authentication flow.
+  try { localStorage.removeItem('jarvisAccessKey'); sessionStorage.removeItem('jarvisAccessKey'); } catch {}
   const state = {
     data: null, refreshId: null, refreshBusy: false, eventCursor: 0,
     events: [], seen: new Set(), chartKey: 'Nifty 50', chartRange: '60',
