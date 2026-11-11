@@ -29,7 +29,7 @@ Common social conversation works without an API key. The local handler recognise
 - A persistent registry in `data/agent_registry.json`, seeded from the individual agent manifests.
 - Filesystem-based agent discovery: each specialist has a dedicated folder containing `manifest.json`, `agent.py`, and `instructions.md`.
 - Capability and keyword routing, asynchronous task execution, bounded concurrency, per-task timeouts, task correlation IDs, agent delegation and targeted agent inboxes.
-- Nine specialist folders: JARVIS Voice/Main Handler, Scout Search, Forge Coding, Atlas Systems & API Orchestration (profile-only), Quant Trading, Athena Research, Scribe Documentation, Launch Deployment and Planner.
+- Ten executable identities: JARVIS Voice/Main Handler, Scout Search, Forge Coding, Atlas Systems & API Orchestration, Quant Trading, Athena Research, Scribe Documentation, Launch Deployment, Planner and Memory & Notes.
 - Scribe creates evidence-grounded documentation drafts from supplied context without writing files or claiming verification.
 - Athena can analyze supplied notes and conversation context offline; source-linked web research remains an optional Scout-backed mode.
 - Planner creates ordered task plans, dependencies, checklists, risks and validation gates without requiring web search or code execution.
@@ -38,9 +38,21 @@ Common social conversation works without an API key. The local handler recognise
 
 ## Current implementation status (important)
 
-JARVIS's text-first main handler and optional microphone/speech output interface are implemented. Scribe, Athena and Planner have executable handlers and offline tests. Athena's web-research mode delegates to Scout; context-only analysis does not. Forge remains present but is intentionally out of scope for this development pass. Atlas and Launch remain profile-only until their real handlers are implemented; Quant now has a read-only market-research handler. The CLI marks an identity as `registered` rather than `ready` until its handler is real and callable. JARVIS will not fake research, code changes, trades, systems operations, documentation updates or deployments.
+The deployed network currently has ten callable handlers: JARVIS, Scout, Forge, Atlas, Quant, Athena, Scribe, Launch, Planner and Memory & Notes. `ready` means a handler is registered and callable; it does not mean that every agent has permission or implementation to perform arbitrary external side effects. Scout is read-only search; Athena synthesizes Scout evidence; Forge can inspect and modify only its bounded workspace and verifies writes; Atlas and Launch produce read-only plans; Quant is research-only and never places trades; Scribe drafts documents with one narrowly scoped diagnostic-report persistence path; Planner decomposes goals; Memory & Notes stores only explicit notes locally.
 
-The shared event bus is currently in-process. Durable cloud workers, authenticated cross-device transport, long-running monitoring, a live dashboard and 24/7 hosting remain later phases. Local voice mode requires the local machine and microphone to be available.
+Athena's web-research mode delegates to Scout; context-only analysis does not. JARVIS uses typed task contracts, bounded per-agent concurrency, per-task timeouts, parent/correlation IDs, a dependency-aware workflow graph, and an in-process event bus.
+
+### Deployed persistence and tenancy limits
+
+The deployed dashboard/API is live, but this is not yet a distributed, multi-tenant production architecture:
+- Agent definitions are loaded from per-agent `manifest.json` files and seeded into `data/agent_registry.json`.
+- Task lifecycle audit metadata is appended to `data/task_history.jsonl`; prompts and full result payloads are not stored in that audit log.
+- Dashboard mission jobs, Quant refresh jobs, runtime task results, and live events are currently held in process memory and are lost on a backend restart or redeploy.
+- Memory & Notes uses `data/memory_notes.json`; it is local to the server process/filesystem and is not synced to a remote per-user store.
+- No dedicated JARVIS SQL database or distributed task queue is currently configured. The existing InboxMind database is a separate application and must not be reused.
+- Dashboard sign-in currently uses one shared access-key credential and signed sessions, not individual user accounts or per-user data isolation. Do not expose it as a multi-customer SaaS until identity, tenant scoping, and persistent storage are implemented.
+
+The dashboard is deployed separately from the Python API. Production mission execution still depends on the Render backend process and its configured provider credentials. Local voice mode requires the local machine and microphone to be available.
 
 ## Project structure
 
@@ -132,13 +144,20 @@ The first run creates `data/agent_registry.json`. It contains agent configuratio
 4. Add unit tests for normal results, failures, timeouts and agent handoffs.
 5. Run `python main.py list` and `python main.py route "..."`. An identity is visible as `registered` until its real handler is implemented and returned by `create_handler()`.
 
-## Current active starter agents
+## Executable agent responsibilities
 
-- **Scribe** (`documentation.scribe`): emails, reports, meeting notes, proposals and technical-document drafts based on supplied facts. Draft-only; it does not write files or independently verify claims.
-- **Athena** (`research.athena`): offline analysis of supplied notes/context, or web research through Scout when research sources are needed. Search snippets are labeled unverified until the pages are independently checked.
-- **Planner** (`planning.planner`): goal decomposition, ordered steps, dependencies, deliverables, verification checks and a checklist. It creates plans but does not execute them.
+- **JARVIS** (`voice.jarvis`): intent routing, task coordination, bounded delegation and result synthesis.
+- **Scout** (`search.scout`): read-only web/search-provider retrieval with source URLs and provider diagnostics.
+- **Forge** (`coding.forge`): bounded workspace inspection and code implementation, with backups, path checks and test verification.
+- **Atlas** (`systems.atlas`): read-only systems and API integration plans; it does not call external systems or change infrastructure.
+- **Quant** (`trading.quant`): provider-aware Indian market research and risk analysis; it never places trades.
+- **Athena** (`research.athena`): multi-query evidence synthesis through Scout, with explicit source-verification limits.
+- **Scribe** (`documentation.scribe`): evidence-grounded drafts; only a coordinator-authorized diagnostic report can be persisted.
+- **Launch** (`deployment.launch`): read-only deployment preflight; it does not deploy or change infrastructure.
+- **Planner** (`planning.planner`): deterministic goal decomposition, dependencies and verification gates.
+- **Memory & Notes** (`memory.notes`): explicit local note save/search/list/delete; no automatic conversation memory or remote sync.
 
-These handlers are intentionally designed so their basic workflows do not depend on Forge or web search. Use `python main.py list` to confirm handler readiness and `python main.py route "Make a step by step action plan"` to inspect routing.
+Use `python main.py list` to confirm handler readiness and `python main.py route "Make a step by step action plan"` to inspect routing.
 
 New agent folders are discovered from manifests; the central router does not need a new hardcoded branch for every specialist.
 
@@ -318,7 +337,7 @@ The Phase 15 ZIP is designed to extract over the existing project folder. It exc
 Phase 16 builds on the native three-column Iron Man-inspired HUD and makes its activity feed and network reflect actual work performed by handlers. The reference image remains art direction only; the main board is native HTML/CSS/SVG.
 
 - Added `AgentActionScope` instrumentation for model calls, provider requests, filesystem operations, tests, and specialist workflows. Each operation emits a correlated `agent.action.started` record followed by a terminal success/failure/cancellation event with duration metadata.
-- Instrumented the executable Scout, Forge, Quant, JARVIS, Memory & Notes, Scribe, Athena, and Planner workflows. Atlas and Launch remain accurately marked registered-only until executable handlers exist.
+- At that historical phase, Scout, Forge, Quant, JARVIS, Memory & Notes, Scribe, Athena, and Planner were instrumented; Atlas and Launch were still registered-only. Both later received executable read-only planning handlers, as documented in the current implementation status above.
 - Delegation produces directional `agent.task.delegated` and `agent.task.result` messages with task lineage and status metadata. Targeted `send_message`/`receive_message` also emits actual message-delivered and inbox-received events. The dashboard event serializer exposes an allow-list of metadata only; prompt, result, arbitrary message payloads, tokens, and provider response content are not included in live telemetry.
 - The HUD renders separate action/message/task lifecycle rows, deduplicates using stable event IDs, orders events by occurrence time (sequence is a tie-breaker), and keeps historical connections subdued. A handoff is animated only when observed task lineage/message events establish a currently active collaboration.
 - The existing async mission endpoints, `/api/events?after=<sequence>`, synchronous `/api/tasks`, CLI, read-only Quant providers, and local-only dashboard remain available.
