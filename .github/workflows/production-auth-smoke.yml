@@ -1,0 +1,30 @@
+name: Production dashboard auth JSON smoke test
+
+on:
+  push:
+    branches:
+      - diagnose/auth-post-json
+
+jobs:
+  production-auth-json:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Verify production session endpoint returns JSON
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --silent --show-error --max-time 20 --dump-header session.headers --output session.body --write-out '%{http_code}' 'https://jarvis-multiagent-dashboard.vercel.app/api/auth/session')"
+          echo "Session endpoint HTTP status: $code"
+          test "$code" = "200"
+          grep -Eiq '^content-type: application/json([;[:space:]]|$)' session.headers
+          python -c "import json; data=json.load(open('session.body', encoding='utf-8')); assert isinstance(data, dict); assert 'authenticated' in data; print('Session endpoint returned valid JSON; auth_required=', data.get('auth_required'))"
+      - name: Verify login POST is routed to the API and returns JSON
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --silent --show-error --max-time 20 --request POST --header 'Content-Type: application/json' --data '{}' --dump-header login.headers --output login.body --write-out '%{http_code}' 'https://jarvis-multiagent-dashboard.vercel.app/api/auth/login')"
+          echo "Login endpoint HTTP status for an empty-password probe: $code"
+          grep -Eiq '^content-type: application/json([;[:space:]]|$)' login.headers
+          python -c "import json; data=json.load(open('login.body', encoding='utf-8')); assert isinstance(data, dict); assert 'error' in data or data.get('authenticated') is True; print('Login POST returned valid JSON; response class:', 'error' if 'error' in data else 'authenticated')"
+          case "$code" in 400|401|429|503) ;; *) echo "Unexpected status from login endpoint"; exit 1 ;; esac
