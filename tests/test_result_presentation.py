@@ -18,7 +18,7 @@ MARKET_PULSE_OUTPUT = """MARKET PULSE — INDIA — SUCCESS Root task: e7bdc929-
 def test_dashboard_loads_result_formatter_before_main_app():
     html = HTML.read_text(encoding="utf-8")
     formatter_tag = '<script src="/assets/result-format.js" defer></script>'
-    app_tag = '<script src="/assets/app.js" defer></script>'
+    app_tag = '<script src="/assets/app.js?v=secure-login-20261111-2" defer></script>'
     assert formatter_tag in html
     assert html.index(formatter_tag) < html.index(app_tag)
 
