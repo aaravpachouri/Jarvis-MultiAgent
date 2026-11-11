@@ -370,6 +370,8 @@ class AgentContext:
 class AgentRuntime:
     """Registers executable specialists and routes work by stable IDs/capabilities."""
 
+    MAX_RETAINED_TASK_RESULTS = 1000
+
     def __init__(
         self,
         registry: AgentRegistry | None = None,
@@ -391,6 +393,13 @@ class AgentRuntime:
         self._active_counts: dict[str, int] = {}
         self._task_results: dict[str, TaskResult] = {}
         self._inboxes: dict[str, asyncio.Queue[AgentMessage]] = {}
+
+    def _store_task_result(self, result: TaskResult) -> None:
+        """Keep a bounded in-memory result cache; durable history belongs in the audit store."""
+        self._task_results[result.task_id] = result
+        while len(self._task_results) > self.MAX_RETAINED_TASK_RESULTS:
+            oldest_task_id = next(iter(self._task_results))
+            self._task_results.pop(oldest_task_id, None)
 
     @property
     def audit_errors(self) -> int:
@@ -661,7 +670,7 @@ class AgentRuntime:
                 summary="Task cancelled.",
                 started_at=started_at,
             )
-            self._task_results[request.task_id] = result
+            self._store_task_result(result)
             self.bus.publish(TaskEvent("task.cancelled", request.task_id, spec.agent_id, result.to_dict()))
             self._append_audit_record(
                 "task.cancelled", request, spec.agent_id, result.status.value, error_type=audit_error_type
@@ -690,7 +699,7 @@ class AgentRuntime:
                 "capabilities_requested": list(request.capabilities),
             },
         )
-        self._task_results[request.task_id] = result
+        self._store_task_result(result)
         event_type = "task.succeeded" if result.succeeded else f"task.{result.status.value}"
         self.bus.publish(TaskEvent(event_type, request.task_id, spec.agent_id, result.to_dict()))
         self._append_audit_record(
@@ -724,7 +733,7 @@ class AgentRuntime:
                 "capabilities_requested": list(request.capabilities),
             },
         )
-        self._task_results[request.task_id] = result
+        self._store_task_result(result)
         self.bus.publish(TaskEvent("task.failed", request.task_id, agent_id, result.to_dict()))
         self._append_audit_record(
             "task.failed", request, agent_id, result.status.value, error_type="PolicyFailure"
