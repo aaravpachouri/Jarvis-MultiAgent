@@ -2,6 +2,8 @@
   'use strict';
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+  // Remove credentials left behind by the legacy localStorage/sessionStorage login.
+  try { localStorage.removeItem('jarvisAccessKey'); sessionStorage.removeItem('jarvisAccessKey'); } catch {}
   const state = { overview: null, agents: [], currentView: 'overview', agentFilter: 'all', selectedReport: null, reportText: '', taskBusy: false, hudPanel: null, selectedAgentId: 'coding.forge', focusTab: 'chat', lastHudTask: null, speechRecognition: null, eventCursor: 0, liveEvents: [], seenEventIds: new Set(), eventPollInFlight: false, activeMissionId: null, activeMissions: [], agentDockTab: 'overview', missionTarget: 'voice.jarvis' };
   const symbols = { 'Athena': '⌕', 'Atlas': '▦', 'Forge': '⌘', 'JARVIS': '◉', 'Launch': '↗', 'Memory & Notes': '▤', 'Planner': '⌁', 'Quant': '⌇', 'Scout': '⌖', 'Scribe': '✎' };
   const agentIdentities = {
