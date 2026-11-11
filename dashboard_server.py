@@ -42,6 +42,10 @@ _AUTH_ATTEMPTS: dict[str, deque[float]] = {}
 _AUTH_ATTEMPTS_LOCK = threading.Lock()
 
 
+class MissionCapacityError(RuntimeError):
+    """Raised when the dashboard's bounded mission queue is full."""
+
+
 def _session_signing_key() -> bytes:
     configured = os.environ.get("JARVIS_DASHBOARD_ACCESS_KEY", "").strip()
     return hmac.new(configured.encode("utf-8"), b"jarvis-dashboard-session-v1", "sha256").digest()
@@ -156,6 +160,11 @@ class DashboardApplication:
     """Dashboard facade with live runtime-event capture and asynchronous missions."""
 
     LIVE_EVENT_CAPACITY = 800
+    MAX_ACTIVE_MISSIONS = 24
+    MAX_RETAINED_MISSION_JOBS = 200
+    MAX_ACTIVE_QUANT_REFRESH_JOBS = 4
+    MAX_RETAINED_QUANT_REFRESH_JOBS = 50
+    TERMINAL_JOB_STATES = frozenset({"succeeded", "failed", "partial", "timed_out", "cancelled"})
 
     def __init__(self) -> None:
         load_project_env(ROOT)
@@ -282,6 +291,27 @@ class DashboardApplication:
             "connected": bool(subscription is not None and not subscription.closed),
         }
 
+    def _prune_terminal_jobs_locked(
+        self,
+        jobs: dict[str, dict],
+        futures: dict[str, object],
+        *,
+        max_retained: int,
+    ) -> None:
+        """Discard the oldest terminal job records before admitting a new job."""
+        while len(jobs) >= max_retained:
+            oldest_terminal_id = next(
+                (
+                    job_id for job_id, job in jobs.items()
+                    if str(job.get("status", "")).lower() in self.TERMINAL_JOB_STATES
+                ),
+                None,
+            )
+            if oldest_terminal_id is None:
+                return
+            jobs.pop(oldest_terminal_id, None)
+            futures.pop(oldest_terminal_id, None)
+
     def active_missions(self) -> list[dict]:
         with self.job_lock:
             return [
@@ -377,6 +407,17 @@ class DashboardApplication:
             "finished_at": None, "result": None, "error": None,
         }
         with self.job_lock:
+            active_count = sum(
+                1 for item in self.jobs.values()
+                if str(item.get("status", "")).lower() in {"queued", "running"}
+            )
+            if active_count >= self.MAX_ACTIVE_MISSIONS:
+                raise MissionCapacityError(
+                    f"JARVIS already has {self.MAX_ACTIVE_MISSIONS} active missions. Wait for one to finish."
+                )
+            self._prune_terminal_jobs_locked(
+                self.jobs, self.job_futures, max_retained=self.MAX_RETAINED_MISSION_JOBS
+            )
             self.jobs[request.task_id] = job
         self.record_dashboard_event("dashboard.mission.queued", request.task_id, agent_id, status="queued")
         future = asyncio.run_coroutine_threadsafe(self._run_mission_job(request), self.loop)
@@ -460,6 +501,18 @@ class DashboardApplication:
             "error": None,
         }
         with self.job_lock:
+            active_count = sum(
+                1 for item in self.quant_refresh_jobs.values()
+                if str(item.get("status", "")).lower() in {"queued", "running"}
+            )
+            if active_count >= self.MAX_ACTIVE_QUANT_REFRESH_JOBS:
+                raise MissionCapacityError(
+                    f"Quant already has {self.MAX_ACTIVE_QUANT_REFRESH_JOBS} active refresh jobs. Wait for one to finish."
+                )
+            self._prune_terminal_jobs_locked(
+                self.quant_refresh_jobs, self.quant_refresh_futures,
+                max_retained=self.MAX_RETAINED_QUANT_REFRESH_JOBS,
+            )
             self.quant_refresh_jobs[job_id] = job
         self.record_dashboard_event("quant.refresh.queued", job_id, "trading.quant", status="queued")
         future = asyncio.run_coroutine_threadsafe(self._run_quant_refresh_job(job_id, planned_stages), self.loop)
@@ -782,6 +835,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(202, {"ok": True, "task_id": job["task_id"], "job": job})
             result = APP.submit_task(str(body.get("prompt", "")), body.get("agent_id"))
             return self._send(200, {"ok": result["status"] == "succeeded", "result": result})
+        except MissionCapacityError as exc:
+            return self._send(429, {"error": str(exc)})
         except ValueError as exc:
             return self._send(400, {"error": str(exc)})
         except TimeoutError as exc:
