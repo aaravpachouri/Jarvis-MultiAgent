@@ -37,3 +37,23 @@ def test_report_file_path_is_confined_to_reports_dir():
     # This is the same filename check used by the report route.
     assert Path("market_brief_latest.json").name == "market_brief_latest.json"
     assert Path("../.env").name != "../.env"
+
+
+def test_dashboard_session_token_is_signed_and_expires(monkeypatch):
+    monkeypatch.setenv("JARVIS_DASHBOARD_ACCESS_KEY", "test-dashboard-secret")
+    token = dashboard_server._create_session_token(now=1_800_000_000)
+    assert dashboard_server._valid_session_token(token, now=1_800_000_001)
+    assert not dashboard_server._valid_session_token(token + "tampered", now=1_800_000_001)
+    assert not dashboard_server._valid_session_token(token, now=1_800_000_000 + dashboard_server.AUTH_SESSION_TTL_SECONDS + 1)
+
+
+def test_dashboard_session_token_is_bound_to_configured_access_key(monkeypatch):
+    monkeypatch.setenv("JARVIS_DASHBOARD_ACCESS_KEY", "first-secret")
+    token = dashboard_server._create_session_token(now=1_800_000_000)
+    monkeypatch.setenv("JARVIS_DASHBOARD_ACCESS_KEY", "different-secret")
+    assert not dashboard_server._valid_session_token(token, now=1_800_000_001)
+
+
+def test_dashboard_session_rejects_missing_server_secret(monkeypatch):
+    monkeypatch.delenv("JARVIS_DASHBOARD_ACCESS_KEY", raising=False)
+    assert not dashboard_server._valid_session_token("1800000000.nonce.signature", now=1_800_000_001)
