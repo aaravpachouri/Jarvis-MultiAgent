@@ -134,7 +134,7 @@
     const hasMarkdownStructure = /^\s*(?:#{1,4}\s+|[-*+]\s+|\d+[.)]\s+|>\s?|\|.*\|\s*$|\x60{3})/m.test(text)
       || /\[[^\]]+\]\(https?:\/\//.test(text);
     if (hasMarkdownStructure) {
-      return `<section class="result-rich result-markdown-report${compact ? ' compact' : ''}" aria-label="Formatted agent report">${renderMarkdownDocument(text)}${renderRawDetails(text, 'Raw agent output')}</section>`;
+      return `<section class="result-rich result-markdown-report${compact ? ' compact' : ''}" aria-label="Formatted agent report">${renderMarkdownDocument(text)}${renderRawDetails(text, 'Full runtime output')}</section>`;
     }
     const lines = text.replace(/\r/g, '').split('\n').map(line => line.trim()).filter(Boolean);
     const content = [];
