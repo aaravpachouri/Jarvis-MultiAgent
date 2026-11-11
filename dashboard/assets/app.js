@@ -92,7 +92,10 @@
     return payload;
   }
   async function startDashboard() {
-    if (dashboardStarted) return;
+    if (dashboardStarted) {
+      hideLogin();
+      return;
+    }
     dashboardStarted = true;
     hideLogin();
     bindEvents();
