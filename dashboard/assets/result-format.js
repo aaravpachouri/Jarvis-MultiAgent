@@ -131,8 +131,8 @@
     if (/^# Scout Search\s*$/m.test(text)) {
       return `<section class="result-rich result-scout-search result-markdown-report${compact ? ' compact' : ''}" aria-label="Formatted Scout search result">${renderMarkdownDocument(text)}${renderRawDetails(text, 'Raw Scout output')}</section>`;
     }
-    const hasMarkdownStructure = /^\\s*(?:#{1,4}\\s+|[-*+]\\s+|\\d+[.)]\\s+|>\\s?|\\|.*\\|\\s*$|\x60\x60\x60)/m.test(text)
-      || /\\[[^\\]]+\\]\\(https?:\\/\\//.test(text);
+    const hasMarkdownStructure = /^\s*(?:#{1,4}\s+|[-*+]\s+|\d+[.)]\s+|>\s?|\|.*\|\s*$|\x60{3})/m.test(text)
+      || /\[[^\]]+\]\(https?:\/\//.test(text);
     if (hasMarkdownStructure) {
       return `<section class="result-rich result-markdown-report${compact ? ' compact' : ''}" aria-label="Formatted agent report">${renderMarkdownDocument(text)}${renderRawDetails(text, 'Raw agent output')}</section>`;
     }
