@@ -75,7 +75,7 @@ test("all specialist agents receive structured Markdown report rendering", () =>
   assert.match(html, /<table class="result-table">/);
     assert.ok(html.includes('href="https://example.com/reference"'));
   assert.match(html, /<pre class="result-code">/);
-  assert.match(html, /Raw agent output/);
+  assert.match(html, /Full runtime output/);
 });
 
 test("Markdown report renderer escapes embedded HTML and preserves plain-text fallback", () => {
