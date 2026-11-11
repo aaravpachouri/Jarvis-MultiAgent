@@ -602,10 +602,12 @@ class Handler(BaseHTTPRequestHandler):
         return False
 
     def _set_session_cookie(self, token: str, max_age: int) -> None:
-        self.send_header("Set-Cookie", f"{AUTH_COOKIE_NAME}={token}; Path=/; Max-Age={max_age}; HttpOnly; Secure; SameSite=Lax")
+        secure = "Secure; " if self.headers.get("X-Forwarded-Proto", "").lower() == "https" or os.environ.get("RENDER") else ""
+        self.send_header("Set-Cookie", f"{AUTH_COOKIE_NAME}={token}; Path=/; Max-Age={max_age}; HttpOnly; {secure}SameSite=Lax")
 
     def _auth_login(self) -> None:
-        client_ip = self.client_address[0] if self.client_address else "unknown"
+        forwarded_for = self.headers.get("X-Forwarded-For", "").split(",", 1)[0].strip()
+        client_ip = forwarded_for or (self.client_address[0] if self.client_address else "unknown")
         if _auth_rate_limited(client_ip):
             return self._send(429, {"error": "Too many sign-in attempts. Wait 15 minutes and try again."})
         try:
@@ -639,7 +641,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(payload)))
         self.send_header("Cache-Control", "no-store")
-        self.send_header("Set-Cookie", f"{AUTH_COOKIE_NAME}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax")
+        secure = "Secure; " if self.headers.get("X-Forwarded-Proto", "").lower() == "https" or os.environ.get("RENDER") else ""
+        self.send_header("Set-Cookie", f"{AUTH_COOKIE_NAME}=; Path=/; Max-Age=0; HttpOnly; {secure}SameSite=Lax")
         self.end_headers()
         self.wfile.write(payload)
 
