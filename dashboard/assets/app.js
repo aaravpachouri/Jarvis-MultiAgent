@@ -2,6 +2,7 @@
   'use strict';
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+  try { localStorage.removeItem('jarvisAccessKey'); sessionStorage.removeItem('jarvisAccessKey'); } catch {}
   const state = { overview: null, agents: [], currentView: 'overview', agentFilter: 'all', selectedReport: null, reportText: '', taskBusy: false, hudPanel: null, selectedAgentId: 'coding.forge', focusTab: 'chat', lastHudTask: null, speechRecognition: null, eventCursor: 0, liveEvents: [], seenEventIds: new Set(), eventPollInFlight: false, activeMissionId: null, activeMissions: [], agentDockTab: 'overview', missionTarget: 'voice.jarvis' };
   const symbols = { 'Athena': '⌕', 'Atlas': '▦', 'Forge': '⌘', 'JARVIS': '◉', 'Launch': '↗', 'Memory & Notes': '▤', 'Planner': '⌁', 'Quant': '⌇', 'Scout': '⌖', 'Scribe': '✎' };
   const agentIdentities = {
@@ -62,40 +63,85 @@
     el.className = `toast ${type}`; el.textContent = message; stack.append(el);
     window.setTimeout(() => el.remove(), 4200);
   };
-  let accessKeyRejected = false;
+  let dashboardStarted = false;
+  function showLogin(message = '') {
+    document.body.classList.add('login-locked');
+    const screen = $('#login-screen');
+    if (screen) screen.hidden = false;
+    const error = $('#login-error');
+    if (error) error.textContent = message;
+    const input = $('#login-access-key');
+    if (input) window.setTimeout(() => input.focus(), 30);
+  }
+  function hideLogin() {
+    document.body.classList.remove('login-locked');
+    if ($('#login-screen')) $('#login-screen').hidden = true;
+    if ($('#login-error')) $('#login-error').textContent = '';
+    if ($('#login-access-key')) $('#login-access-key').value = '';
+  }
   async function api(path, options = {}) {
     const headers = { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(options.headers || {}) };
-    if (path.startsWith('/api/')) {
-      if (accessKeyRejected) throw new Error('JARVIS access key rejected. Reload this page to try again.');
-      let accessKey = localStorage.getItem('jarvisAccessKey');
-      // Migrate a key saved by the previous session-only version.
-      if (!accessKey) {
-        const sessionKey = sessionStorage.getItem('jarvisAccessKey');
-        if (sessionKey) {
-          accessKey = sessionKey;
-          localStorage.setItem('jarvisAccessKey', accessKey);
-        }
-      }
-      if (!accessKey) {
-        accessKey = window.prompt('JARVIS MultiAgent is private. Enter the dashboard access key configured in Render:');
-        if (!accessKey || !accessKey.trim()) throw new Error('A JARVIS access key is required to connect.');
-        accessKey = accessKey.trim();
-        localStorage.setItem('jarvisAccessKey', accessKey);
-      }
-      headers['X-JARVIS-Access-Key'] = accessKey;
-    }
-    const response = await fetch(path, { cache: 'no-store', ...options, headers });
+    const response = await fetch(path, { cache: 'no-store', credentials: 'same-origin', ...options, headers });
     let payload;
     try { payload = await response.json(); } catch { payload = { error: `Unexpected response (${response.status})` }; }
     if (response.status === 401) {
-      localStorage.removeItem('jarvisAccessKey');
-      sessionStorage.removeItem('jarvisAccessKey');
-      accessKeyRejected = true;
-      throw new Error('JARVIS access key was rejected. Reload the page to try again.');
+      showLogin('Your session expired. Sign in again to continue.');
+      throw new Error(payload.error || 'Authentication required.');
     }
     if (!response.ok) throw new Error(payload.error || `Request failed (${response.status})`);
     return payload;
   }
+  async function startDashboard() {
+    if (dashboardStarted) {
+      hideLogin();
+      return;
+    }
+    dashboardStarted = true;
+    hideLogin();
+    bindEvents();
+    updateClock();
+    window.setInterval(updateClock, 1000);
+    await refreshOverview(false);
+    pollRuntimeEvents();
+    window.setInterval(() => refreshOverview(false), 5000);
+    window.setInterval(pollRuntimeEvents, 700);
+  }
+  async function initializeAuthentication() {
+    try {
+      const response = await fetch('/api/auth/session', { cache: 'no-store', credentials: 'same-origin' });
+      const session = await response.json();
+      if (!response.ok) throw new Error(session.error || 'Could not verify dashboard session.');
+      if (!session.auth_required || session.authenticated) return startDashboard();
+      showLogin();
+    } catch (error) {
+      showLogin(error.message || 'Unable to connect to the authentication service.');
+    }
+  }
+  $('#login-form')?.addEventListener('submit', async event => {
+    event.preventDefault();
+    const button = $('#login-submit');
+    const input = $('#login-access-key');
+    const password = input?.value || '';
+    if (!password) return showLogin('Enter your dashboard password.');
+    button.disabled = true;
+    button.textContent = 'SIGNING IN…';
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST', cache: 'no-store', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ access_key: password })
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Sign-in failed.');
+      if (!payload.authenticated) throw new Error('The server did not establish an authenticated session.');
+      await startDashboard();
+    } catch (error) {
+      showLogin(error.message || 'Sign-in failed. Try again.');
+    } finally {
+      button.disabled = false;
+      button.innerHTML = 'SIGN IN <span aria-hidden="true">↗</span>';
+    }
+  });
   function navigate(view) {
     if (!titles[view]) return;
     state.currentView = view;
@@ -1312,5 +1358,9 @@
     $('#close-agent-modal')?.addEventListener('click', () => $('#agent-modal').classList.add('hidden'));
     $('#agent-modal')?.addEventListener('click', event => { if (event.target === $('#agent-modal')) $('#agent-modal').classList.add('hidden'); });
   }
-  bindEvents(); updateClock(); window.setInterval(updateClock, 1000); refreshOverview(false); pollRuntimeEvents(); window.setInterval(() => refreshOverview(false), 5000); window.setInterval(pollRuntimeEvents, 700);
+  $('#logout-button')?.addEventListener('click', async () => {
+    try { await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin', cache: 'no-store' }); }
+    finally { dashboardStarted = false; showLogin('You have signed out.'); }
+  });
+  initializeAuthentication();
 })();
