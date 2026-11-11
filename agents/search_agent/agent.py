@@ -295,7 +295,7 @@ def _fetch_crossref_results(query: str, *, timeout: float, limit: int) -> list[d
 def _official_domain_constraints(query: str) -> list[str]:
     """Return trusted publisher domains for explicit official-documentation queries."""
     text = query.casefold()
-    if "tavily" in text and re.search(r"\b(?:official|documentation|docs|api reference)\\b", text):
+    if "tavily" in text and re.search(r"\b(?:official|documentation|docs|api reference)\b", text):
         return ["docs.tavily.com"]
     return []
 
@@ -303,15 +303,15 @@ def _official_domain_constraints(query: str) -> list[str]:
 def _extract_search_target(prompt: str) -> str:
     """Keep the requested search subject separate from answer-format instructions."""
     raw = " ".join(str(prompt or "").strip().split())
-    first_sentence = re.split(r"(?<=[.!?])\\s+|\\s+--\\s+", raw, maxsplit=1)[0]
+    first_sentence = re.split(r"(?<=[.!?])\s+|\s+--\s+", raw, maxsplit=1)[0]
     match = re.match(
-        r"^(?:please\\s+)?(?:search(?: the web)?|find|look up)\\s+(?:the\\s+)?(.+?)\\s*[.!?]*$",
+        r"^(?:please\s+)?(?:search(?: the web)?|find|look up)\s+(?:the\s+)?(.+?)\s*[.!?]*$",
         first_sentence,
         flags=re.IGNORECASE,
     )
     if match:
         subject = match.group(1).strip()
-        return re.sub(r"^official\\s+", "", subject, flags=re.IGNORECASE)
+        return re.sub(r"^official\s+", "", subject, flags=re.IGNORECASE)
     return _normalise_query(raw)
 
 
