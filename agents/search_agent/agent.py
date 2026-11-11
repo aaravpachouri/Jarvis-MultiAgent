@@ -305,7 +305,7 @@ def _extract_search_target(prompt: str) -> str:
     raw = " ".join(str(prompt or "").strip().split())
     first_sentence = re.split(r"(?<=[.!?])\s+|\s+--\s+", raw, maxsplit=1)[0]
     match = re.match(
-        r"^(?:please\s+)?(?:search(?: the web)?|find|look up)\s+(?:the\s+)?(.+?)\s*[.!?]*$",
+        r"^(?:please\s+)?(?:search(?: the web)?|find|look up)(?:\s+for)?\s+(?:the\s+)?[:,-]?\s*(.+?)\s*[.!?]*$",
         first_sentence,
         flags=re.IGNORECASE,
     )
