@@ -67,7 +67,7 @@ test("all specialist agents receive structured Markdown report rendering", () =>
     "```python",
     "print('safe output')",
     "```",
-  ].join("\\n");
+  ].join("\n");
 
   const html = sandbox.window.JARVISResultFormatter.render(raw);
   assert.match(html, /result-markdown-report/);
@@ -80,7 +80,7 @@ test("all specialist agents receive structured Markdown report rendering", () =>
 
 test("Markdown report renderer escapes embedded HTML and preserves plain-text fallback", () => {
   const html = sandbox.window.JARVISResultFormatter.render(
-    "# Report\\n\\n<script>alert('x')</script>\\n\\n- Safe list item"
+    "# Report\n\n<script>alert('x')</script>\n\n- Safe list item"
   );
   assert.match(html, /result-markdown-report/);
   assert.match(html, /&lt;script&gt;/);
@@ -88,5 +88,5 @@ test("Markdown report renderer escapes embedded HTML and preserves plain-text fa
 
   const plain = sandbox.window.JARVISResultFormatter.render("Plain response without Markdown.");
   assert.match(plain, /result-generic/);
-  assert.match(plain, /Plain response without Markdown\\./);
+  assert.match(plain, /Plain response without Markdown\./);
 });
