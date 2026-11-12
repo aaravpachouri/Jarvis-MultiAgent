@@ -303,7 +303,7 @@ class ResearchAgent:
             ),
             "Request parameters": re.compile(
                 r"\b(?:query|search_depth|max_results|include_raw_content|include_domains)\b.{0,140}"
-                r"\b(?:parameter|required|optional|default|controls?|specifies|request|body)\b|"
+                r"(?:\b(?:parameter|required|optional|default|controls?|specifies|request|body)\b|=)|"
                 r"\b(?:parameter|required|optional|default|controls?|specifies|request|body)\b.{0,140}"
                 r"\b(?:query|search_depth|max_results|include_raw_content|include_domains)\b",
                 re.IGNORECASE,
