@@ -198,3 +198,34 @@ def test_athena_does_not_mark_official_research_complete_without_three_primary_s
     assert result["official_source_threshold_met"] is False
     assert result["research_status"] == "insufficient_primary_sources"
     assert result["complete"] is False
+
+
+
+def test_official_research_requires_extracted_content_not_search_snippets_alone():
+    agent = ResearchAgent()
+    queries = agent._build_queries("Research the Tavily Search API official documentation")
+    docs = [
+        "https://docs.tavily.com/documentation/api-reference/endpoint/search",
+        "https://docs.tavily.com/documentation/best-practices/best-practices-search",
+        "https://docs.tavily.com/sdk/python/quick-start",
+    ]
+    context = FakeContext({
+        query: {
+            "provider": "Tavily Search API",
+            "results": [{
+                "title": "Official Tavily documentation",
+                "url": url,
+                "domain": "docs.tavily.com",
+                "snippet": "Search result snippet only",
+            }],
+        }
+        for query, url in zip(queries, docs)
+    })
+    result = asyncio.run(agent(SimpleNamespace(
+        prompt="Research the Tavily Search API official documentation"
+    ), context))
+    assert result["primary_source_count"] == 3
+    assert result["official_source_threshold_met"] is True
+    assert result["extracted_content_threshold_met"] is False
+    assert result["research_status"] == "insufficient_extracted_content"
+    assert result["complete"] is False
