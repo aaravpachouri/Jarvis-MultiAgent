@@ -265,9 +265,9 @@ class ResearchAgent:
         """Return readable, non-navigation sentences from provider-extracted text."""
         text = str(content or "")
         text = re.sub(r"(?is)## Documentation Index.*?(?=API Reference|API keys|Authentication|Search API|Best practices|$)", " ", text)
-        text = re.sub(r"!?\\[[^\\]]*\\]\\([^)]*\\)", " ", text)
-        text = re.sub(r"\\s+", " ", text)
-        candidates = [part.strip(" \\t\\r\\n-*#>") for part in re.split(r"(?<=[.!?])\\s+|\\n+", text) if part.strip()]
+        text = re.sub(r"!?\[[^\]]*\]\([^)]*\)", " ", text)
+        text = re.sub(r"\s+", " ", text)
+        candidates = [part.strip(" \t\r\n-*#>") for part in re.split(r"(?<=[.!?])\s+|\n+", text) if part.strip()]
         boilerplate = re.compile(
             r"^(?:get started|api reference|integrations|changelog|examples|documentation index|"
             r"fetch the complete documentation|use this file to discover|tavily docs home page)$",
@@ -292,25 +292,25 @@ class ResearchAgent:
         """Build claim-specific evidence using conservative, source-linked sentence rules."""
         dimensions = {
             "Authentication": re.compile(
-                r"(?:\\bbearer\\b.{0,100}\\b(?:api key|token)\\b|\\b(?:api key|token)\\b.{0,100}\\bauthori[sz]ation\\b|"
-                r"\\bauthori[sz]ation\\b.{0,100}\\bbearer\\b)",
+                r"(?:\bbearer\b.{0,100}\b(?:api key|token)\b|\b(?:api key|token)\b.{0,100}\bauthori[sz]ation\b|"
+                r"\bauthori[sz]ation\b.{0,100}\bbearer\b)",
                 re.IGNORECASE,
             ),
             "Endpoint and method": re.compile(
-                r"\\bPOST\\b.{0,160}(?:https?://api\\.tavily\\.com/search|/search)|"
-                r"(?:https?://api\\.tavily\\.com/search|/search).{0,160}\\bPOST\\b",
+                r"\bPOST\b.{0,160}(?:https?://api\.tavily\.com/search|/search)|"
+                r"(?:https?://api\.tavily\.com/search|/search).{0,160}\bPOST\b",
                 re.IGNORECASE,
             ),
             "Request parameters": re.compile(
-                r"\\b(?:query|search_depth|max_results|include_raw_content|include_domains)\\b.{0,140}"
-                r"\\b(?:parameter|required|optional|default|controls?|specifies|request|body)\\b|"
-                r"\\b(?:parameter|required|optional|default|controls?|specifies|request|body)\\b.{0,140}"
-                r"\\b(?:query|search_depth|max_results|include_raw_content|include_domains)\\b",
+                r"\b(?:query|search_depth|max_results|include_raw_content|include_domains)\b.{0,140}"
+                r"\b(?:parameter|required|optional|default|controls?|specifies|request|body)\b|"
+                r"\b(?:parameter|required|optional|default|controls?|specifies|request|body)\b.{0,140}"
+                r"\b(?:query|search_depth|max_results|include_raw_content|include_domains)\b",
                 re.IGNORECASE,
             ),
             "Response structure": re.compile(
-                r"\\b(?:response|returns?|returned)\\b.{0,180}\\b(?:results|content|score|answer|raw_content)\\b|"
-                r"\\b(?:results|content|score|answer|raw_content)\\b.{0,180}\\b(?:response|object|field|array)\\b",
+                r"\b(?:response|returns?|returned)\b.{0,180}\b(?:results|content|score|answer|raw_content)\b|"
+                r"\b(?:results|content|score|answer|raw_content)\b.{0,180}\b(?:response|object|field|array)\b",
                 re.IGNORECASE,
             ),
         }
