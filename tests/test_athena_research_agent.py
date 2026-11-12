@@ -229,3 +229,26 @@ def test_official_research_requires_extracted_content_not_search_snippets_alone(
     assert result["extracted_content_threshold_met"] is False
     assert result["research_status"] == "insufficient_extracted_content"
     assert result["complete"] is False
+
+
+
+def test_athena_builds_source_linked_technical_evidence_matrix():
+    sources = [{
+        "url": "https://docs.tavily.com/documentation/api-reference/endpoint/search",
+        "page_content": (
+            "Authentication uses a Bearer API key. "
+            "POST https://api.tavily.com/search executes a search query. "
+            "The query and search_depth parameters control the request. "
+            "The response contains results with content and score."
+        ),
+    }]
+    matrix = ResearchAgent._build_technical_evidence_matrix(sources)
+    assert matrix["Authentication"]
+    assert matrix["Endpoint and method"]
+    assert matrix["Request parameters"]
+    assert matrix["Response structure"]
+    assert all(
+        item["url"] == sources[0]["url"]
+        for entries in matrix.values()
+        for item in entries
+    )
