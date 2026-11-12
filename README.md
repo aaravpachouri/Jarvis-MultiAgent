@@ -529,3 +529,9 @@ The source and implementation overlays are being published in follow-up commits.
 ## Atlas scope
 
 The optional Windows desktop companion has been removed from this project. Atlas is a profile-only systems/API orchestration identity (`systems.atlas`); it has no local desktop-control capability. No desktop bridge, pairing flow, screenshot capture, keyboard/mouse automation, or desktop-specific dependencies are included.
+
+## Athena Evidence Lab — reproducible research evaluation
+
+Athena now has a deterministic, ten-scenario evidence benchmark covering source relevance, substantive extraction, all four Tavily Search API evidence dimensions, Scout provenance, duplicate sources, partial failures, and cross-topic regression behavior. The benchmark uses labelled synthetic fixtures only; it makes no live-provider accuracy claim.
+
+Run it with `python -m evaluation.athena_benchmark`. See [the research protocol](docs/ATHENA_RESEARCH_LAB.md) for the methodology, metrics, limitations and next experiments. Relevant CI runs publish the machine-readable report as an artifact.
