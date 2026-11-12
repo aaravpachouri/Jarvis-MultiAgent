@@ -191,7 +191,7 @@ def _cases() -> tuple[BenchmarkCase, ...]:
             expected_status="insufficient_evidence",
             expected_complete=False,
             failed_query_indices=(0, 1, 2),
-            expected_technical_coverage=False,
+            expected_technical_coverage=None,
         ),
         BenchmarkCase(
             case_id="fastapi_official_sources_remain_topic_scoped",
