@@ -158,12 +158,16 @@ class ResearchAgent:
                 "research_status": "insufficient_evidence",
                 "complete": False,
             }
-        comparison_matrix = self._build_technical_evidence_matrix(sources)
+        evidence_sources = [
+            item for item in sources
+            if self._is_relevant_api_source(item["url"])
+        ] if "tavily" in prompt.casefold() and "search api" in prompt.casefold() else sources
+        comparison_matrix = self._build_technical_evidence_matrix(evidence_sources)
         # Count only primary pages that contain usable, topic-specific technical
         # evidence. Non-empty raw_content may be navigation, an index, or boilerplate.
         substantive_primary_urls = {
             item["url"] for item in sources
-            if self._is_primary_source(prompt, item["url"])
+            if self._is_relevant_api_source(item["url"])
             and self._has_substantive_page_content(item.get("page_content", ""))
         }
         extracted_count = len(substantive_primary_urls)
@@ -183,7 +187,8 @@ class ResearchAgent:
             (f"- Tavily returned extracted page content for {extracted_count} source(s); this is provider-extracted content, not a browser-level independent verification."
              if extracted_count else "- Source pages were not independently opened or verified by Athena in this pass."),
             "- Treat compatibility or version claims as provisional unless supported by extracted primary-source content.",
-            f"- Recognized primary-source URLs: {primary_count} of {len(sources)} retrieved sources.",
+            f"- Official-domain URLs: {primary_count} of {len(sources)} retrieved sources (domain recognition only; not all are API-relevant).",
+            f"- API-relevant official documentation URLs: {len({item['url'] for item in evidence_sources if self._is_primary_source(prompt, item['url'])})}.",
             f"- Official-source URL threshold (3): {'met' if official_threshold_met else 'not met'}.",
             f"- Substantive extracted primary-content threshold (3): {'met' if extracted_threshold_met else 'not met'}.",
             f"- Required technical dimensions: {len(covered_dimensions)} of {len(required_dimensions)} covered.",
@@ -191,6 +196,12 @@ class ResearchAgent:
             f"Queries run: {len(queries)}",
             f"Queries with usable, non-failed retrieval: {len(successful_queries)}",
             f"Distinct source URLs: {len(sources)}",
+            "",
+            "Scout delegation and retrieval provenance:",
+            *[
+                f"- {item.get('delegated_agent_id', 'search.scout')} via {item.get('provider') or 'unspecified provider'}: {item.get('status')} ({item.get('result_count', 0)} results); query: {item.get('query')}"
+                for item in query_provenance
+            ],
             "",
             "Evidence discovered:",
         ]
@@ -258,6 +269,21 @@ class ResearchAgent:
             "technical_coverage_complete": technical_coverage_met,
             "technical_dimensions_covered": sorted(covered_dimensions),
             "complete": not has_partial_failure and bool(sources) and official_threshold_met and extracted_threshold_met and technical_coverage_met,
+        }
+
+    @staticmethod
+    def _is_relevant_api_source(url: str) -> bool:
+        """Identify Tavily's official pages that directly document the Search API."""
+        parsed = urlparse(str(url or ""))
+        if parsed.netloc.casefold().removeprefix("www.") != "docs.tavily.com":
+            return False
+        path = parsed.path.rstrip("/").casefold()
+        return path in {
+            "/documentation/api-headers",
+            "/documentation/api-reference/endpoint/search",
+            "/documentation/best-practices/best-practices-search",
+            "/sdk/python/reference",
+            "/sdk/python/quick-start",
         }
 
     @staticmethod
