@@ -309,6 +309,22 @@
     // The suit button itself reflects the selected profile; avoid a toast that could cover the HUD.
   }
 
+  async function loadAthenaEvidence() {
+    const body = $('#hud-drawer-body');
+    if (!body || state.hudPanel !== 'athena') return;
+    body.innerHTML = '<div class="athena-loading"><span class="spinner"></span><strong>RUNNING EVIDENCE CHECKS</strong><small>Executing the deterministic ten-scenario benchmark. No live search calls are made.</small></div>';
+    try {
+      const report = await api('/api/athena/benchmark');
+      if (state.hudPanel !== 'athena' || !body.isConnected) return;
+      if (!window.JARVISAthenaEvidence) throw new Error('The Evidence Lab interface module did not load.');
+      body.innerHTML = window.JARVISAthenaEvidence.render(report);
+      $('#athena-benchmark-refresh', body)?.addEventListener('click', loadAthenaEvidence);
+    } catch (error) {
+      if (state.hudPanel !== 'athena' || !body.isConnected) return;
+      body.innerHTML = '<div class="athena-error"><strong>Evidence Lab unavailable</strong><p>' + escapeHTML(error.message || 'The benchmark request failed.') + '</p><button type="button" class="hud-panel-action" id="athena-benchmark-retry">Retry benchmark ↻</button></div>';
+      $('#athena-benchmark-retry', body)?.addEventListener('click', loadAthenaEvidence);
+    }
+  }
   function openHudPanel(kind, agentId = null) {
     const drawer = $('#hud-drawer');
     const body = $('#hud-drawer-body');
@@ -352,6 +368,10 @@
       const uptime = state.overview?.uptime_seconds || 0;
       const upText = uptime < 3600 ? `${Math.floor(uptime / 60)}m` : `${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m`;
       markup = `<div class="hud-panel-status"><span>●</span><span>Python dashboard runtime</span><strong class="${ready ? 'state-live' : 'state-registered'}">${ready ? 'ONLINE' : 'DEGRADED'}</strong></div><div class="hud-metric-grid"><div class="hud-metric"><span>Agent identities</span><strong>${escapeHTML(fmtNum(total, 0))}</strong></div><div class="hud-metric"><span>Executable</span><strong>${escapeHTML(fmtNum(ready, 0))}/${escapeHTML(fmtNum(total, 0))}</strong></div><div class="hud-metric"><span>Task outcomes</span><strong>${escapeHTML(fmtNum(state.overview?.task_history?.terminal_event_count || 0, 0))}</strong></div><div class="hud-metric"><span>Session uptime</span><strong>${escapeHTML(upText)}</strong></div></div><div class="hud-panel-block"><div class="hud-panel-kicker">SAFETY & CONNECTION</div><p class="hud-panel-description">Dashboard bound to loopback by default.<br>Market data is read-only.<br>No order placement endpoint is exposed.<br>Secrets and environment values are not shown here.</p><button type="button" class="hud-panel-action" id="hud-refresh-runtime">Refresh runtime ↻</button></div>`;
+    } else if (kind === 'athena') {
+      title = 'Athena Evidence Lab';
+      kicker = 'RESEARCH INTEGRITY · DETERMINISTIC EVALUATION';
+      markup = '<div class="athena-loading"><span class="spinner"></span><strong>PREPARING EVIDENCE LAB</strong><small>Loading fixture-based evidence checks…</small></div>';
     }
     $('#hud-drawer-title').textContent = title;
     $('#hud-drawer-kicker').textContent = kicker;
@@ -360,6 +380,7 @@
     drawer.classList.remove('hidden');
     if (kind === 'mission' || kind === 'tasks') renderMissionWidget();
     renderHudFocusPanel();
+    if (kind === 'athena') loadAthenaEvidence();
     const taskForm = $('#hud-panel-task-form', body);
     if (taskForm) taskForm.addEventListener('submit', event => {
       event.preventDefault();
