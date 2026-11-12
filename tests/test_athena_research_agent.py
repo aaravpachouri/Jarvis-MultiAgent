@@ -311,3 +311,54 @@ def test_official_tavily_research_requires_all_four_technical_dimensions():
     assert result['research_status'] == 'insufficient_technical_coverage'
     assert result['complete'] is False
     assert 'Endpoint and method' not in result['technical_dimensions_covered']
+
+
+
+def test_tavily_integration_and_changelog_pages_do_not_count_as_api_evidence():
+    assert ResearchAgent._is_relevant_api_source(
+        "https://docs.tavily.com/documentation/api-reference/endpoint/search"
+    )
+    assert ResearchAgent._is_relevant_api_source(
+        "https://docs.tavily.com/documentation/api-headers"
+    )
+    assert not ResearchAgent._is_relevant_api_source(
+        "https://docs.tavily.com/documentation/integrations/anthropic"
+    )
+    assert not ResearchAgent._is_relevant_api_source(
+        "https://docs.tavily.com/changelog"
+    )
+
+
+def test_athena_report_exposes_scout_query_and_provider_provenance():
+    agent = ResearchAgent()
+    queries = agent._build_queries("Research the Tavily Search API official documentation")
+    docs = [
+        ("Headers", "https://docs.tavily.com/documentation/api-headers"),
+        ("Search API", "https://docs.tavily.com/documentation/api-reference/endpoint/search"),
+        ("Best practices", "https://docs.tavily.com/documentation/best-practices/best-practices-search"),
+    ]
+    outcomes = {
+        query: {
+            "provider": "Tavily Search API",
+            "retrieved_at": "2026-11-12T14:00:00+00:00",
+            "results": [{
+                "title": title, "url": url, "domain": "docs.tavily.com",
+                "snippet": "Official documentation",
+                "page_content": (
+                    "Authentication uses a Bearer API key. "
+                    "POST https://api.tavily.com/search executes a search query. "
+                    "The query parameter is required in the request body. "
+                    "The response contains results with content and score fields."
+                ),
+            }],
+        }
+        for query, (title, url) in zip(queries, docs)
+    }
+    result = asyncio.run(agent(SimpleNamespace(
+        prompt="Research the Tavily Search API official documentation"
+    ), FakeContext(outcomes)))
+    report = result["summary"]
+    assert "Scout delegation and retrieval provenance:" in report
+    assert "search.scout via Tavily Search API: complete" in report
+    assert all(query in report for query in queries)
+    assert result["extracted_content_count"] == 3
