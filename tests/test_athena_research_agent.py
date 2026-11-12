@@ -362,3 +362,43 @@ def test_athena_report_exposes_scout_query_and_provider_provenance():
     assert "search.scout via Tavily Search API: complete" in report
     assert all(query in report for query in queries)
     assert result["extracted_content_count"] == 3
+
+
+def test_non_tavily_official_research_keeps_topic_specific_primary_source_counting():
+    agent = ResearchAgent()
+    queries = agent._build_queries("Research the FastAPI Search API official documentation")
+    docs = [
+        ("FastAPI reference", "https://fastapi.tiangolo.com/reference/"),
+        ("FastAPI package", "https://pypi.org/project/fastapi/"),
+        ("FastAPI repository", "https://github.com/fastapi/fastapi"),
+    ]
+    page_content = (
+        "Authentication uses a Bearer API token. "
+        "POST /search executes a search query. "
+        "The query parameter is required in the request body. "
+        "The response contains results with content and score fields."
+    )
+    outcomes = {
+        query: {
+            "provider": "Tavily Search API",
+            "retrieved_at": "2026-11-12T17:30:00+00:00",
+            "results": [{
+                "title": title,
+                "url": url,
+                "domain": url.split("/")[2],
+                "snippet": "Official primary documentation",
+                "page_content": page_content,
+            }],
+        }
+        for query, (title, url) in zip(queries, docs)
+    }
+
+    result = asyncio.run(agent(SimpleNamespace(
+        prompt="Research the FastAPI Search API official documentation"
+    ), FakeContext(outcomes)))
+
+    assert result["primary_source_count"] == 3
+    assert result["extracted_content_count"] == 3
+    assert result["extracted_content_threshold_met"] is True
+    assert result["research_status"] == "retrieval_complete_with_extracted_content"
+    assert result["complete"] is True
