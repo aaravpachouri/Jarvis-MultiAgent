@@ -182,7 +182,9 @@ def _cases() -> tuple[BenchmarkCase, ...]:
             expected_status="partial",
             expected_complete=False,
             failed_query_indices=(2,),
-            expected_technical_coverage=False,
+            # The two successful pages still cover all four dimensions; retrieval
+            # completeness and technical coverage are intentionally independent.
+            expected_technical_coverage=True,
         ),
         BenchmarkCase(
             case_id="all_queries_fail_closed",
