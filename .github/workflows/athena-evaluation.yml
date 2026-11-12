@@ -1,0 +1,63 @@
+name: Athena Evidence Benchmark
+
+on:
+  pull_request:
+    branches:
+      - publish/jarvis-multiagent
+    paths:
+      - "agents/research_agent/**"
+      - "evaluation/**"
+      - "tests/test_athena_benchmark.py"
+      - "docs/ATHENA_RESEARCH_LAB.md"
+      - ".github/workflows/athena-evaluation.yml"
+      - "pyproject.toml"
+  push:
+    branches:
+      - publish/jarvis-multiagent
+    paths:
+      - "agents/research_agent/**"
+      - "evaluation/**"
+      - "tests/test_athena_benchmark.py"
+      - "docs/ATHENA_RESEARCH_LAB.md"
+      - ".github/workflows/athena-evaluation.yml"
+      - "pyproject.toml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: athena-evaluation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  benchmark:
+    name: Deterministic evidence benchmark
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install project and test dependencies
+        run: python -m pip install -e ".[dev]"
+
+      - name: Run the complete agent regression suite
+        run: python -m pytest -q
+
+      - name: Generate Athena benchmark report
+        run: python -m evaluation.athena_benchmark --output artifacts/athena-benchmark.json
+
+      - name: Publish benchmark artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: athena-evidence-benchmark-${{ github.sha }}
+          path: artifacts/athena-benchmark.json
+          if-no-files-found: error
+          retention-days: 90
