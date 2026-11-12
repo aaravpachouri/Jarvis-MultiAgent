@@ -196,7 +196,17 @@ class ResearchAgent:
             lines.extend(f"- {failure}" for failure in failures)
         if primary_count == 0 and re.search(r"\bofficial\b|\bprimary source\b", prompt, re.IGNORECASE):
             lines.extend(["", "Primary-source gap:", "- No recognized primary-source URL was returned. Findings remain unverified."])
+        comparison_matrix = self._build_technical_evidence_matrix(sources)
         lines.extend([
+            "",
+            "Technical evidence matrix:",
+            *[
+                f"- {label}: " + (
+                    " | ".join(f"{entry['excerpt']} [Source: {entry['url']}]" for entry in entries)
+                    if entries else "Not verified from extracted primary-source content."
+                )
+                for label, entries in comparison_matrix.items()
+            ],
             "",
             "Research coverage:",
             f"- Page-content extraction available: {extracted_count} of {len(sources)} sources.",
@@ -220,6 +230,7 @@ class ResearchAgent:
             "evidence_level": verification_level,
             "extracted_content_count": extracted_count,
             "official_source_threshold_met": official_threshold_met,
+            "technical_evidence_matrix": comparison_matrix,
             "research_status": (
                 "partial" if has_partial_failure
                 else "insufficient_primary_sources" if not official_threshold_met
@@ -230,6 +241,32 @@ class ResearchAgent:
             "extracted_content_threshold_met": extracted_threshold_met,
             "complete": not has_partial_failure and bool(sources) and official_threshold_met and extracted_threshold_met,
         }
+
+    @staticmethod
+    def _build_technical_evidence_matrix(sources: list[dict[str, Any]]) -> dict[str, list[dict[str, str]]]:
+        """Extract short, source-linked evidence excerpts without inventing a synthesis."""
+        dimensions = {
+            "Authentication": re.compile(r"\\b(?:bearer|api[_ -]?key|authentication|authorization|auth header)\\b", re.IGNORECASE),
+            "Endpoint and method": re.compile(r"\\b(?:https?://[^\\s]+|POST|GET|/search)\\b", re.IGNORECASE),
+            "Request parameters": re.compile(r"\\b(?:query|max_results|search_depth|include_domains|include_answer|topic|time_range)\\b", re.IGNORECASE),
+            "Response structure": re.compile(r"\\b(?:results\\[|response|score|raw_content|content|answer|request_id)\\b", re.IGNORECASE),
+        }
+        matrix: dict[str, list[dict[str, str]]] = {label: [] for label in dimensions}
+        for source in sources:
+            content = str(source.get("page_content") or "")
+            if not content:
+                continue
+            sentences = [part.strip() for part in re.split(r"(?<=[.!?])\\s+|\\n+", content) if part.strip()]
+            for label, pattern in dimensions.items():
+                for sentence in sentences:
+                    if pattern.search(sentence):
+                        excerpt = " ".join(sentence.split())[:420]
+                        entry = {"excerpt": excerpt, "url": str(source.get("url", ""))}
+                        if entry not in matrix[label]:
+                            matrix[label].append(entry)
+                        if len(matrix[label]) >= 3:
+                            break
+        return matrix
 
     @staticmethod
     def _is_context_analysis_request(prompt: str, context: dict[str, Any]) -> bool:
