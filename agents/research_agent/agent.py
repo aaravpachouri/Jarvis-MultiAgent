@@ -158,10 +158,22 @@ class ResearchAgent:
                 "research_status": "insufficient_evidence",
                 "complete": False,
             }
-        extracted_count = sum(bool(item.get("page_content")) for item in sources)
+        comparison_matrix = self._build_technical_evidence_matrix(sources)
+        # Count only primary pages that contain usable, topic-specific technical
+        # evidence. Non-empty raw_content may be navigation, an index, or boilerplate.
+        substantive_primary_urls = {
+            item["url"] for item in sources
+            if self._is_primary_source(prompt, item["url"])
+            and self._has_substantive_page_content(item.get("page_content", ""))
+        }
+        extracted_count = len(substantive_primary_urls)
         official_required = bool(re.search(r"\bofficial\b|\bprimary source\b", prompt, re.IGNORECASE))
         official_threshold_met = not official_required or primary_count >= 3
         extracted_threshold_met = not official_required or extracted_count >= 3
+        api_comparison_requested = "tavily" in prompt.casefold() and "search api" in prompt.casefold()
+        required_dimensions = {"Authentication", "Endpoint and method", "Request parameters", "Response structure"}
+        covered_dimensions = {label for label, entries in comparison_matrix.items() if entries}
+        technical_coverage_met = not api_comparison_requested or required_dimensions.issubset(covered_dimensions)
         verification_level = "provider_extracted_page_content" if extracted_count else "search_snippets_not_independently_verified"
         lines = [
             f"Athena research brief: {prompt}",
@@ -173,7 +185,8 @@ class ResearchAgent:
             "- Treat compatibility or version claims as provisional unless supported by extracted primary-source content.",
             f"- Recognized primary-source URLs: {primary_count} of {len(sources)} retrieved sources.",
             f"- Official-source URL threshold (3): {'met' if official_threshold_met else 'not met'}.",
-            f"- Extracted primary-content threshold (3): {'met' if extracted_threshold_met else 'not met'}.",
+            f"- Substantive extracted primary-content threshold (3): {'met' if extracted_threshold_met else 'not met'}.",
+            f"- Required technical dimensions: {len(covered_dimensions)} of {len(required_dimensions)} covered.",
             "",
             f"Queries run: {len(queries)}",
             f"Queries with usable, non-failed retrieval: {len(successful_queries)}",
@@ -196,7 +209,6 @@ class ResearchAgent:
             lines.extend(f"- {failure}" for failure in failures)
         if primary_count == 0 and re.search(r"\bofficial\b|\bprimary source\b", prompt, re.IGNORECASE):
             lines.extend(["", "Primary-source gap:", "- No recognized primary-source URL was returned. Findings remain unverified."])
-        comparison_matrix = self._build_technical_evidence_matrix(sources)
         lines.extend([
             "",
             "Technical evidence matrix:",
@@ -209,10 +221,13 @@ class ResearchAgent:
             ],
             "",
             "Research coverage:",
-            f"- Page-content extraction available: {extracted_count} of {len(sources)} sources.",
+            f"- Sources with substantive extracted primary technical content: {extracted_count} of {primary_count} recognized primary sources.",
+            f"- Technical dimensions supported by extracted primary content: {len(covered_dimensions)} of {len(required_dimensions)}.",
             f"- Official-source requirement: {'satisfied' if official_threshold_met else 'not satisfied; do not treat this as a completed official-source review'}.",
             f"- Source-content verification requirement: {'satisfied' if extracted_threshold_met else 'not satisfied; snippets alone cannot complete the research task'}.",
             "- Search snippets are discovery leads, not evidence for technical conclusions.",
+            "",
+            ("- Technical comparison is incomplete: one or more requested dimensions lack source-linked extracted evidence." if not technical_coverage_met else "- All requested technical dimensions have at least one source-linked extracted excerpt."),
             "",
             "Synthesis boundary:",
             "Athena preserves source content and provenance here. It does not claim a technical comparison is verified unless the relevant details are present in extracted primary-source content. The original publisher pages should still be checked before implementation.",
@@ -235,33 +250,79 @@ class ResearchAgent:
                 "partial" if has_partial_failure
                 else "insufficient_primary_sources" if not official_threshold_met
                 else "insufficient_extracted_content" if not extracted_threshold_met
+                else "insufficient_technical_coverage" if not technical_coverage_met
                 else "retrieval_complete_with_extracted_content" if extracted_count
                 else "retrieval_complete_unverified"
             ),
             "extracted_content_threshold_met": extracted_threshold_met,
-            "complete": not has_partial_failure and bool(sources) and official_threshold_met and extracted_threshold_met,
+            "technical_coverage_complete": technical_coverage_met,
+            "technical_dimensions_covered": sorted(covered_dimensions),
+            "complete": not has_partial_failure and bool(sources) and official_threshold_met and extracted_threshold_met and technical_coverage_met,
         }
 
     @staticmethod
-    def _build_technical_evidence_matrix(sources: list[dict[str, Any]]) -> dict[str, list[dict[str, str]]]:
-        """Extract short, source-linked evidence excerpts without inventing a synthesis."""
+    def _evidence_sentences(content: str) -> list[str]:
+        """Return readable, non-navigation sentences from provider-extracted text."""
+        text = str(content or "")
+        text = re.sub(r"(?is)## Documentation Index.*?(?=API Reference|API keys|Authentication|Search API|Best practices|$)", " ", text)
+        text = re.sub(r"!?\[[^\]]*\]\([^)]*\)", " ", text)
+        text = re.sub(r"\s+", " ", text)
+        candidates = [part.strip(" \t\r\n-*#>") for part in re.split(r"(?<=[.!?])\s+|\n+", text) if part.strip()]
+        boilerplate = re.compile(
+            r"^(?:get started|api reference|integrations|changelog|examples|documentation index|"
+            r"fetch the complete documentation|use this file to discover|tavily docs home page)$",
+            re.IGNORECASE,
+        )
+        return [
+            " ".join(sentence.split())
+            for sentence in candidates
+            if len(sentence) >= 35 and not boilerplate.match(sentence)
+        ]
+
+    @classmethod
+    def _has_substantive_page_content(cls, content: str) -> bool:
+        """Reject raw-content payloads that contain only navigation or generic boilerplate."""
+        return any(
+            entries
+            for entries in cls._build_technical_evidence_matrix([{"url": "", "page_content": content}]).values()
+        )
+
+    @classmethod
+    def _build_technical_evidence_matrix(cls, sources: list[dict[str, Any]]) -> dict[str, list[dict[str, str]]]:
+        """Build claim-specific evidence using conservative, source-linked sentence rules."""
         dimensions = {
-            "Authentication": re.compile(r"\b(?:bearer|api[_ -]?key|authentication|authorization|auth header)\b", re.IGNORECASE),
-            "Endpoint and method": re.compile(r"\b(?:https?://[^\s]+|POST|GET|/search)\b", re.IGNORECASE),
-            "Request parameters": re.compile(r"\b(?:query|max_results|search_depth|include_domains|include_answer|topic|time_range)\b", re.IGNORECASE),
-            "Response structure": re.compile(r"\b(?:results\[|response|score|raw_content|content|answer|request_id)\b", re.IGNORECASE),
+            "Authentication": re.compile(
+                r"(?:\bbearer\b.{0,100}\b(?:api key|token)\b|\b(?:api key|token)\b.{0,100}\bauthori[sz]ation\b|"
+                r"\bauthori[sz]ation\b.{0,100}\bbearer\b)",
+                re.IGNORECASE,
+            ),
+            "Endpoint and method": re.compile(
+                r"\bPOST\b.{0,160}(?:https?://api\.tavily\.com/search|/search)|"
+                r"(?:https?://api\.tavily\.com/search|/search).{0,160}\bPOST\b",
+                re.IGNORECASE,
+            ),
+            "Request parameters": re.compile(
+                r"\b(?:query|search_depth|max_results|include_raw_content|include_domains)\b.{0,140}"
+                r"(?:\b(?:parameter|required|optional|default|controls?|specifies|request|body)\b|=)|"
+                r"\b(?:parameter|required|optional|default|controls?|specifies|request|body)\b.{0,140}"
+                r"\b(?:query|search_depth|max_results|include_raw_content|include_domains)\b",
+                re.IGNORECASE,
+            ),
+            "Response structure": re.compile(
+                r"\b(?:response|returns?|returned)\b.{0,180}\b(?:results|content|score|answer|raw_content)\b|"
+                r"\b(?:results|content|score|answer|raw_content)\b.{0,180}\b(?:response|object|field|array)\b",
+                re.IGNORECASE,
+            ),
         }
         matrix: dict[str, list[dict[str, str]]] = {label: [] for label in dimensions}
         for source in sources:
             content = str(source.get("page_content") or "")
             if not content:
                 continue
-            sentences = [part.strip() for part in re.split(r"(?<=[.!?])\s+|\n+", content) if part.strip()]
             for label, pattern in dimensions.items():
-                for sentence in sentences:
+                for sentence in cls._evidence_sentences(content):
                     if pattern.search(sentence):
-                        excerpt = " ".join(sentence.split())[:420]
-                        entry = {"excerpt": excerpt, "url": str(source.get("url", ""))}
+                        entry = {"excerpt": sentence[:420], "url": str(source.get("url", ""))}
                         if entry not in matrix[label]:
                             matrix[label].append(entry)
                         if len(matrix[label]) >= 3:

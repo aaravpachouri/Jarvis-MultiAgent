@@ -156,7 +156,7 @@ def test_athena_records_scout_delegation_provenance_and_requires_three_official_
                 "url": url,
                 "domain": "docs.tavily.com",
                 "snippet": "Documentation discovery snippet",
-                "page_content": "Extracted documentation content",
+                "page_content": ("Authentication uses a Bearer API key. " "POST https://api.tavily.com/search executes a search query. " "The query and search_depth parameters control the request body. " "The response contains results with content and score fields."),
             }],
         }
         for query, (title, url) in zip(queries, docs)
@@ -252,3 +252,62 @@ def test_athena_builds_source_linked_technical_evidence_matrix():
         for entries in matrix.values()
         for item in entries
     )
+
+
+def test_navigation_only_raw_content_does_not_count_as_substantive_evidence():
+    content = (
+        '## Documentation Index Fetch the complete documentation index at llms.txt '
+        'Use this file to discover all available pages before exploring further. '
+        'Get started API Reference Integrations Examples Changelog'
+    )
+    assert ResearchAgent._has_substantive_page_content(content) is False
+
+
+def test_technical_evidence_matrix_requires_dimension_specific_support():
+    sources = [{
+        'url': 'https://docs.tavily.com/documentation/api-reference/endpoint/search',
+        'page_content': (
+            'Authentication uses a Bearer API key. '
+            'The page discusses API usage and search results. '
+            'The query parameter is required in the request body. '
+            'The response contains results with content and score fields.'
+        ),
+    }]
+    matrix = ResearchAgent._build_technical_evidence_matrix(sources)
+    assert matrix['Authentication']
+    assert matrix['Request parameters']
+    assert matrix['Response structure']
+    assert matrix['Endpoint and method'] == []
+
+
+def test_official_tavily_research_requires_all_four_technical_dimensions():
+    agent = ResearchAgent()
+    queries = agent._build_queries('Research the Tavily Search API official documentation')
+    docs = [
+        ('Headers', 'https://docs.tavily.com/documentation/api-headers',
+         'Authentication uses a Bearer API key.'),
+        ('Search API', 'https://docs.tavily.com/documentation/api-reference/endpoint/search',
+         'The query parameter is required in the request body. The response contains results with content and score fields.'),
+        ('Best practices', 'https://docs.tavily.com/documentation/best-practices/best-practices-search',
+         'Use include_raw_content=true to retrieve extracted content.'),
+    ]
+    outcomes = {
+        query: {
+            'provider': 'Tavily Search API',
+            'retrieved_at': '2026-11-12T14:00:00+00:00',
+            'results': [{
+                'title': title, 'url': url, 'domain': 'docs.tavily.com',
+                'snippet': 'Official documentation', 'page_content': content,
+            }],
+        }
+        for query, (title, url, content) in zip(queries, docs)
+    }
+    result = asyncio.run(agent(SimpleNamespace(
+        prompt='Research the Tavily Search API official documentation'
+    ), FakeContext(outcomes)))
+    assert result['official_source_threshold_met'] is True
+    assert result['extracted_content_count'] == 3
+    assert result['technical_coverage_complete'] is False
+    assert result['research_status'] == 'insufficient_technical_coverage'
+    assert result['complete'] is False
+    assert 'Endpoint and method' not in result['technical_dimensions_covered']
