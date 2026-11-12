@@ -477,6 +477,8 @@ class ResearchAgent:
                 or (host == "pypi.org" and path.startswith("/project/fastapi"))
                 or (host == "github.com" and path.startswith("/fastapi/fastapi"))
             )
+        if "tavily" in lowered:
+            return host == "docs.tavily.com"
         # Generic primary-source hints can be carried explicitly as site: URLs
         # in the original task; otherwise avoid guessing ownership.
         domains = re.findall(r"\bsite:([A-Za-z0-9.-]+)", prompt, re.IGNORECASE)
