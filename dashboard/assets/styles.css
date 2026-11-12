@@ -744,3 +744,66 @@ body.login-locked .app-shell{visibility:hidden;pointer-events:none}
   .result-markdown-report .markdown-document ul,.result-markdown-report .markdown-document ol{font-size:11px;padding-left:19px}
   .result-markdown-report .markdown-document .result-table{min-width:320px}
 }
+
+
+/* Athena Evidence Lab — evidence audit inside the existing Mission Control drawer. */
+.athena-lab{display:flex;flex-direction:column;gap:13px;color:#dffaff}
+.athena-lab-hero{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:12px;border:1px solid rgba(48,207,238,.28);background:linear-gradient(135deg,rgba(10,49,65,.48),rgba(8,16,26,.75))}
+.athena-lab-eyebrow{font:8px var(--mono);letter-spacing:.13em;color:#73dff3}
+.athena-lab-hero h3{font:700 17px/1.2 var(--sans);margin:6px 0;color:#f2fcff}
+.athena-lab-hero p{font:10px/1.55 var(--sans);margin:0;color:#96b5c3}
+.athena-critical{flex-shrink:0;padding:5px 7px;border:1px solid currentColor;font:8px var(--mono);letter-spacing:.06em;white-space:nowrap}
+.athena-critical.is-pass,.athena-gate-row .is-pass,.athena-case-pass{color:#70e7c1}
+.athena-critical.is-fail,.athena-gate-row .is-fail,.athena-case-failure{color:#ff8790}
+.athena-fixture-warning{display:flex;flex-direction:column;gap:5px;padding:10px 11px;border:1px solid rgba(230,183,104,.28);background:rgba(111,75,23,.12)}
+.athena-fixture-warning strong{font:9px var(--mono);letter-spacing:.1em;color:#e9c17e}
+.athena-fixture-warning span,.athena-fixture-warning small{font:9px/1.5 var(--sans);color:#b1c5ce}
+.athena-fixture-warning small{color:#7f9aa8}
+.athena-metric-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+.athena-metric{min-width:0;padding:10px;border:1px solid rgba(61,151,177,.2);background:rgba(7,24,35,.72);display:flex;flex-direction:column;gap:4px}
+.athena-metric>span{font:8px var(--mono);letter-spacing:.07em;color:#80aab9}
+.athena-metric>strong{font:700 21px var(--sans);color:#e7fbff;font-variant-numeric:tabular-nums}
+.athena-metric>small{font:8px/1.4 var(--sans);color:#718f9e}
+.athena-section-heading{display:flex;align-items:center;justify-content:space-between;gap:9px;padding-top:5px}
+.athena-section-heading>div>span{font:8px var(--mono);letter-spacing:.13em;color:#6bdcf2}
+.athena-section-heading h3{font:600 12px/1.35 var(--sans);margin:4px 0 0;color:#e7f8ff}
+.athena-refresh{flex-shrink:0;padding:7px 9px;border:1px solid rgba(59,209,237,.4);background:rgba(11,69,88,.2);color:#9beeff;font:8px var(--mono);letter-spacing:.08em}
+.athena-case-list{display:flex;flex-direction:column;gap:8px}
+.athena-case{border:1px solid rgba(54,133,158,.25);background:rgba(6,17,27,.68);padding:10px}
+.athena-case-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.athena-case-index{font:7px var(--mono);letter-spacing:.06em;color:#5f99aa}
+.athena-case-top h4{font:600 11px/1.35 var(--sans);margin:3px 0 0;color:#dff8ff}
+.athena-case-result{flex-shrink:0;font:7px var(--mono);letter-spacing:.06em;padding:4px 5px;border:1px solid currentColor}
+.athena-case-result.is-pass{color:#70e7c1}.athena-case-result.is-fail{color:#ff8790}
+.athena-case-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;margin:10px 0 7px}
+.athena-case-stats span{display:flex;flex-direction:column;gap:2px;font:7px var(--mono);color:#7298a7;text-transform:uppercase}
+.athena-case-stats b{font:700 13px var(--sans);color:#dff8ff}
+.athena-case-bottom{display:flex;justify-content:space-between;flex-wrap:wrap;gap:7px;font:7px var(--mono);color:#8eb1bf}
+.athena-case-details{margin-top:9px;border-top:1px solid rgba(57,137,162,.2);padding-top:8px}
+.athena-case-details summary{cursor:pointer;list-style:none;font:8px var(--mono);letter-spacing:.06em;color:#8de8fa}
+.athena-case-details summary::-webkit-details-marker{display:none}
+.athena-case-details summary:after{content:"＋";float:right;color:#4ccde8}
+.athena-case-details[open] summary:after{content:"−"}
+.athena-case-details section{padding-top:10px}
+.athena-case-details h5{font:8px var(--mono);letter-spacing:.1em;color:#6cb6c9;margin:0 0 7px}
+.athena-gate-row,.athena-trace-row{display:flex;align-items:flex-start;gap:7px;padding:6px 0;border-bottom:1px solid rgba(56,128,151,.12)}
+.athena-gate-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;margin-top:3px;background:#78909c}
+.athena-gate-dot.is-pass{background:#70e7c1;box-shadow:0 0 8px rgba(112,231,193,.4)}
+.athena-gate-dot.is-fail{background:#ff8790;box-shadow:0 0 8px rgba(255,135,144,.35)}
+.athena-gate-row>div,.athena-trace-row>div{min-width:0;display:flex;flex-direction:column;gap:3px;flex:1}
+.athena-gate-row strong,.athena-trace-row strong{font:600 9px var(--sans);color:#d5edf4}
+.athena-gate-row small,.athena-trace-row small{font:8px/1.45 var(--sans);color:#819eac;overflow-wrap:anywhere}
+.athena-gate-row>b{font:7px var(--mono);white-space:nowrap}
+.athena-trace-state{flex-shrink:0;font:7px var(--mono);padding:3px 4px;border:1px solid currentColor}
+.athena-trace-state.is-pass{color:#70e7c1}.athena-trace-state.is-fail{color:#ff8790}
+.athena-error-text{color:#ff9aa1!important}
+.athena-source-list{display:flex;flex-direction:column;gap:4px}
+.athena-source-list code{display:block;white-space:normal;overflow-wrap:anywhere;padding:5px;background:rgba(8,31,43,.6);font:8px/1.4 var(--mono);color:#9ac5d3}
+.athena-muted{font:9px/1.5 var(--sans);color:#819eac}
+.athena-lab-footer{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;padding-top:8px;border-top:1px solid rgba(57,137,162,.22);font:7px var(--mono);letter-spacing:.05em;color:#638895}
+.athena-loading,.athena-error{display:flex;flex-direction:column;align-items:flex-start;gap:9px;padding:20px 12px;border:1px solid rgba(50,156,184,.24);background:rgba(7,25,37,.65)}
+.athena-loading strong,.athena-error strong{font:9px var(--mono);letter-spacing:.1em;color:#b0effa}
+.athena-loading small,.athena-error p{font:9px/1.55 var(--sans);color:#91acb8;margin:0}
+.athena-error{border-color:rgba(255,98,111,.3)}
+.athena-error strong{color:#ff9ca4}
+@media(max-width:760px){.athena-lab-hero{flex-direction:column}.athena-critical{align-self:flex-start}.athena-metric>strong{font-size:19px}}
