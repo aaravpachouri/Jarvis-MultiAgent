@@ -250,9 +250,10 @@ class _FixtureContext:
         outcome = self.outcomes.get(query, {})
         if isinstance(outcome, Exception):
             raise outcome
-        failed = bool(outcome.get("error"))
+        # Scout successfully returned a structured outcome, even when that
+        # outcome records a provider failure. Preserve its diagnostics.
         return SimpleNamespace(
-            succeeded=not failed,
+            succeeded=True,
             output=outcome,
             error=outcome.get("error"),
             summary=outcome.get("error", ""),
