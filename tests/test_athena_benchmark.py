@@ -46,6 +46,26 @@ def test_athena_benchmark_records_scout_provenance_and_declares_fixture_limits(b
         assert case["actual"]["provenance_count"] == 3
         assert case["actual"]["delegated_agents"] == ["search.scout"]
         assert case["actual"]["providers"] == ["Athena Benchmark Fixture"]
+        assert len(case["actual"]["query_provenance"]) == 3
+        assert all(
+            item["delegated_agent_id"] == "search.scout"
+            for item in case["actual"]["query_provenance"]
+        )
+        assert len(case["actual"]["gate_results"]) == 4
+        assert case["actual"]["failed_gates"] == [
+            item["gate_id"]
+            for item in case["actual"]["gate_results"]
+            if item["status"] == "fail"
+        ]
+
+
+def test_athena_benchmark_exposes_expected_gate_failures(benchmark_report):
+    by_id = {case["case_id"]: case for case in benchmark_report["cases"]}
+
+    assert "retrieval_completeness" in by_id["tavily_partial_provider_retrieval"]["actual"]["failed_gates"]
+    assert "substantive_content_threshold" in by_id["tavily_navigation_only"]["actual"]["failed_gates"]
+    assert "primary_source_threshold" in by_id["tavily_lookalike_domains_are_not_primary"]["actual"]["failed_gates"]
+    assert by_id["tavily_complete_four_dimensions"]["actual"]["failed_gates"] == []
 
 
 def test_athena_benchmark_metrics_are_bounded_and_reproducible(benchmark_report):
