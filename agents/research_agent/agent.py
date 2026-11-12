@@ -161,17 +161,19 @@ class ResearchAgent:
         extracted_count = sum(bool(item.get("page_content")) for item in sources)
         official_required = bool(re.search(r"\bofficial\b|\bprimary source\b", prompt, re.IGNORECASE))
         official_threshold_met = not official_required or primary_count >= 3
+        extracted_threshold_met = not official_required or extracted_count >= 3
         verification_level = "provider_extracted_page_content" if extracted_count else "search_snippets_not_independently_verified"
         lines = [
             f"Athena research brief: {prompt}",
             "",
             "Scope and limitations:",
-            "- Findings below are based on search-result titles and snippets returned by Scout.",
+            "- Findings below are based on search-result metadata and any provider-extracted page content returned by Scout.",
             (f"- Tavily returned extracted page content for {extracted_count} source(s); this is provider-extracted content, not a browser-level independent verification."
              if extracted_count else "- Source pages were not independently opened or verified by Athena in this pass."),
             "- Treat compatibility or version claims as provisional unless supported by extracted primary-source content.",
             f"- Recognized primary-source URLs: {primary_count} of {len(sources)} retrieved sources.",
-            f"- Official-source threshold (3): {'met' if official_threshold_met else 'not met'}.",
+            f"- Official-source URL threshold (3): {'met' if official_threshold_met else 'not met'}.",
+            f"- Extracted primary-content threshold (3): {'met' if extracted_threshold_met else 'not met'}.",
             "",
             f"Queries run: {len(queries)}",
             f"Queries with usable, non-failed retrieval: {len(successful_queries)}",
@@ -199,6 +201,7 @@ class ResearchAgent:
             "Research coverage:",
             f"- Page-content extraction available: {extracted_count} of {len(sources)} sources.",
             f"- Official-source requirement: {'satisfied' if official_threshold_met else 'not satisfied; do not treat this as a completed official-source review'}.",
+            f"- Source-content verification requirement: {'satisfied' if extracted_threshold_met else 'not satisfied; snippets alone cannot complete the research task'}.",
             "- Search snippets are discovery leads, not evidence for technical conclusions.",
             "",
             "Synthesis boundary:",
@@ -220,10 +223,12 @@ class ResearchAgent:
             "research_status": (
                 "partial" if has_partial_failure
                 else "insufficient_primary_sources" if not official_threshold_met
+                else "insufficient_extracted_content" if not extracted_threshold_met
                 else "retrieval_complete_with_extracted_content" if extracted_count
                 else "retrieval_complete_unverified"
             ),
-            "complete": not has_partial_failure and bool(sources) and official_threshold_met,
+            "extracted_content_threshold_met": extracted_threshold_met,
+            "complete": not has_partial_failure and bool(sources) and official_threshold_met and extracted_threshold_met,
         }
 
     @staticmethod
