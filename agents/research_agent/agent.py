@@ -246,17 +246,17 @@ class ResearchAgent:
     def _build_technical_evidence_matrix(sources: list[dict[str, Any]]) -> dict[str, list[dict[str, str]]]:
         """Extract short, source-linked evidence excerpts without inventing a synthesis."""
         dimensions = {
-            "Authentication": re.compile(r"\\b(?:bearer|api[_ -]?key|authentication|authorization|auth header)\\b", re.IGNORECASE),
-            "Endpoint and method": re.compile(r"\\b(?:https?://[^\\s]+|POST|GET|/search)\\b", re.IGNORECASE),
-            "Request parameters": re.compile(r"\\b(?:query|max_results|search_depth|include_domains|include_answer|topic|time_range)\\b", re.IGNORECASE),
-            "Response structure": re.compile(r"\\b(?:results\\[|response|score|raw_content|content|answer|request_id)\\b", re.IGNORECASE),
+            "Authentication": re.compile(r"\b(?:bearer|api[_ -]?key|authentication|authorization|auth header)\b", re.IGNORECASE),
+            "Endpoint and method": re.compile(r"\b(?:https?://[^\s]+|POST|GET|/search)\b", re.IGNORECASE),
+            "Request parameters": re.compile(r"\b(?:query|max_results|search_depth|include_domains|include_answer|topic|time_range)\b", re.IGNORECASE),
+            "Response structure": re.compile(r"\b(?:results\[|response|score|raw_content|content|answer|request_id)\b", re.IGNORECASE),
         }
         matrix: dict[str, list[dict[str, str]]] = {label: [] for label in dimensions}
         for source in sources:
             content = str(source.get("page_content") or "")
             if not content:
                 continue
-            sentences = [part.strip() for part in re.split(r"(?<=[.!?])\\s+|\\n+", content) if part.strip()]
+            sentences = [part.strip() for part in re.split(r"(?<=[.!?])\s+|\n+", content) if part.strip()]
             for label, pattern in dimensions.items():
                 for sentence in sentences:
                     if pattern.search(sentence):
