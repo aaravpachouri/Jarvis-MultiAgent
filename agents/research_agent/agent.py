@@ -174,7 +174,7 @@ class ResearchAgent:
         required_dimensions = {"Authentication", "Endpoint and method", "Request parameters", "Response structure"}
         covered_dimensions = {label for label, entries in comparison_matrix.items() if entries}
         technical_coverage_met = not api_comparison_requested or required_dimensions.issubset(covered_dimensions)
-        verification_level = "provider_extracted_technical_evidence" if extracted_count else "search_snippets_not_independently_verified"
+        verification_level = "provider_extracted_page_content" if extracted_count else "search_snippets_not_independently_verified"
         lines = [
             f"Athena research brief: {prompt}",
             "",
