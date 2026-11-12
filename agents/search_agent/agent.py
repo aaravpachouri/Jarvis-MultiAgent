@@ -213,6 +213,7 @@ def _fetch_tavily_results(
         "max_results": limit,
         "search_depth": "basic",
         "include_answer": False,
+        "include_raw_content": True,
     }
     cleaned_domains = sorted({str(domain).strip().casefold() for domain in (include_domains or []) if str(domain).strip()})
     if cleaned_domains:
@@ -242,6 +243,7 @@ def _fetch_tavily_results(
             "url": url_value,
             "domain": domain,
             "snippet": " ".join(str(item.get("content", "")).split()),
+            **({"page_content": " ".join(str(item.get("raw_content", "")).split())[:12000]} if item.get("raw_content") else {}),
         })
         if len(results) >= limit:
             break

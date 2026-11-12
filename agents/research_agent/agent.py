@@ -24,6 +24,11 @@ _PRIMARY_SOURCE_HINTS: dict[str, tuple[str, str, str]] = {
         "site:pypi.org/project/fastapi",
         "site:github.com/fastapi/fastapi",
     ),
+    "tavily": (
+        "Tavily Search API authentication and endpoint site:docs.tavily.com/documentation/api-reference/endpoint/search",
+        "Tavily Search API request parameters and response schema site:docs.tavily.com/documentation/api-reference/endpoint/search",
+        "Tavily Search API best practices and extraction behavior site:docs.tavily.com/documentation/best-practices/best-practices-search",
+    ),
 }
 
 
@@ -92,6 +97,7 @@ class ResearchAgent:
                     "url": url,
                     "domain": str(item.get("domain", "")).strip() or parsed.netloc.removeprefix("www."),
                     "snippet": str(item.get("snippet", "")).strip(),
+                    "page_content": str(item.get("page_content", "")).strip(),
                     "search_query": query,
                     "provider": str(item.get("provider") or outcome.get("provider", "")).strip() or "unspecified",
                     "retrieved_at": str(outcome.get("retrieved_at", "")).strip() or None,
@@ -115,6 +121,9 @@ class ResearchAgent:
                 "provider_failures": list(outcome.get("provider_failures", []) or []),
                 "result_count": query_results,
                 "retrieval_status": retrieval_status,
+                "delegated_agent_id": str(outcome.get("delegated_agent_id", "search.scout")),
+                "delegation_task_id": outcome.get("delegation_task_id"),
+                "requested_by": str(outcome.get("requested_by", "research.athena")),
             })
 
         sources = self._prioritize_primary_sources(prompt, sources)
@@ -149,14 +158,22 @@ class ResearchAgent:
                 "research_status": "insufficient_evidence",
                 "complete": False,
             }
+        extracted_count = sum(bool(item.get("page_content")) for item in sources)
+        official_required = bool(re.search(r"\bofficial\b|\bprimary source\b", prompt, re.IGNORECASE))
+        official_threshold_met = not official_required or primary_count >= 3
+        extracted_threshold_met = not official_required or extracted_count >= 3
+        verification_level = "provider_extracted_page_content" if extracted_count else "search_snippets_not_independently_verified"
         lines = [
             f"Athena research brief: {prompt}",
             "",
             "Scope and limitations:",
-            "- Findings below are based on search-result titles and snippets returned by Scout.",
-            "- Source pages were not independently opened or verified by Athena in this pass.",
-            "- Treat compatibility or version claims as provisional until confirmed against primary documentation.",
+            "- Findings below are based on search-result metadata and any provider-extracted page content returned by Scout.",
+            (f"- Tavily returned extracted page content for {extracted_count} source(s); this is provider-extracted content, not a browser-level independent verification."
+             if extracted_count else "- Source pages were not independently opened or verified by Athena in this pass."),
+            "- Treat compatibility or version claims as provisional unless supported by extracted primary-source content.",
             f"- Recognized primary-source URLs: {primary_count} of {len(sources)} retrieved sources.",
+            f"- Official-source URL threshold (3): {'met' if official_threshold_met else 'not met'}.",
+            f"- Extracted primary-content threshold (3): {'met' if extracted_threshold_met else 'not met'}.",
             "",
             f"Queries run: {len(queries)}",
             f"Queries with usable, non-failed retrieval: {len(successful_queries)}",
@@ -168,7 +185,9 @@ class ResearchAgent:
             lines.append(f"{index}. {source['title'] or source['domain'] or source['url']}")
             lines.append(f"   URL: {source['url']}")
             if source["snippet"]:
-                lines.append(f"   Search snippet (unverified): {source['snippet']}")
+                lines.append(f"   Search snippet (discovery only): {source['snippet'][:1200]}")
+            if source.get("page_content"):
+                lines.append(f"   Extracted page content (provider-returned; review source directly before relying): {source['page_content'][:2400]}")
             lines.append(f"   Query: {source['search_query']}")
         if has_partial_failure:
             lines.extend(["", "Search coverage: PARTIAL — one or more queries/providers failed or returned partial results."])
@@ -177,11 +196,26 @@ class ResearchAgent:
             lines.extend(f"- {failure}" for failure in failures)
         if primary_count == 0 and re.search(r"\bofficial\b|\bprimary source\b", prompt, re.IGNORECASE):
             lines.extend(["", "Primary-source gap:", "- No recognized primary-source URL was returned. Findings remain unverified."])
+        comparison_matrix = self._build_technical_evidence_matrix(sources)
         lines.extend([
             "",
-            "Synthesis:",
-            "The retrieved results provide a source-linked starting point. Snippets alone do not verify "
-            "facts. Open primary sources and check their current release dates before relying on version-specific claims.",
+            "Technical evidence matrix:",
+            *[
+                f"- {label}: " + (
+                    " | ".join(f"{entry['excerpt']} [Source: {entry['url']}]" for entry in entries)
+                    if entries else "Not verified from extracted primary-source content."
+                )
+                for label, entries in comparison_matrix.items()
+            ],
+            "",
+            "Research coverage:",
+            f"- Page-content extraction available: {extracted_count} of {len(sources)} sources.",
+            f"- Official-source requirement: {'satisfied' if official_threshold_met else 'not satisfied; do not treat this as a completed official-source review'}.",
+            f"- Source-content verification requirement: {'satisfied' if extracted_threshold_met else 'not satisfied; snippets alone cannot complete the research task'}.",
+            "- Search snippets are discovery leads, not evidence for technical conclusions.",
+            "",
+            "Synthesis boundary:",
+            "Athena preserves source content and provenance here. It does not claim a technical comparison is verified unless the relevant details are present in extracted primary-source content. The original publisher pages should still be checked before implementation.",
         ])
 
         return {
@@ -193,10 +227,46 @@ class ResearchAgent:
             "source_count": len(sources),
             "primary_source_count": primary_count,
             "failures": failures,
-            "evidence_level": "search_snippets_not_independently_verified",
-            "research_status": "partial" if has_partial_failure else "retrieval_complete_unverified",
-            "complete": not has_partial_failure and bool(sources),
+            "evidence_level": verification_level,
+            "extracted_content_count": extracted_count,
+            "official_source_threshold_met": official_threshold_met,
+            "technical_evidence_matrix": comparison_matrix,
+            "research_status": (
+                "partial" if has_partial_failure
+                else "insufficient_primary_sources" if not official_threshold_met
+                else "insufficient_extracted_content" if not extracted_threshold_met
+                else "retrieval_complete_with_extracted_content" if extracted_count
+                else "retrieval_complete_unverified"
+            ),
+            "extracted_content_threshold_met": extracted_threshold_met,
+            "complete": not has_partial_failure and bool(sources) and official_threshold_met and extracted_threshold_met,
         }
+
+    @staticmethod
+    def _build_technical_evidence_matrix(sources: list[dict[str, Any]]) -> dict[str, list[dict[str, str]]]:
+        """Extract short, source-linked evidence excerpts without inventing a synthesis."""
+        dimensions = {
+            "Authentication": re.compile(r"\b(?:bearer|api[_ -]?key|authentication|authorization|auth header)\b", re.IGNORECASE),
+            "Endpoint and method": re.compile(r"\b(?:https?://[^\s]+|POST|GET|/search)\b", re.IGNORECASE),
+            "Request parameters": re.compile(r"\b(?:query|max_results|search_depth|include_domains|include_answer|topic|time_range)\b", re.IGNORECASE),
+            "Response structure": re.compile(r"\b(?:results\[|response|score|raw_content|content|answer|request_id)\b", re.IGNORECASE),
+        }
+        matrix: dict[str, list[dict[str, str]]] = {label: [] for label in dimensions}
+        for source in sources:
+            content = str(source.get("page_content") or "")
+            if not content:
+                continue
+            sentences = [part.strip() for part in re.split(r"(?<=[.!?])\s+|\n+", content) if part.strip()]
+            for label, pattern in dimensions.items():
+                for sentence in sentences:
+                    if pattern.search(sentence):
+                        excerpt = " ".join(sentence.split())[:420]
+                        entry = {"excerpt": excerpt, "url": str(source.get("url", ""))}
+                        if entry not in matrix[label]:
+                            matrix[label].append(entry)
+                        if len(matrix[label]) >= 3:
+                            break
+        return matrix
 
     @staticmethod
     def _is_context_analysis_request(prompt: str, context: dict[str, Any]) -> bool:
@@ -313,14 +383,14 @@ class ResearchAgent:
         )
         if not getattr(result, "succeeded", False):
             error = getattr(result, "error", None) or getattr(result, "summary", None) or "Scout task failed."
-            return {"results": [], "error": str(error)}
+            return {"results": [], "error": str(error), "delegated_agent_id": getattr(result, "agent_id", "search.scout"), "delegation_task_id": getattr(result, "task_id", None), "requested_by": "research.athena"}
         output = getattr(result, "output", None)
         if not isinstance(output, dict):
             return {"results": [], "error": "Scout returned an unexpected output format."}
         if not output.get("results"):
             detail = output.get("error") or output.get("summary") or "Scout returned zero results."
-            return {**output, "results": [], "error": str(detail)}
-        return output
+            return {**output, "results": [], "error": str(detail), "delegated_agent_id": getattr(result, "agent_id", "search.scout"), "delegation_task_id": getattr(result, "task_id", None), "requested_by": "research.athena"}
+        return {**output, "delegated_agent_id": getattr(result, "agent_id", "search.scout"), "delegation_task_id": getattr(result, "task_id", None), "requested_by": "research.athena"}
 
     @staticmethod
     def _build_queries(prompt: str) -> list[str]:
@@ -328,6 +398,10 @@ class ResearchAgent:
         clean = " ".join(str(prompt or "").split()).strip()
         if not clean:
             return []
+
+        # Technical product research gets distinct, source-oriented query angles.
+        if re.search(r"\btavily\b", clean, re.IGNORECASE) and re.search(r"\bsearch\s+api\b", clean, re.IGNORECASE):
+            return list(_PRIMARY_SOURCE_HINTS["tavily"])
 
         # A standalone orchestration instruction is not a research topic.
         if re.fullmatch(
@@ -445,6 +519,8 @@ class ResearchAgent:
                 or (host == "pypi.org" and path.startswith("/project/fastapi"))
                 or (host == "github.com" and path.startswith("/fastapi/fastapi"))
             )
+        if "tavily" in lowered:
+            return host == "docs.tavily.com"
         # Generic primary-source hints can be carried explicitly as site: URLs
         # in the original task; otherwise avoid guessing ownership.
         domains = re.findall(r"\bsite:([A-Za-z0-9.-]+)", prompt, re.IGNORECASE)

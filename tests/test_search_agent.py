@@ -693,3 +693,34 @@ async def test_official_tavily_docs_search_rejects_non_official_domains(monkeypa
     assert output["result_count"] == 0
     assert any(item["error_code"] == "empty_or_invalid_results" for item in output["provider_failures"])
     assert "No results have been fabricated" in output["summary"]
+
+
+
+def test_tavily_search_preserves_provider_extracted_page_content(monkeypatch):
+    import json
+    import agents.search_agent.agent as module
+
+    monkeypatch.setenv("TAVILY_API_KEY", "test-key-not-real")
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            return False
+        def read(self):
+            return json.dumps({"results": [{
+                "title": "Tavily Search API",
+                "url": "https://docs.tavily.com/documentation/api-reference/endpoint/search",
+                "content": "Search snippet",
+                "raw_content": "Authentication uses a Bearer API key.",
+            }]}).encode()
+
+    def fake_urlopen(request, timeout):
+        body = json.loads(request.data.decode())
+        assert body["include_raw_content"] is True
+        return FakeResponse()
+
+    monkeypatch.setattr(module, "urlopen", fake_urlopen)
+    results = module._fetch_tavily_results("Tavily Search API", timeout=1, limit=3)
+    assert results[0]["snippet"] == "Search snippet"
+    assert results[0]["page_content"] == "Authentication uses a Bearer API key."

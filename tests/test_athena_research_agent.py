@@ -122,3 +122,133 @@ def test_repeated_source_across_queries_does_not_mark_athena_partial():
     assert result["research_status"] == "retrieval_complete_unverified"
     assert result["complete"] is True
     assert [item["status"] for item in result["query_provenance"]] == ["complete"] * 3
+
+
+
+def test_tavily_query_plan_uses_three_distinct_official_documentation_angles():
+    queries = ResearchAgent._build_queries(
+        "Research the Tavily Search API using Scout's web-retrieval capability. "
+        "Compare authentication, endpoint, request parameters and response structure."
+    )
+    assert len(queries) == 3
+    assert len(set(queries)) == 3
+    assert all("site:docs.tavily.com" in query for query in queries)
+    assert any("authentication" in query.casefold() for query in queries)
+    assert any("request parameters" in query.casefold() for query in queries)
+    assert any("best practices" in query.casefold() for query in queries)
+    assert all("web-retrieval capability" not in query.casefold() for query in queries)
+
+
+def test_athena_records_scout_delegation_provenance_and_requires_three_official_sources():
+    agent = ResearchAgent()
+    queries = agent._build_queries("Research the Tavily Search API official documentation")
+    docs = [
+        ("Search API", "https://docs.tavily.com/documentation/api-reference/endpoint/search"),
+        ("Search best practices", "https://docs.tavily.com/documentation/best-practices/best-practices-search"),
+        ("Python quickstart", "https://docs.tavily.com/sdk/python/quick-start"),
+    ]
+    outcomes = {
+        query: {
+            "provider": "Tavily Search API",
+            "retrieved_at": "2026-11-12T14:00:00+00:00",
+            "results": [{
+                "title": title,
+                "url": url,
+                "domain": "docs.tavily.com",
+                "snippet": "Documentation discovery snippet",
+                "page_content": "Extracted documentation content",
+            }],
+        }
+        for query, (title, url) in zip(queries, docs)
+    }
+    context = FakeContext(outcomes)
+    result = asyncio.run(agent(SimpleNamespace(
+        prompt="Research the Tavily Search API official documentation"
+    ), context))
+    assert len(context.calls) == 3
+    assert result["primary_source_count"] == 3
+    assert result["official_source_threshold_met"] is True
+    assert result["extracted_content_count"] == 3
+    assert result["evidence_level"] == "provider_extracted_page_content"
+    assert result["complete"] is True
+    assert all(item["delegated_agent_id"] == "search.scout" for item in result["query_provenance"])
+    assert all(item["requested_by"] == "research.athena" for item in result["query_provenance"])
+    assert "provider-extracted content" in result["summary"]
+
+
+def test_athena_does_not_mark_official_research_complete_without_three_primary_sources():
+    agent = ResearchAgent()
+    queries = agent._build_queries("Research the Tavily Search API official documentation")
+    context = FakeContext({
+        query: {
+            "provider": "Tavily Search API",
+            "results": [{
+                "title": "Unofficial guide",
+                "url": f"https://example{index}.org/tavily",
+                "domain": f"example{index}.org",
+                "snippet": "Unverified",
+            }],
+        }
+        for index, query in enumerate(queries)
+    })
+    result = asyncio.run(agent(SimpleNamespace(
+        prompt="Research the Tavily Search API official documentation"
+    ), context))
+    assert result["primary_source_count"] == 0
+    assert result["official_source_threshold_met"] is False
+    assert result["research_status"] == "insufficient_primary_sources"
+    assert result["complete"] is False
+
+
+
+def test_official_research_requires_extracted_content_not_search_snippets_alone():
+    agent = ResearchAgent()
+    queries = agent._build_queries("Research the Tavily Search API official documentation")
+    docs = [
+        "https://docs.tavily.com/documentation/api-reference/endpoint/search",
+        "https://docs.tavily.com/documentation/best-practices/best-practices-search",
+        "https://docs.tavily.com/sdk/python/quick-start",
+    ]
+    context = FakeContext({
+        query: {
+            "provider": "Tavily Search API",
+            "results": [{
+                "title": "Official Tavily documentation",
+                "url": url,
+                "domain": "docs.tavily.com",
+                "snippet": "Search result snippet only",
+            }],
+        }
+        for query, url in zip(queries, docs)
+    })
+    result = asyncio.run(agent(SimpleNamespace(
+        prompt="Research the Tavily Search API official documentation"
+    ), context))
+    assert result["primary_source_count"] == 3
+    assert result["official_source_threshold_met"] is True
+    assert result["extracted_content_threshold_met"] is False
+    assert result["research_status"] == "insufficient_extracted_content"
+    assert result["complete"] is False
+
+
+
+def test_athena_builds_source_linked_technical_evidence_matrix():
+    sources = [{
+        "url": "https://docs.tavily.com/documentation/api-reference/endpoint/search",
+        "page_content": (
+            "Authentication uses a Bearer API key. "
+            "POST https://api.tavily.com/search executes a search query. "
+            "The query and search_depth parameters control the request. "
+            "The response contains results with content and score."
+        ),
+    }]
+    matrix = ResearchAgent._build_technical_evidence_matrix(sources)
+    assert matrix["Authentication"]
+    assert matrix["Endpoint and method"]
+    assert matrix["Request parameters"]
+    assert matrix["Response structure"]
+    assert all(
+        item["url"] == sources[0]["url"]
+        for entries in matrix.values()
+        for item in entries
+    )
