@@ -167,7 +167,7 @@ class ResearchAgent:
             and self._has_substantive_page_content(item.get("page_content", ""))
         }
         extracted_count = len(substantive_primary_urls)
-        official_required = bool(re.search(r"\\bofficial\\b|\\bprimary source\\b", prompt, re.IGNORECASE))
+        official_required = bool(re.search(r"\bofficial\b|\bprimary source\b", prompt, re.IGNORECASE))
         official_threshold_met = not official_required or primary_count >= 3
         extracted_threshold_met = not official_required or extracted_count >= 3
         api_comparison_requested = "tavily" in prompt.casefold() and "search api" in prompt.casefold()
