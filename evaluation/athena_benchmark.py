@@ -320,6 +320,62 @@ async def _evaluate_case(case: BenchmarkCase) -> dict[str, Any]:
     actual_complete = bool(result.get("complete", False))
     actual_coverage = result.get("technical_coverage_complete")
     provenance = result.get("query_provenance", [])
+    provenance_trace = [
+        {
+            "query": str(item.get("query", "")),
+            "status": str(item.get("status", "unknown")),
+            "provider": str(item.get("provider", "")),
+            "providers_attempted": [str(value) for value in item.get("providers_attempted", [])],
+            "provider_failures": [str(value) for value in item.get("provider_failures", [])],
+            "result_count": int(item.get("result_count", 0) or 0),
+            "retrieval_status": str(item.get("retrieval_status", item.get("status", "unknown"))),
+            "delegated_agent_id": str(item.get("delegated_agent_id", "search.scout")),
+            "delegation_task_id": item.get("delegation_task_id"),
+            "requested_by": str(item.get("requested_by", "research.athena")),
+            "error": str(item.get("error", ""))[:240],
+        }
+        for item in provenance
+    ]
+    retrieval_complete = len(provenance_trace) == len(queries) and all(
+        item["status"] == "complete" for item in provenance_trace
+    )
+    primary_source_gate = bool(result.get("official_source_threshold_met", False))
+    extracted_content_gate = bool(result.get("extracted_content_threshold_met", False))
+    technical_coverage_gate = result.get("technical_coverage_complete")
+    gate_results = [
+        {
+            "gate_id": "retrieval_completeness",
+            "label": "Retrieval completeness",
+            "status": "pass" if retrieval_complete else "fail",
+            "detail": f"{sum(item['status'] == 'complete' for item in provenance_trace)} of {len(queries)} queries completed without a partial or failed retrieval.",
+        },
+        {
+            "gate_id": "primary_source_threshold",
+            "label": "Primary-source threshold",
+            "status": "pass" if primary_source_gate else "fail",
+            "detail": f"{result.get('primary_source_count', 0)} recognized primary sources; the configured source gate is evaluated by Athena.",
+        },
+        {
+            "gate_id": "substantive_content_threshold",
+            "label": "Substantive extracted content",
+            "status": "pass" if extracted_content_gate else "fail",
+            "detail": f"{result.get('extracted_content_count', 0)} distinct sources passed Athena's substantive extracted-content test.",
+        },
+        {
+            "gate_id": "technical_coverage",
+            "label": "Technical coverage",
+            "status": (
+                "not_evaluated" if technical_coverage_gate is None
+                else "pass" if technical_coverage_gate else "fail"
+            ),
+            "detail": (
+                "This scenario did not produce a technical-coverage decision."
+                if technical_coverage_gate is None
+                else f"{len(result.get('technical_dimensions_covered', []))} technical dimensions were covered."
+            ),
+        },
+    ]
+    failed_gates = [item["gate_id"] for item in gate_results if item["status"] == "fail"]
 
     return {
         "case_id": case.case_id,
@@ -346,6 +402,9 @@ async def _evaluate_case(case: BenchmarkCase) -> dict[str, Any]:
             "providers": sorted(
                 {str(item.get("provider", "")) for item in provenance if item.get("provider")}
             ),
+            "query_provenance": provenance_trace,
+            "gate_results": gate_results,
+            "failed_gates": failed_gates,
         },
         "checks": {
             "status_correct": actual_status == case.expected_status,

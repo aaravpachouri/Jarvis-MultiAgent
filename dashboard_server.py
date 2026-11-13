@@ -605,6 +605,24 @@ class DashboardApplication:
             future.cancel()
 
 
+def read_athena_benchmark() -> dict:
+    """Run the deterministic fixture benchmark against the real Athena ResearchAgent.
+
+    This test harness uses a scripted Scout context, makes no provider calls,
+    and never fetches the source URLs used by its synthetic fixtures.
+    """
+    try:
+        from evaluation.athena_benchmark import run_benchmark
+
+        return run_benchmark()
+    except Exception:
+        # Do not expose exception details or environment information through the API.
+        return {
+            "available": False,
+            "error": "Athena Evidence Lab could not run in this runtime.",
+        }
+
+
 APP = None
 
 
@@ -714,6 +732,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, APP.overview())
         if path == "/api/agents":
             return self._send(200, {"agents": APP.runtime.list_agents()})
+        if path == "/api/athena/benchmark":
+            report = read_athena_benchmark()
+            if not report.get("available", True):
+                return self._send(503, report)
+            return self._send(200, report)
         if path == "/api/market":
             return self._send(200, read_market_report())
         if path == "/api/quant/dashboard":

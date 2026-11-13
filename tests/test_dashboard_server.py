@@ -57,3 +57,56 @@ def test_dashboard_session_token_is_bound_to_configured_access_key(monkeypatch):
 def test_dashboard_session_rejects_missing_server_secret(monkeypatch):
     monkeypatch.delenv("JARVIS_DASHBOARD_ACCESS_KEY", raising=False)
     assert not dashboard_server._valid_session_token("1800000000.nonce.signature", now=1_800_000_001)
+
+
+def test_athena_benchmark_endpoint_returns_fixture_report_after_authentication(monkeypatch):
+    expected = {
+        "benchmark": {"execution_mode": "deterministic_synthetic_fixtures", "provider_calls": 0},
+        "metrics": {"scenario_count": 10, "critical_gate": "PASS"},
+        "cases": [],
+    }
+    sent = []
+    handler = object.__new__(dashboard_server.Handler)
+    handler.path = "/api/athena/benchmark"
+    monkeypatch.setattr(dashboard_server.Handler, "_authorize_api", lambda self: True)
+    monkeypatch.setattr(dashboard_server.Handler, "_send", lambda self, status, payload, *args: sent.append((status, payload)))
+    monkeypatch.setattr(dashboard_server, "read_athena_benchmark", lambda: expected)
+
+    handler.do_GET()
+
+    assert sent == [(200, expected)]
+
+
+def test_athena_benchmark_endpoint_fails_closed_when_benchmark_cannot_run(monkeypatch):
+    sent = []
+    handler = object.__new__(dashboard_server.Handler)
+    handler.path = "/api/athena/benchmark"
+    monkeypatch.setattr(dashboard_server.Handler, "_authorize_api", lambda self: True)
+    monkeypatch.setattr(dashboard_server.Handler, "_send", lambda self, status, payload, *args: sent.append((status, payload)))
+    monkeypatch.setattr(
+        dashboard_server,
+        "read_athena_benchmark",
+        lambda: {"available": False, "error": "Athena Evidence Lab could not run in this runtime."},
+    )
+
+    handler.do_GET()
+
+    assert sent[0][0] == 503
+    assert sent[0][1]["available"] is False
+
+
+def test_athena_benchmark_endpoint_remains_session_protected(monkeypatch):
+    sent = []
+    handler = object.__new__(dashboard_server.Handler)
+    handler.path = "/api/athena/benchmark"
+    monkeypatch.setattr(dashboard_server.Handler, "_authorize_api", lambda self: False)
+    monkeypatch.setattr(dashboard_server.Handler, "_send", lambda self, status, payload, *args: sent.append((status, payload)))
+    monkeypatch.setattr(
+        dashboard_server,
+        "read_athena_benchmark",
+        lambda: (_ for _ in ()).throw(AssertionError("benchmark must not run before authorization")),
+    )
+
+    handler.do_GET()
+
+    assert sent == []

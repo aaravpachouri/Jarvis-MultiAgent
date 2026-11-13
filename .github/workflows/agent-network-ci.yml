@@ -10,6 +10,7 @@ on:
     paths:
       - "agents/**"
       - "core/**"
+      - "evaluation/**"
       - "tests/**"
       - "dashboard/**"
       - "dashboard_server.py"
