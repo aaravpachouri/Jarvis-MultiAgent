@@ -60,7 +60,7 @@ test("Athena benchmark route forwards to the fixed Render endpoint and preserves
     assert.equal(requestedUrl, "https://jarvis-multiagent-api.onrender.com/api/athena/benchmark");
     assert.equal(forwardedCookie, "jarvis_dashboard_session=opaque");
     assert.equal(res.statusCode, 401);
-    assert.match(res.headers["content-type"], /application\\/json/);
+    assert.ok(res.headers["content-type"].includes("application/json"));
     assert.equal(JSON.parse(res.body).error, "Your JARVIS session has expired. Please sign in again.");
   } finally {
     global.fetch = originalFetch;
