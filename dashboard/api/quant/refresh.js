@@ -1,4 +1,4 @@
-const { proxyBackendPost } = require("../../../lib/backend-proxy");
+const { proxyBackendPost } = require("../../lib/backend-proxy");
 
 module.exports = function handler(req, res) {
   return proxyBackendPost(req, res, "/api/quant/refresh");
