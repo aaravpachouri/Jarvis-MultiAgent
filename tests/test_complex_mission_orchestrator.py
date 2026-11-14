@@ -451,7 +451,7 @@ async def test_read_only_research_mission_excludes_forge_and_memory_and_scribe_g
 
     read_only_prompt = (
         _MULTI_AGENT_MODEL_RESEARCH_PROMPT
-        + "\\nDo not deploy anything or perform external actions."
+        + "\nDo not deploy anything or perform external actions."
     )
     assert VoiceAgent._is_read_only_mission_request(read_only_prompt)
     assert not VoiceAgent._is_code_mutation_request(_MULTI_AGENT_MODEL_RESEARCH_PROMPT)
