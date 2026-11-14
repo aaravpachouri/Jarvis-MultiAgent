@@ -2475,7 +2475,11 @@ class VoiceAgent:
                 + "\n\n## Execution and evidence boundaries\n\n"
                 + "Only the specialist outputs and retrieval provenance supplied above are represented here. "
                 + "Search snippets or provider-extracted page content are not independent browser verification. "
-                + "No files, settings, models, or commands were changed or executed by this research-only mission."
+                + (
+                    "The user explicitly requested a read-only workflow; no files, settings, models, or commands were changed or executed."
+                    if read_only else
+                    "Only actions evidenced in child-task outputs are represented; no additional actions are claimed."
+                )
             )
             writer_result = await context.delegate(
                 prompt=("Prepare the complete final report in Markdown using the supplied research outputs. "
@@ -2551,7 +2555,7 @@ class VoiceAgent:
             if record.get("output"):
                 output_limit = 24000 if step_id == "final_report_draft" else 6000
                 lines.append(
-                    f"\\n### {record.get('agent_id','specialist')} · {record.get('status','unknown')}\\n"
+                    f"\n### {record.get('agent_id','specialist')} · {record.get('status','unknown')}\n"
                     f"{record['output'][:output_limit]}"
                 )
         lines.extend([
