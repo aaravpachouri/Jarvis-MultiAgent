@@ -582,12 +582,13 @@ class ResearchAgent:
     @staticmethod
     def _build_queries(prompt: str) -> list[str]:
         """Extract focused topic queries without confusing orchestration with the objective."""
-        clean = " ".join(str(prompt or "").split()).strip()
+        raw_prompt = str(prompt or "")
+        model_targets = ResearchAgent._extract_model_targets(raw_prompt)
+        clean = " ".join(raw_prompt.split()).strip()
         if not clean:
             return []
 
         # Structured multi-option objectives must preserve every named target.
-        model_targets = ResearchAgent._extract_model_targets(clean)
         if len(model_targets) >= 2:
             criteria = (
                 "official model card reasoning coding benchmarks inference speed "
