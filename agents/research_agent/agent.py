@@ -35,7 +35,7 @@ _PRIMARY_SOURCE_HINTS: dict[str, tuple[str, str, str]] = {
 # corresponding Ollama catalogue entry. Search snippets remain discovery only.
 _MODEL_SOURCE_HINTS: dict[str, str] = {
     "qwen": "site:qwen.ai OR site:github.com/QwenLM/Qwen3 OR site:ollama.com/library/qwen3",
-    "llama": "site:llama.com OR site:github.com/meta-llama/llama-models OR site:ollama.com/library/llama3.2",
+    "llama": "site:github.com/meta-llama/llama-models site:ollama.com/library/llama3.2",
     "gemma": "site:deepmind.google OR site:ai.google.dev/gemma OR site:registry.ollama.com/library/gemma3",
 }
 
@@ -632,7 +632,7 @@ class ResearchAgent:
                     (hint for model_key, hint in _MODEL_SOURCE_HINTS.items() if model_key in lowered_target),
                     "",
                 )
-                query = f"{target} official model card reasoning coding context license {source_hint}"
+                query = f"{target} official model card reasoning coding context license Ollama compatibility {source_hint}"
                 queries.append(" ".join(query.split())[:179].rstrip())
             return queries
 
