@@ -552,13 +552,23 @@ def test_model_comparison_requires_extracted_official_content_for_each_named_mod
             "provider": "Tavily Search API",
             "retrieval_status": "complete",
             "partial": False,
-            "results": [{
-                "title": f"{model_name} official model information",
-                "url": url,
-                "domain": url.split("/")[2],
-                "snippet": "Official source discovery snippet",
-                "page_content": content,
-            }],
+            "results": ([
+                {
+                    "title": f"{model_name} official model information",
+                    "url": url,
+                    "domain": url.split("/")[2],
+                    "snippet": "Official source discovery snippet",
+                    "page_content": content,
+                }
+            ] + ([
+                {
+                    "title": "Qwen additional official model reference",
+                    "url": "https://github.com/QwenLM/Qwen3",
+                    "domain": "github.com",
+                    "snippet": "Additional official Qwen source",
+                    "page_content": _model_card_content("Qwen 3 4B"),
+                }
+            ] if model_name == "Qwen 3 4B" else [])),
         }
         for query, (model_name, url, content) in zip(queries, docs)
     }
