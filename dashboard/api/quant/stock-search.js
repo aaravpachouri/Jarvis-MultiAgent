@@ -1,4 +1,4 @@
-const { proxyBackendGet, buildQueryPath } = require("../../../lib/backend-proxy");
+const { proxyBackendGet, buildQueryPath } = require("../../lib/backend-proxy");
 
 module.exports = function handler(req, res) {
   return proxyBackendGet(req, res, request =>
