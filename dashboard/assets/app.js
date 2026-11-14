@@ -651,7 +651,7 @@
 
   function setHudStageTab(tab = 'conversation') {
     const activeTab = tab === 'network' ? 'network' : 'conversation';
-    $('[data-stage-tab]').forEach(button => {
+    $$('[data-stage-tab]').forEach(button => {
       const active = button.dataset.stageTab === activeTab;
       button.classList.toggle('active', active);
       button.setAttribute('aria-pressed', active ? 'true' : 'false');
