@@ -2106,15 +2106,13 @@ class VoiceAgent:
         text = str(prompt or "").casefold()
         preferred: list[str] = []
         implementation_intent = VoiceAgent._is_code_mutation_request(text)
-        test_intent = bool(
-            re.search(
-                r"\b(?:run|execute|write|add|create|fix|verify|check)\b.{0,50}\b"
-                r"(?:tests?|pytest|test suite|regression)\b",
-                text,
-                re.IGNORECASE,
-            )
-            or re.search(r"\b(?:run|execute)\s+(?:pytest|tests?)\b", text, re.IGNORECASE)
-        )
+        test_intent = bool(re.search(
+            r"\b(?:run|execute|write|add|create|fix|verify|check)\s+"
+            r"(?:(?:the|full|all|some|new|unit|integration|regression)\s+){0,2}"
+            r"(?:tests?|pytest|test suite)\b",
+            text,
+            re.IGNORECASE,
+        ))
         if implementation_intent:
             preferred.extend(("code.write", "code.debug", "repository.analyze", "code.test"))
         elif test_intent:
