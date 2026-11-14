@@ -807,3 +807,45 @@ body.login-locked .app-shell{visibility:hidden;pointer-events:none}
 .athena-error{border-color:rgba(255,98,111,.3)}
 .athena-error strong{color:#ff9ca4}
 @media(max-width:760px){.athena-lab-hero{flex-direction:column}.athena-critical{align-self:flex-start}.athena-metric>strong{font-size:19px}}
+
+
+/* Athena Evidence Lab: adapt to the fixed-width HUD drawer, not the viewport width. */
+.hud-drawer[data-panel="athena"] .hud-drawer-body {
+  min-width: 0;
+  overflow-x: hidden;
+}
+.hud-drawer[data-panel="athena"] .athena-lab,
+.hud-drawer[data-panel="athena"] .athena-lab * {
+  box-sizing: border-box;
+  min-width: 0;
+}
+.hud-drawer[data-panel="athena"] .athena-lab {
+  width: 100%;
+  max-width: 100%;
+}
+.hud-drawer[data-panel="athena"] .athena-lab-hero {
+  flex-direction: column;
+  align-items: flex-start;
+}
+.hud-drawer[data-panel="athena"] .athena-lab-hero-copy {
+  width: 100%;
+  max-width: 100%;
+}
+.hud-drawer[data-panel="athena"] .athena-case,
+.hud-drawer[data-panel="athena"] .athena-metric,
+.hud-drawer[data-panel="athena"] .athena-fixture-warning {
+  max-width: 100%;
+}
+.hud-drawer[data-panel="athena"] .athena-case-top > div,
+.hud-drawer[data-panel="athena"] .athena-section-heading > div {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.hud-drawer[data-panel="athena"] .athena-case-index,
+.hud-drawer[data-panel="athena"] .athena-case-stats > span,
+.hud-drawer[data-panel="athena"] .athena-case-bottom > span,
+.hud-drawer[data-panel="athena"] .athena-fixture-warning span,
+.hud-drawer[data-panel="athena"] .athena-fixture-warning small,
+.hud-drawer[data-panel="athena"] .athena-lab-footer > span {
+  overflow-wrap: anywhere;
+}

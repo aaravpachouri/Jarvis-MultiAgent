@@ -1,5 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const { render } = require("../assets/athena-evidence");
 
 function sampleReport() {
@@ -90,4 +92,17 @@ test("keeps source fixture URLs as inert text, not verified clickable citations"
 
 test("renders an explicit unavailable state for malformed benchmark responses", () => {
   assert.match(render({}), /Evidence report unavailable/);
+});
+
+test("Athena Evidence Lab adapts to the compact HUD drawer without horizontal overflow", () => {
+  const styles = fs.readFileSync(path.join(__dirname, "../assets/styles.css"), "utf8");
+
+  assert.ok(styles.includes('.hud-drawer[data-panel="athena"] .hud-drawer-body {'));
+  assert.ok(styles.includes("  overflow-x: hidden;"));
+  assert.ok(styles.includes('.hud-drawer[data-panel="athena"] .athena-lab-hero {'));
+  assert.ok(styles.includes("  flex-direction: column;"));
+  assert.ok(styles.includes('.hud-drawer[data-panel="athena"] .athena-case-top > div,'));
+  assert.ok(styles.includes("  min-width: 0;"));
+  assert.ok(styles.includes('.hud-drawer[data-panel="athena"] .athena-case-index,'));
+  assert.ok(styles.includes("  overflow-wrap: anywhere;"));
 });
