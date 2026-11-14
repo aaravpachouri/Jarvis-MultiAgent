@@ -119,7 +119,10 @@ class VoiceAgent:
         # the registry determines which executable specialists are available.
         if self._is_complex_mission_request(prompt):
             complex_workstreams = self._select_complex_workstreams(prompt, matches, context)
-            if len(complex_workstreams) >= 2:
+            # The mission workflow itself supplies Planner and (when requested)
+            # Scribe. It only needs one primary specialist workstream; nested
+            # retrieval agents remain delegated by their owning specialist.
+            if complex_workstreams:
                 complex_result = await self._run_complex_mission(prompt, context, complex_workstreams)
                 remembered = str(complex_result.output or complex_result.summary)
                 self._remember(prompt, remembered)
@@ -1958,6 +1961,7 @@ class VoiceAgent:
         if len(text.split()) < 12:
             return False
         explicit = (
+            r"\b(?:complete|full)\s+multi[- ]agent\s+(?:research|analysis)(?:\s+and\s+(?:research|analysis))?\s+(?:task|workflow|mission)\b",
             r"\bcomplex(?:ity)?\s+(?:task|mission|workflow|project|request)s?\b",
             r"\bcomplex of the complex\b",
             r"\bend[- ]to[- ]end\b",
@@ -1989,9 +1993,20 @@ class VoiceAgent:
         wants_memory = bool(re.search(r"\b(?:memory|remember|notes|recall)\b", text))
         selected: list[dict[str, Any]] = []
         seen: set[str] = set()
+        # Athena owns research decomposition and delegates retrieval to Scout.
+        # Do not promote Scout into a parallel top-level workstream when Athena
+        # is available, or the same research objective will be searched twice.
+        athena_available = any(
+            getattr(match, "agent_id", "") == "research.athena"
+            and getattr(match, "agent_id", "") in executable_ids
+            for match in matches
+        )
         for match in matches:
             agent_id = str(getattr(match, "agent_id", "") or "")
             if not agent_id or agent_id in seen or agent_id not in executable_ids:
+                continue
+            if agent_id == "search.scout" and athena_available:
+                continue
                 continue
             try:
                 spec = runtime.registry.get(agent_id)
@@ -2232,7 +2247,14 @@ class VoiceAgent:
         ]
         code_steps = [item["agent_id"] for item in workstreams
                       if any(cap.startswith("code.") or cap == "repository.analyze" for cap in item["spec"].capabilities)]
-        report_requested = bool(re.search(r"\b(?:write|create|prepare|generate)\b.{0,35}\b(?:report|write[- ]?up|documentation|proposal)\b", prompt, re.IGNORECASE))
+        report_requested = bool(
+            re.search(
+                r"\b(?:write|create|prepare|generate|produce|draft|deliver)\b.{0,55}\b(?:final\s+)?(?:report|write[- ]?up|documentation|proposal)\b",
+                prompt,
+                re.IGNORECASE,
+            )
+            or re.search(r"\bfinal\s+report\b", prompt, re.IGNORECASE)
+        )
         writer_candidates = runtime.discover_executable(("writing.report",), match_all=True, limit=1) if report_requested else []
         writer_spec = writer_candidates[0] if writer_candidates else None
 
@@ -2314,21 +2336,38 @@ class VoiceAgent:
                 )
                 output_text = (self._render_output(child.output) if not isinstance(child.output, str)
                                else child.output)
+                research_output = child.output if isinstance(child.output, Mapping) else {}
+                research_quality_failed = (
+                    _capability.startswith("research.")
+                    and research_output.get("complete") is False
+                )
+                research_status = str(research_output.get("research_status") or "").strip()
+                research_error = (
+                    "Research quality gate failed"
+                    + (f": {research_status}" if research_status else ": Athena marked the evidence incomplete")
+                    + ". The child task returned, but the requested research was not complete."
+                    if research_quality_failed else None
+                )
                 record = {
                     "workflow_step_id": _id,
                     "agent_id": _agent_id,
                     "capability": _capability,
                     "task_id": child.task_id,
-                    "status": child.status.value,
+                    "task_status": child.status.value,
+                    "status": "quality_gate_failed" if research_quality_failed else child.status.value,
+                    "research_status": research_status or None,
+                    "research_complete": research_output.get("complete") if _capability.startswith("research.") else None,
                     "parent_task_id": context.task.task_id,
                     "correlation_id": child.metadata.get("correlation_id") if isinstance(child.metadata, Mapping) else None,
                     "depends_on": list(_dependencies),
                     "planner_step_ids": [step["id"] for step in plan_steps if step.get("agent_id") == _agent_id],
                     "output": output_text[:6000],
                     "artifacts": list(child.artifacts),
-                    "error": str(child.error or "")[:1200] if not child.succeeded else None,
+                    "error": (research_error or str(child.error or "")[:1200]) if (research_quality_failed or not child.succeeded) else None,
                 }
                 records[_id] = record
+                if research_quality_failed:
+                    raise RuntimeError(research_error or "Research quality gate failed.")
                 if not child.succeeded:
                     raise RuntimeError(f"Specialist {_agent_id} returned {child.status.value}.")
                 return record
@@ -2346,14 +2385,31 @@ class VoiceAgent:
                 f"WORKSTREAM {key}\nAGENT: {record['agent_id']}\nSTATUS: {record['status']}\nOUTPUT:\n{record['output']}"
                 for key, record in records.items()
             )
+            report_key_points = [
+                f"{record.get('agent_id', 'specialist')} · {record.get('status', 'unknown')}: {record.get('output', '')[:1800]}"
+                for record in records.values()
+            ]
+            report_limitations = [
+                f"{record.get('agent_id', 'specialist')}: {record.get('error')}"
+                for record in records.values() if record.get("error")
+            ]
             writer_result = await context.delegate(
                 prompt=("Prepare a final report draft based only on the supplied specialist outputs. Separate verified facts, "
                         "inferences, failures and unresolved checks. Do not claim unperformed steps.\n\n"
                         f"MISSION:\n{prompt}\n\nACTUAL WORKSTREAM RESULTS:\n{collected[:16000]}"),
                 agent_id=writer_spec.agent_id,
                 capabilities=("writing.report",),
-                context={"workflow": "complex_mission", "stage": "final_report_draft", "original_request": prompt[:8000],
-                         "workstream_results": records, "write_mode": "draft_only"},
+                context={
+                    "workflow": "complex_mission",
+                    "stage": "final_report_draft",
+                    "original_request": prompt[:8000],
+                    "workstream_results": records,
+                    "purpose": "Summarize the mission objective, actual specialist findings, evidence quality and unresolved gaps.",
+                    "key_points": report_key_points,
+                    "source_material": [collected[:16000]],
+                    "limitations": report_limitations,
+                    "write_mode": "draft_only",
+                },
                 requested_by=context.agent.agent_id,
             )
             report_task_id, report_status = writer_result.task_id, writer_result.status.value
