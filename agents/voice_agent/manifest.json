@@ -31,6 +31,36 @@
   "enabled": true,
   "metadata": {
     "profile_only": false,
-    "folder": "voice_agent"
+    "folder": "voice_agent",
+    "operator_guide": {
+      "best_for": [
+        "Starting a conversation",
+        "Automatically routing a request to the right specialist",
+        "Coordinating multi-step work and combining specialist outputs"
+      ],
+      "functions": [
+        {
+          "capability": "conversation.handle",
+          "description": "Handle chat requests and return a direct conversational response."
+        },
+        {
+          "capability": "task.coordinate",
+          "description": "Select executable specialists, ask Planner for dependency-aware steps on complex missions, delegate bounded workstreams, and synthesize returned results."
+        },
+        {
+          "capability": "voice.input",
+          "description": "Accept speech input through the dashboard's supported browser voice-input path."
+        },
+        {
+          "capability": "voice.output",
+          "description": "Speak returned text through the dashboard's supported browser speech-output path."
+        }
+      ],
+      "boundaries": [
+        "JARVIS coordinates specialists; it does not make a specialist's capability available when that specialist has no executable handler.",
+        "A planned step is not proof of execution. It reports only observed child-task results and runtime events.",
+        "Protected operations still require the configured approval and permission controls."
+      ]
+    }
   }
 }
