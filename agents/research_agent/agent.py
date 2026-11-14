@@ -551,22 +551,28 @@ class ResearchAgent:
 
     @staticmethod
     def _extract_model_targets(prompt: str) -> list[str]:
-        """Read explicit comparison targets from an OBJECTIVE / Compare list."""
-        objective = re.search(
-            r"(?ims)^\s*OBJECTIVE\s*:\s*(.*?)(?=^\s*(?:REQUIREMENTS|COORDINATION|OUTPUT|IMPORTANT|CONSTRAINTS)\s*:|\Z)",
-            str(prompt or ""),
-        )
-        scope = objective.group(1) if objective else str(prompt or "")
-        compare = re.search(
-            r"(?ims)^\s*Compare\s*:\s*(.*?)(?=^\s*[A-Z][A-Z _/-]{2,}\s*:|\Z)",
-            scope,
-        )
-        if not compare:
-            return []
-        items = re.findall(r"(?m)^\s*(?:\d+[.)]|[-*])\s*(.+?)\s*$", compare.group(1))
+        """Read numbered or bulleted targets immediately beneath a Compare heading."""
+        lines = str(prompt or "").splitlines()
         targets: list[str] = []
-        for item in items:
-            target = " ".join(item.split()).strip(" .;:-")
+        inside_compare = False
+        for raw_line in lines:
+            line = raw_line.strip()
+            if not inside_compare:
+                if re.match(r"^compare\s*:\s*$", line, re.IGNORECASE):
+                    inside_compare = True
+                continue
+            if re.match(r"^(?:REQUIREMENTS|COORDINATION|OUTPUT|IMPORTANT|CONSTRAINTS)\s*:", line, re.IGNORECASE):
+                break
+            item = re.match(r"^(?:\d+[.)]|[-*])\s*(.+?)\s*$", line)
+            if not item:
+                # Blank lines inside the list are harmless; prose or a new
+                # subsection means the comparison list has ended.
+                if not line:
+                    continue
+                if targets:
+                    break
+                continue
+            target = " ".join(item.group(1).split()).strip(" .;:-")
             if target and len(target) <= 100 and target.casefold() not in {value.casefold() for value in targets}:
                 targets.append(target)
             if len(targets) >= 5:
