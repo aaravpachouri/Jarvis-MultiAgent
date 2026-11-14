@@ -44,6 +44,11 @@ class ResearchAgent:
         if not prompt:
             raise ValueError("Athena requires a non-empty research prompt.")
 
+        model_targets = self._extract_model_targets(prompt)
+        model_comparison_requested = len(model_targets) >= 2 and bool(
+            re.search(r"\bcompare\b", prompt, re.IGNORECASE)
+        )
+
         task_context = getattr(task, "context", {}) or {}
         if not isinstance(task_context, dict) and not hasattr(task_context, "items"):
             raise TypeError("Athena task context must be a mapping.")
@@ -156,16 +161,42 @@ class ResearchAgent:
                 "failures": failures or ["Scout returned no parseable results."],
                 "evidence_level": "no_retrieved_evidence",
                 "research_status": "insufficient_evidence",
+                "requested_model_targets": model_targets,
+                "model_target_coverage": {target: [] for target in model_targets},
+                "model_target_coverage_complete": not model_comparison_requested,
                 "complete": False,
             }
         api_comparison_requested = "tavily" in prompt.casefold() and "search api" in prompt.casefold()
+        model_comparison_requested = model_comparison_requested or (
+            len(model_targets) >= 2 and bool(re.search(r"\bcompare\b", prompt, re.IGNORECASE))
+        )
         evidence_sources = [
             item for item in sources
             if self._is_relevant_api_source(item["url"])
         ] if api_comparison_requested else sources
-        comparison_matrix = self._build_technical_evidence_matrix(evidence_sources)
-        # Tavily Search API research has a narrow documentation allowlist. Other
-        # official-source topics retain their topic-specific primary-source rules.
+        if api_comparison_requested:
+            comparison_matrix = self._build_technical_evidence_matrix(evidence_sources)
+            required_dimensions = tuple(comparison_matrix)
+        elif model_comparison_requested:
+            comparison_matrix = self._build_model_evidence_matrix(evidence_sources)
+            required_dimensions = tuple(comparison_matrix)
+        else:
+            comparison_matrix = {}
+            required_dimensions = ()
+
+        model_target_coverage = {
+            target: [
+                item["url"] for item in sources
+                if self._is_official_model_source(target, item["url"])
+            ]
+            for target in model_targets
+        } if model_comparison_requested else {}
+        model_target_coverage_complete = (
+            all(model_target_coverage.values()) if model_comparison_requested else True
+        )
+
+        # Official-source gates count substantive extracted content from recognized
+        # primary pages, not just URLs or search snippets.
         substantive_primary_urls = {
             item["url"] for item in sources
             if (
@@ -179,9 +210,11 @@ class ResearchAgent:
         official_required = bool(re.search(r"\bofficial\b|\bprimary source\b", prompt, re.IGNORECASE))
         official_threshold_met = not official_required or primary_count >= 3
         extracted_threshold_met = not official_required or extracted_count >= 3
-        required_dimensions = {"Authentication", "Endpoint and method", "Request parameters", "Response structure"}
         covered_dimensions = {label for label, entries in comparison_matrix.items() if entries}
-        technical_coverage_met = not api_comparison_requested or required_dimensions.issubset(covered_dimensions)
+        technical_coverage_met = (
+            not required_dimensions
+            or set(required_dimensions).issubset(covered_dimensions)
+        )
         verification_level = "provider_extracted_page_content" if extracted_count else "search_snippets_not_independently_verified"
         lines = [
             f"Athena research brief: {prompt}",
@@ -191,11 +224,14 @@ class ResearchAgent:
             (f"- Tavily returned extracted page content for {extracted_count} source(s); this is provider-extracted content, not a browser-level independent verification."
              if extracted_count else "- Source pages were not independently opened or verified by Athena in this pass."),
             "- Treat compatibility or version claims as provisional unless supported by extracted primary-source content.",
-            f"- Official-domain URLs: {primary_count} of {len(sources)} retrieved sources (domain recognition only; not all are API-relevant).",
-            f"- API-relevant official documentation URLs: {len({item['url'] for item in evidence_sources if self._is_primary_source(prompt, item['url'])})}.",
+            f"- Recognized official-source URLs: {primary_count} of {len(sources)} retrieved sources.",
+            *([f"- API-relevant official documentation URLs: {len({item['url'] for item in evidence_sources if self._is_relevant_api_source(item['url'])})}."] if api_comparison_requested else []),
             f"- Official-source URL threshold (3): {'met' if official_threshold_met else 'not met'}.",
             f"- Substantive extracted primary-content threshold (3): {'met' if extracted_threshold_met else 'not met'}.",
-            f"- Required technical dimensions: {len(covered_dimensions)} of {len(required_dimensions)} covered.",
+            (f"- Required technical dimensions: {len(covered_dimensions)} of {len(required_dimensions)} covered."
+             if required_dimensions else "- Required technical dimensions: not applicable for this research type."),
+            *([f"- Official source coverage for requested models: {'complete' if model_target_coverage_complete else 'incomplete'}."]
+              if model_comparison_requested else []),
             "",
             f"Queries run: {len(queries)}",
             f"Queries with usable, non-failed retrieval: {len(successful_queries)}",
@@ -236,13 +272,20 @@ class ResearchAgent:
             ],
             "",
             "Research coverage:",
-            f"- Sources with substantive extracted primary technical content: {extracted_count} of {primary_count} recognized primary sources.",
-            f"- Technical dimensions supported by extracted primary content: {len(covered_dimensions)} of {len(required_dimensions)}.",
+            f"- Sources with substantive extracted primary content: {extracted_count} of {primary_count} recognized primary sources.",
+            (f"- Technical dimensions supported by extracted primary content: {len(covered_dimensions)} of {len(required_dimensions)}."
+             if required_dimensions else "- No fixed technical-dimension matrix applies to this request."),
             f"- Official-source requirement: {'satisfied' if official_threshold_met else 'not satisfied; do not treat this as a completed official-source review'}.",
             f"- Source-content verification requirement: {'satisfied' if extracted_threshold_met else 'not satisfied; snippets alone cannot complete the research task'}.",
+            *([f"- Requested model target coverage: {'satisfied' if model_target_coverage_complete else 'not satisfied; one or more requested models lack a recognized official source'}."]
+              if model_comparison_requested else []),
             "- Search snippets are discovery leads, not evidence for technical conclusions.",
             "",
-            ("- Technical comparison is incomplete: one or more requested dimensions lack source-linked extracted evidence." if not technical_coverage_met else "- All requested technical dimensions have at least one source-linked extracted excerpt."),
+            ("- Technical comparison is incomplete: one or more requested dimensions lack source-linked extracted evidence."
+             if required_dimensions and not technical_coverage_met
+             else "- All required technical dimensions have at least one source-linked extracted excerpt."
+             if required_dimensions
+             else "- No technical-dimension coverage requirement was defined for this request."),
             "",
             "Synthesis boundary:",
             "Athena preserves source content and provenance here. It does not claim a technical comparison is verified unless the relevant details are present in extracted primary-source content. The original publisher pages should still be checked before implementation.",
@@ -261,10 +304,15 @@ class ResearchAgent:
             "extracted_content_count": extracted_count,
             "official_source_threshold_met": official_threshold_met,
             "technical_evidence_matrix": comparison_matrix,
+            "requested_model_targets": model_targets,
+            "model_target_coverage": model_target_coverage,
+            "model_target_coverage_complete": model_target_coverage_complete,
+            "technical_dimensions_required": list(required_dimensions),
             "research_status": (
                 "partial" if has_partial_failure
                 else "insufficient_primary_sources" if not official_threshold_met
                 else "insufficient_extracted_content" if not extracted_threshold_met
+                else "insufficient_model_target_coverage" if not model_target_coverage_complete
                 else "insufficient_technical_coverage" if not technical_coverage_met
                 else "retrieval_complete_with_extracted_content" if extracted_count
                 else "retrieval_complete_unverified"
@@ -272,7 +320,11 @@ class ResearchAgent:
             "extracted_content_threshold_met": extracted_threshold_met,
             "technical_coverage_complete": technical_coverage_met,
             "technical_dimensions_covered": sorted(covered_dimensions),
-            "complete": not has_partial_failure and bool(sources) and official_threshold_met and extracted_threshold_met and technical_coverage_met,
+            "complete": (
+                not has_partial_failure and bool(sources) and official_threshold_met
+                and extracted_threshold_met and model_target_coverage_complete
+                and technical_coverage_met
+            ),
         }
 
     @staticmethod
@@ -303,18 +355,32 @@ class ResearchAgent:
             r"fetch the complete documentation|use this file to discover|tavily docs home page)$",
             re.IGNORECASE,
         )
+        navigation_group = re.compile(
+            r"^(?:(?:api reference|integrations|changelog|examples|get started|documentation index)\s*){2,}$",
+            re.IGNORECASE,
+        )
         return [
             " ".join(sentence.split())
             for sentence in candidates
-            if len(sentence) >= 35 and not boilerplate.match(sentence)
+            if len(sentence) >= 35 and not boilerplate.match(sentence) and not navigation_group.match(sentence)
         ]
 
     @classmethod
     def _has_substantive_page_content(cls, content: str) -> bool:
-        """Reject raw-content payloads that contain only navigation or generic boilerplate."""
-        return any(
+        """Accept substantive extracted prose while rejecting navigation-only pages."""
+        if any(
             entries
             for entries in cls._build_technical_evidence_matrix([{"url": "", "page_content": content}]).values()
+        ):
+            return True
+        sentences = cls._evidence_sentences(content)
+        # Model cards need not mention Tavily-specific API terms. Require multiple
+        # factual sentences or one substantial explanatory passage; navigation
+        # labels and search snippets never satisfy this content gate.
+        return len(sentences) >= 2 or any(
+            len(sentence) >= 180
+            and bool(re.search(r"\b(?:model|license|licence|context|parameter|memory|ollama|benchmark|tokens?)\b", sentence, re.IGNORECASE))
+            for sentence in sentences
         )
 
     @classmethod
@@ -484,11 +550,47 @@ class ResearchAgent:
         return {**output, "delegated_agent_id": getattr(result, "agent_id", "search.scout"), "delegation_task_id": getattr(result, "task_id", None), "requested_by": "research.athena"}
 
     @staticmethod
+    def _extract_model_targets(prompt: str) -> list[str]:
+        """Read explicit comparison targets from an OBJECTIVE / Compare list."""
+        objective = re.search(
+            r"(?ims)^\s*OBJECTIVE\s*:\s*(.*?)(?=^\s*(?:REQUIREMENTS|COORDINATION|OUTPUT|IMPORTANT|CONSTRAINTS)\s*:|\Z)",
+            str(prompt or ""),
+        )
+        scope = objective.group(1) if objective else str(prompt or "")
+        compare = re.search(
+            r"(?ims)^\s*Compare\s*:\s*(.*?)(?=^\s*[A-Z][A-Z _/-]{2,}\s*:|\Z)",
+            scope,
+        )
+        if not compare:
+            return []
+        items = re.findall(r"(?m)^\s*(?:\d+[.)]|[-*])\s*(.+?)\s*$", compare.group(1))
+        targets: list[str] = []
+        for item in items:
+            target = " ".join(item.split()).strip(" .;:-")
+            if target and len(target) <= 100 and target.casefold() not in {value.casefold() for value in targets}:
+                targets.append(target)
+            if len(targets) >= 5:
+                break
+        return targets
+
+    @staticmethod
     def _build_queries(prompt: str) -> list[str]:
-        """Extract up to three focused queries and exclude orchestration text."""
+        """Extract focused topic queries without confusing orchestration with the objective."""
         clean = " ".join(str(prompt or "").split()).strip()
         if not clean:
             return []
+
+        # Structured multi-option objectives must preserve every named target.
+        model_targets = ResearchAgent._extract_model_targets(clean)
+        if len(model_targets) >= 2:
+            criteria = (
+                "official model card reasoning coding benchmarks inference speed "
+                "memory RAM VRAM context length license Ollama compatibility"
+            )
+            return [
+                f"{target} {criteria}"[:179].rstrip()
+                for target in model_targets[:DEFAULT_QUERIES]
+            ]
 
         # Technical product research gets distinct, source-oriented query angles.
         if re.search(r"\btavily\b", clean, re.IGNORECASE) and re.search(r"\bsearch\s+api\b", clean, re.IGNORECASE):
@@ -503,7 +605,7 @@ class ResearchAgent:
             return []
 
         match = re.search(
-            r"\b(?:research|look\s+up|find\s+information\s+about|investigate)\s+(.+)",
+            r"\b(?:research|look\s+up|find\s+information\s+about|investigate)\s+(?!and\b|analysis\s+task\b|task\b|workflow\b|mission\b)(.+)",
             clean,
             re.IGNORECASE,
         )
@@ -599,11 +701,95 @@ class ResearchAgent:
         return queries[:DEFAULT_QUERIES]
 
     @staticmethod
+    def _is_official_model_source(target: str, url: str) -> bool:
+        """Recognize publisher-owned model pages and the official Ollama model catalogue."""
+        parsed = urlparse(str(url or ""))
+        host = parsed.netloc.casefold().removeprefix("www.")
+        path = parsed.path.casefold().rstrip("/")
+        name = str(target or "").casefold()
+
+        if "qwen" in name:
+            return (
+                host in {"qwen.ai", "qwenlm.github.io"}
+                or (host == "github.com" and path.startswith("/qwenlm/"))
+                or (host == "huggingface.co" and path.startswith("/qwen/"))
+                or (host == "ollama.com" and path.startswith("/library/qwen3"))
+            )
+        if "llama" in name:
+            return (
+                host in {"llama.com", "ai.meta.com"}
+                or (host == "github.com" and path.startswith("/meta-llama/"))
+                or (host == "huggingface.co" and path.startswith("/meta-llama/"))
+                or (host == "ollama.com" and path.startswith("/library/llama3.2"))
+            )
+        if "gemma" in name:
+            return (
+                (host == "ai.google.dev" and "gemma" in path)
+                or (host == "deepmind.google" and "gemma" in path)
+                or (host == "blog.google" and "gemma" in path)
+                or (host == "github.com" and "gemma" in path)
+                or (host == "huggingface.co" and "gemma" in path)
+                or (host == "ollama.com" and path.startswith("/library/gemma3"))
+            )
+        return False
+
+    @classmethod
+    def _build_model_evidence_matrix(cls, sources: list[dict[str, Any]]) -> dict[str, list[dict[str, str]]]:
+        """Extract source-linked evidence for the dimensions requested in model comparisons."""
+        dimensions = {
+            "Reasoning": re.compile(
+                r"\b(?:reasoning|reasoning benchmark|mmlu|gpqa|arc[- ]?challenge|math benchmark|logical reasoning)\b",
+                re.IGNORECASE,
+            ),
+            "Coding performance": re.compile(
+                r"\b(?:coding|code generation|programming benchmark|humaneval|mbpp|livecodebench|swe[- ]?bench)\b",
+                re.IGNORECASE,
+            ),
+            "Speed": re.compile(
+                r"\b(?:tokens per second|tokens/s|throughput|latency|inference speed|generation speed|prefill speed)\b",
+                re.IGNORECASE,
+            ),
+            "Memory requirements": re.compile(
+                r"\b(?:memory requirements?|system memory|ram|vram|gpu memory|quantization|quantized|model size|disk space|gigabytes)\b",
+                re.IGNORECASE,
+            ),
+            "Context length": re.compile(
+                r"\b(?:context (?:window|length|size)|maximum context|context tokens|sequence length|token window|max(?:imum)? tokens)\b",
+                re.IGNORECASE,
+            ),
+            "Licensing": re.compile(
+                r"\b(?:licen[cs]e|terms of use|open weights|apache 2\.0|mit license|gemma terms|acceptable use policy)\b",
+                re.IGNORECASE,
+            ),
+            "Ollama compatibility": re.compile(
+                r"\bollama\b",
+                re.IGNORECASE,
+            ),
+        }
+        matrix: dict[str, list[dict[str, str]]] = {label: [] for label in dimensions}
+        for source in sources:
+            content = str(source.get("page_content") or "")
+            if not content:
+                continue
+            for label, pattern in dimensions.items():
+                for sentence in cls._evidence_sentences(content):
+                    if pattern.search(sentence):
+                        entry = {"excerpt": sentence[:420], "url": str(source.get("url", ""))}
+                        if entry not in matrix[label]:
+                            matrix[label].append(entry)
+                        if len(matrix[label]) >= 5:
+                            break
+        return matrix
+
+    @staticmethod
     def _is_primary_source(prompt: str, url: str) -> bool:
         lowered = prompt.casefold()
         parsed = urlparse(url)
         host = parsed.netloc.casefold().removeprefix("www.")
         path = parsed.path.casefold().rstrip("/")
+        model_targets = ResearchAgent._extract_model_targets(prompt)
+        if model_targets:
+            return any(ResearchAgent._is_official_model_source(target, url) for target in model_targets)
         if "fastapi" in lowered:
             return (
                 host == "fastapi.tiangolo.com"
