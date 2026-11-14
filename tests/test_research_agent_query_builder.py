@@ -58,3 +58,58 @@ def test_build_queries_removes_orchestration_text_and_targets_primary_sources():
 
 def test_build_queries_rejects_a_standalone_orchestration_instruction():
     assert ResearchAgent._build_queries("Preserve three separate Scout research delegations") == []
+
+
+def test_build_queries_preserves_named_targets_from_structured_multi_agent_objective():
+    prompt = """
+Run a complete multi-agent research and analysis task.
+
+OBJECTIVE:
+Recommend the best local AI model setup for a student developer using Windows 11, Python and Ollama.
+
+Compare:
+1. Qwen 3 4B
+2. Llama 3.2 3B
+3. Gemma 3 4B
+
+REQUIREMENTS:
+- Research current model information using reliable official sources.
+- Compare reasoning, coding, speed, memory requirements, context length, licensing and Ollama compatibility.
+- Distinguish verified facts from estimates.
+- Include source links and explain any missing evidence.
+
+COORDINATION:
+- Use the appropriate research and search specialists.
+- Have the planning specialist structure the evaluation.
+- Use the documentation specialist to produce the final report.
+- Delegate subtasks where useful.
+
+OUTPUT:
+1. Executive recommendation.
+2. Comparison table.
+3. Verified sources.
+"""
+    queries = ResearchAgent._build_queries(prompt)
+
+    assert len(queries) == 3
+    assert any("Qwen 3 4B" in query for query in queries)
+    assert any("Llama 3.2 3B" in query for query in queries)
+    assert any("Gemma 3 4B" in query for query in queries)
+    assert all("official model card" in query for query in queries)
+    assert all("Ollama compatibility" in query for query in queries)
+    assert all("and analysis task" not in query.casefold() for query in queries)
+    assert all("documentation specialist" not in query.casefold() for query in queries)
+    assert all("coordination" not in query.casefold() for query in queries)
+    assert all(len(query) < 180 for query in queries)
+
+
+def test_build_queries_does_not_treat_research_and_analysis_task_as_the_subject():
+    prompt = (
+        "Run a complete multi-agent research and analysis task. "
+        "Research current Python packaging guidance using official sources."
+    )
+    queries = ResearchAgent._build_queries(prompt)
+    assert queries
+    assert all(query.casefold() != "and analysis task" for query in queries)
+    assert all("and analysis task official" not in query.casefold() for query in queries)
+    assert any("Python" in query for query in queries)
