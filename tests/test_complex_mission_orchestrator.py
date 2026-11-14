@@ -55,6 +55,25 @@ def test_complex_workstream_capability_prioritizes_implementation_when_code_and_
     ) == "code.test"
 
 
+def test_deployment_workstream_requires_affirmative_intent_and_ignores_prohibitions() -> None:
+    spec = _spec(
+        "deployment.launch", "Launch",
+        ("deployment.plan", "deployment.verify", "deployment.build"),
+    )
+    assert VoiceAgent._complex_workstream_capability(
+        spec, "Do not deploy anything or perform external actions."
+    ) == ""
+    assert not VoiceAgent._is_explicit_deployment_request(
+        "Do not install models, download files, modify files, change settings, execute commands, deploy anything, or perform external actions."
+    )
+    assert VoiceAgent._is_explicit_deployment_request(
+        "Prepare a deployment plan for the dashboard."
+    )
+    assert VoiceAgent._complex_workstream_capability(
+        spec, "Prepare a deployment plan for the dashboard."
+    ) == "deployment.plan"
+
+
 @pytest.mark.asyncio
 async def test_complex_mission_uses_real_planner_dag_workstreams_and_final_scribe() -> None:
     registry = AgentRegistry()
@@ -421,13 +440,25 @@ async def test_read_only_research_mission_excludes_forge_and_memory_and_scribe_g
         _spec("memory.notes", "Memory & Notes", ("memory.save",), ("memory", "notes")),
         forbidden_specialist,
     )
+    runtime.register_agent(
+        _spec(
+            "deployment.launch", "Launch",
+            ("deployment.plan", "deployment.verify", "deployment.build"),
+            ("deploy", "deployment", "launch"),
+        ),
+        forbidden_specialist,
+    )
 
-    assert VoiceAgent._is_read_only_mission_request(_MULTI_AGENT_MODEL_RESEARCH_PROMPT)
+    read_only_prompt = (
+        _MULTI_AGENT_MODEL_RESEARCH_PROMPT
+        + "\\nDo not deploy anything or perform external actions."
+    )
+    assert VoiceAgent._is_read_only_mission_request(read_only_prompt)
     assert not VoiceAgent._is_code_mutation_request(_MULTI_AGENT_MODEL_RESEARCH_PROMPT)
     assert not VoiceAgent._is_explicit_memory_request(_MULTI_AGENT_MODEL_RESEARCH_PROMPT)
 
     result = await runtime.run_task(TaskRequest(
-        prompt=_MULTI_AGENT_MODEL_RESEARCH_PROMPT,
+        prompt=read_only_prompt,
         target_agent_id="voice.jarvis",
     ))
 
