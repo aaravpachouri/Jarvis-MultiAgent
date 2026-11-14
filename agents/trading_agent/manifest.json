@@ -82,6 +82,40 @@
       "json",
       "html_svg_dashboard",
       "csv_candidates"
-    ]
+    ],
+    "operator_guide": {
+      "best_for": [
+        "Read-only Indian market and stock research",
+        "Evaluating trading strategies and backtests",
+        "Reviewing risk, technical indicators, and monitored watchlists"
+      ],
+      "functions": [
+        {
+          "capability": "trading.market_analysis",
+          "description": "Analyze market conditions and available market data."
+        },
+        {
+          "capability": "trading.backtest",
+          "description": "Evaluate a strategy against available historical data."
+        },
+        {
+          "capability": "trading.risk",
+          "description": "Assess risk, exposure, and risk/reward characteristics."
+        },
+        {
+          "capability": "trading.monitor",
+          "description": "Monitor configured watchlists and market conditions when data is available."
+        },
+        {
+          "capability": "trading.strategy.evaluate",
+          "description": "Evaluate strategy rules and research setups."
+        }
+      ],
+      "boundaries": [
+        "Quant is read-only and never places trades or sends broker orders.",
+        "FYERS live quotes are available only when configured; otherwise any historical/delayed fallback must be labelled as such.",
+        "Source timestamps and stale-feed checks matter; report freshness gaps."
+      ]
+    }
   }
 }
