@@ -5,7 +5,9 @@ from typing import Any
 
 import pytest
 
+from agents.documentation_agent.agent import DocumentationAgent
 from agents.planner_agent.agent import PlannerAgent
+from agents.research_agent.agent import ResearchAgent
 from agents.voice_agent.agent import VoiceAgent
 from core.contracts import AgentSpec, TaskRequest, TaskStatus
 from core.event_bus import EventBus
@@ -32,6 +34,9 @@ def test_complex_mission_intent_is_generic_not_a_single_mission_title() -> None:
     )
     assert VoiceAgent._is_complex_mission_request(
         "This is a complex mission: research alternatives, build a prototype, verify it, and document the outcome."
+    )
+    assert VoiceAgent._is_complex_mission_request(
+        "Run a complete multi-agent research and analysis task. Compare three local models."
     )
     assert not VoiceAgent._is_complex_mission_request("Hey JARVIS, what time is it?")
     assert not VoiceAgent._is_complex_mission_request("Please write a short email to my teacher.")
@@ -243,3 +248,175 @@ async def test_complex_mission_translates_planner_edges_into_workstream_dependen
     assert order == ["research", "forge"]
     assert "workstream_1" in str(result.output)
     assert "workstream_2" in str(result.output)
+
+
+_MULTI_AGENT_MODEL_RESEARCH_PROMPT = """
+Run a complete multi-agent research and analysis task.
+
+OBJECTIVE:
+Recommend the best local AI model setup for a student developer using Windows 11, Python and Ollama.
+
+Compare:
+1. Qwen 3 4B
+2. Llama 3.2 3B
+3. Gemma 3 4B
+
+REQUIREMENTS:
+- Research current model information using reliable official sources.
+- Compare reasoning, coding, speed, memory requirements, context length, licensing and Ollama compatibility.
+- Distinguish verified facts from estimates.
+- Include source links and explain any missing evidence.
+
+COORDINATION:
+- Use the appropriate research and search specialists.
+- Have the planning specialist structure the evaluation.
+- Have the documentation specialist produce the final report.
+- Delegate subtasks where useful.
+- Show actual agent handoffs and returned results.
+- Do not invent agent participation or successful handoffs.
+- If a specialist fails, report the failure honestly.
+
+OUTPUT:
+1. Executive recommendation.
+2. Comparison table.
+3. Verified sources.
+4. Best model for each use case.
+5. Limitations and uncertainties.
+
+IMPORTANT:
+Do not install models, modify files, change settings, or execute commands. This is a research-only test.
+"""
+
+
+def _model_sources():
+    content = (
+        "The model publishes reasoning benchmark results including MMLU and GPQA. "
+        "Its coding performance includes code generation and HumanEval benchmark results. "
+        "Published inference speed is measured in tokens per second on stated hardware. "
+        "Memory requirements describe RAM, VRAM and quantization options for local inference. "
+        "The model card documents the context window, context length and supported token limits. "
+        "The model licensing terms identify the applicable license and usage conditions. "
+        "Ollama compatibility is documented for local model execution."
+    )
+    return {
+        "Qwen 3 4B": ("https://qwen.ai/models/qwen3", content),
+        "Llama 3.2 3B": ("https://llama.com/docs/model-cards/llama3_2", content),
+        "Gemma 3 4B": ("https://ai.google.dev/gemma/docs/core", content),
+    }
+
+
+def _register_model_research_runtime(athena_handler, *, scout_calls=None, scribe_calls=None):
+    runtime = AgentRuntime(registry=AgentRegistry(), bus=EventBus(), max_delegation_depth=6)
+    runtime.register_agent(
+        _spec("voice.jarvis", "JARVIS", ("conversation.handle", "task.coordinate")),
+        VoiceAgent(),
+    )
+    runtime.register_agent(
+        _spec("planning.planner", "Planner", ("planning.breakdown",), ("planning specialist", "planning")),
+        PlannerAgent(),
+    )
+    runtime.register_agent(
+        _spec(
+            "research.athena", "Athena",
+            ("research.deep", "research.compare", "research.synthesize", "research.verify"),
+            ("research", "compare options", "evidence"),
+        ),
+        athena_handler,
+    )
+
+    async def scout(task, context):
+        query = task.context.get("research_query", "")
+        if scout_calls is not None:
+            scout_calls.append(query)
+        target = next((name for name in _model_sources() if name.casefold() in query.casefold()), None)
+        if not target:
+            return {"results": [], "error": f"No model target found in Scout query: {query}"}
+        url, page_content = _model_sources()[target]
+        return {
+            "provider": "Fixture Search Provider",
+            "retrieved_at": "2026-11-14T12:00:00+00:00",
+            "retrieval_status": "complete",
+            "partial": False,
+            "results": [{
+                "title": f"{target} official model information",
+                "url": url,
+                "domain": url.split("/")[2],
+                "snippet": f"Official {target} source discovery result.",
+                "page_content": page_content,
+            }],
+        }
+
+    runtime.register_agent(
+        _spec("search.scout", "Scout", ("web.search",), ("search specialists", "search")),
+        scout,
+    )
+
+    async def scribe(task, context):
+        if scribe_calls is not None:
+            scribe_calls.append(task.context)
+        return await DocumentationAgent()(task, context)
+
+    runtime.register_agent(
+        _spec(
+            "documentation.scribe", "Scribe",
+            ("writing.report", "documentation.write"),
+            ("documentation specialist", "final report", "report"),
+        ),
+        scribe,
+    )
+    return runtime
+
+
+@pytest.mark.asyncio
+async def test_complete_multi_agent_research_runs_planner_athena_nested_scout_and_scribe():
+    scout_calls: list[str] = []
+    scribe_calls: list[dict[str, Any]] = []
+    runtime = _register_model_research_runtime(
+        ResearchAgent(), scout_calls=scout_calls, scribe_calls=scribe_calls
+    )
+
+    result = await runtime.run_task(TaskRequest(
+        prompt=_MULTI_AGENT_MODEL_RESEARCH_PROMPT,
+        target_agent_id="voice.jarvis",
+    ))
+
+    assert result.status is TaskStatus.SUCCEEDED, result.error or result.output
+    assert result.metadata["workstream_count"] == 1
+    assert len(scout_calls) == 3
+    assert any("Qwen 3 4B" in query for query in scout_calls)
+    assert any("Llama 3.2 3B" in query for query in scout_calls)
+    assert any("Gemma 3 4B" in query for query in scout_calls)
+    assert len(scribe_calls) == 1
+    assert "Planner: planning.planner" in str(result.output)
+    assert "research.athena" in str(result.output)
+    assert "documentation.scribe" in str(result.output)
+    assert "Qwen 3 4B" in str(result.output)
+    assert "SUCCEEDED" in str(result.output)
+
+
+@pytest.mark.asyncio
+async def test_incomplete_athena_output_fails_mission_quality_gate_but_still_gets_reported():
+    scribe_calls: list[dict[str, Any]] = []
+
+    async def incomplete_athena(task, context):
+        return {
+            "summary": "Athena could not verify enough official model evidence.",
+            "research_status": "insufficient_evidence",
+            "complete": False,
+            "sources": [],
+        }
+
+    runtime = _register_model_research_runtime(
+        incomplete_athena, scout_calls=[], scribe_calls=scribe_calls
+    )
+    result = await runtime.run_task(TaskRequest(
+        prompt=_MULTI_AGENT_MODEL_RESEARCH_PROMPT,
+        target_agent_id="voice.jarvis",
+    ))
+
+    assert result.status is TaskStatus.FAILED
+    assert "quality_gate_failed" in str(result.output)
+    assert "insufficient_evidence" in str(result.output)
+    assert "documentation.scribe" in str(result.output)
+    assert len(scribe_calls) == 1
+    assert "Research quality gate failed" in str(scribe_calls[0].get("limitations"))
