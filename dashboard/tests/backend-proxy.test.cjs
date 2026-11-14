@@ -6,6 +6,7 @@ const quantDashboardHandler = require("../api/quant/dashboard");
 const quantStockSearchHandler = require("../api/quant/stock-search");
 const quantStockQuoteHandler = require("../api/quant/stock-quote");
 const quantRefreshHandler = require("../api/quant/refresh");
+const quantRefreshStatusHandler = require("../api/quant/refresh/[id]");
 const missionHandler = require("../api/missions/[id]");
 const athenaBenchmarkHandler = require("../api/athena/benchmark");
 
@@ -280,6 +281,53 @@ test("Quant GET routes reject repeated query parameters instead of forwarding am
     await quantStockSearchHandler({
       method: "GET",
       query: { q: ["TCS", "attacker"] },
+      headers: {},
+    }, res);
+    assert.equal(res.statusCode, 400);
+    assert.equal(called, false);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+
+test("Quant refresh polling route forwards the validated job id and session cookie", async () => {
+  const originalFetch = global.fetch;
+  let requestedUrl;
+  let forwardedCookie;
+  global.fetch = async (url, options) => {
+    requestedUrl = String(url);
+    forwardedCookie = options.headers.get("cookie");
+    return new Response(JSON.stringify({ job: { job_id: "quant-job-123", status: "running" } }), {
+      status: 200,
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+    });
+  };
+  try {
+    const res = responseRecorder();
+    await quantRefreshStatusHandler({
+      method: "GET",
+      query: { id: "quant-job-123" },
+      headers: { cookie: "jarvis_dashboard_session=opaque" },
+    }, res);
+    assert.equal(requestedUrl, "https://jarvis-multiagent-api.onrender.com/api/quant/refresh/quant-job-123");
+    assert.equal(forwardedCookie, "jarvis_dashboard_session=opaque");
+    assert.equal(res.statusCode, 200);
+    assert.equal(JSON.parse(res.body).job.status, "running");
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("Quant refresh polling route rejects path separators in job ids", async () => {
+  const originalFetch = global.fetch;
+  let called = false;
+  global.fetch = async () => { called = true; throw new Error("must not call"); };
+  try {
+    const res = responseRecorder();
+    await quantRefreshStatusHandler({
+      method: "GET",
+      query: { id: "job/other" },
       headers: {},
     }, res);
     assert.equal(res.statusCode, 400);
