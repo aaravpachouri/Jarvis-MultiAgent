@@ -395,6 +395,58 @@ async def test_complete_multi_agent_research_runs_planner_athena_nested_scout_an
 
 
 @pytest.mark.asyncio
+async def test_read_only_research_mission_excludes_forge_and_memory_and_scribe_gets_full_findings():
+    scout_calls: list[str] = []
+    scribe_calls: list[dict[str, Any]] = []
+    runtime = _register_model_research_runtime(
+        ResearchAgent(), scout_calls=scout_calls, scribe_calls=scribe_calls
+    )
+    forbidden_calls: list[str] = []
+
+    async def forbidden_specialist(task, context):
+        forbidden_calls.append(context.agent.agent_id)
+        return {"summary": "This specialist must not run for a research-only request."}
+
+    # These route matches are intentional: "coding performance" and "memory
+    # requirements" are comparison dimensions, not executable requests.
+    runtime.register_agent(
+        _spec(
+            "coding.forge", "Forge",
+            ("code.inspect", "code.write", "code.debug", "code.test"),
+            ("coding", "code", "implement"),
+        ),
+        forbidden_specialist,
+    )
+    runtime.register_agent(
+        _spec("memory.notes", "Memory & Notes", ("memory.save",), ("memory", "notes")),
+        forbidden_specialist,
+    )
+
+    assert VoiceAgent._is_read_only_mission_request(_MULTI_AGENT_MODEL_RESEARCH_PROMPT)
+    assert not VoiceAgent._is_code_mutation_request(_MULTI_AGENT_MODEL_RESEARCH_PROMPT)
+    assert not VoiceAgent._is_explicit_memory_request(_MULTI_AGENT_MODEL_RESEARCH_PROMPT)
+
+    result = await runtime.run_task(TaskRequest(
+        prompt=_MULTI_AGENT_MODEL_RESEARCH_PROMPT,
+        target_agent_id="voice.jarvis",
+    ))
+
+    assert result.status is TaskStatus.SUCCEEDED, result.error or result.output
+    assert result.metadata["workstream_count"] == 1
+    assert forbidden_calls == []
+    assert len(scout_calls) == 3
+    assert len(scribe_calls) == 1
+    assert "Qwen 3 4B" in str(scribe_calls[0].get("body", ""))
+    assert "Llama 3.2 3B" in str(scribe_calls[0].get("body", ""))
+    assert "Gemma 3 4B" in str(scribe_calls[0].get("body", ""))
+    assert "Actual specialist findings" in str(scribe_calls[0].get("body", ""))
+    assert "Qwen 3 4B" in str(result.output)
+    assert "Llama 3.2 3B" in str(result.output)
+    assert "Gemma 3 4B" in str(result.output)
+    assert "documentation.scribe" in str(result.output)
+
+
+@pytest.mark.asyncio
 async def test_incomplete_athena_output_fails_mission_quality_gate_but_still_gets_reported():
     scribe_calls: list[dict[str, Any]] = []
 

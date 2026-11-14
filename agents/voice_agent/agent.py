@@ -1984,13 +1984,78 @@ class VoiceAgent:
         return action_verbs >= 4 and bool(re.search(r"\b(?:and then|then|after|before|while|finally)\b", text))
 
     @staticmethod
+    def _is_read_only_mission_request(prompt: str) -> bool:
+        """Detect explicit read-only scope, including comma-separated prohibitions."""
+        text = str(prompt or "")
+        return bool(
+            re.search(
+                r"\b(?:read[- ]only|research[- ]only|analysis[- ]only|inspection[- ]only)\b",
+                text,
+                re.IGNORECASE,
+            )
+            or re.search(
+                r"\bdo\s+not\b[^.!?\n]{0,300}\b"
+                r"(?:modify|edit|write)\s+(?:any\s+)?(?:files?|code)\b",
+                text,
+                re.IGNORECASE,
+            )
+            or re.search(
+                r"\bdo\s+not\b[^.!?\n]{0,300}\bchange\s+"
+                r"(?:any\s+)?(?:settings?|configuration|environment)\b",
+                text,
+                re.IGNORECASE,
+            )
+            or re.search(
+                r"\bno\s+(?:file|code|setting|configuration)\s+"
+                r"(?:changes?|writes?|updates?|modifications?)\b",
+                text,
+                re.IGNORECASE,
+            )
+        )
+
+    @staticmethod
+    def _is_code_mutation_request(prompt: str) -> bool:
+        """Require positive implementation intent; coding as a comparison dimension is not enough."""
+        text = str(prompt or "")
+        if VoiceAgent._is_read_only_mission_request(text):
+            return False
+        return bool(
+            re.search(r"\b(?:implement|build|develop|fix|refactor)\b", text, re.IGNORECASE)
+            or re.search(
+                r"\b(?:write|create|modify|edit)\b.{0,60}\b"
+                r"(?:code|script|function|module|component|feature|application|app|"
+                r"dashboard|api|interface|frontend|backend)\b",
+                text,
+                re.IGNORECASE,
+            )
+        )
+
+    @staticmethod
+    def _is_explicit_memory_request(prompt: str) -> bool:
+        """Select Memory & Notes only for an explicit save/remember action."""
+        text = str(prompt or "")
+        return bool(
+            re.search(
+                r"\b(?:remember|save|store|record|retain)\b.{0,70}\b"
+                r"(?:this|that|these|following|note|detail|preference|fact|memory)\b",
+                text,
+                re.IGNORECASE,
+            )
+            or re.search(
+                r"\b(?:add|save|store|write)\b.{0,40}\b"
+                r"(?:to|in)\s+(?:my\s+)?memory\b",
+                text,
+                re.IGNORECASE,
+            )
+            or re.search(r"\bmake\s+(?:a|this)\s+note\b", text, re.IGNORECASE)
+        )
+
+    @staticmethod
     def _select_complex_workstreams(prompt: str, matches: list[Any], context: Any) -> list[dict[str, Any]]:
-        """Select live executable workstreams from registry/routing evidence."""
+        """Select only executable specialists whose capabilities match an explicit task intent."""
         runtime = context.runtime
         executable_ids = runtime.executable_agent_ids()
-        text = str(prompt or "").casefold()
-        wants_report = bool(re.search(r"\b(?:report|write[- ]?up|documentation|document|proposal|release notes)\b", text))
-        wants_memory = bool(re.search(r"\b(?:memory|remember|notes|recall)\b", text))
+        wants_memory = VoiceAgent._is_explicit_memory_request(prompt)
         selected: list[dict[str, Any]] = []
         seen: set[str] = set()
         # Athena owns research decomposition and delegates retrieval to Scout.
@@ -2007,25 +2072,26 @@ class VoiceAgent:
                 continue
             if agent_id == "search.scout" and athena_available:
                 continue
-                continue
             try:
                 spec = runtime.registry.get(agent_id)
             except Exception:
                 continue
             caps = tuple(spec.capabilities)
-            # Planner is the graph's plan stage, not another parallel workstream;
-            # the primary coordinator must not delegate to itself.
+            # Planner coordinates the graph; Scribe is reserved for final synthesis.
             if agent_id == context.agent.agent_id or "task.coordinate" in caps:
                 continue
             if caps and all(cap.startswith("planning.") for cap in caps):
                 continue
             if any(cap.startswith(("writing.", "documentation.")) for cap in caps):
-                # If a final deliverable is requested, keep the writing specialist
-                # for the post-workstream synthesis stage rather than running it in parallel.
                 continue
             if any(cap.startswith(("memory.", "notes.")) for cap in caps) and not wants_memory:
                 continue
             if float(getattr(match, "score", 0.0) or 0.0) < 1.0:
+                continue
+            # Do not promote a specialist merely because a term such as "coding"
+            # or "memory" appeared as a comparison dimension/resource constraint.
+            capability = VoiceAgent._complex_workstream_capability(spec, prompt)
+            if not capability:
                 continue
             selected.append({"match": match, "spec": spec, "agent_id": agent_id})
             seen.add(agent_id)
@@ -2035,14 +2101,18 @@ class VoiceAgent:
 
     @staticmethod
     def _complex_workstream_capability(spec: Any, prompt: str) -> str:
-        """Choose one declared capability relevant to the goal; never invent one."""
+        """Choose a declared capability only when the request explicitly needs it."""
         caps = tuple(getattr(spec, "capabilities", ()) or ())
         text = str(prompt or "").casefold()
         preferred: list[str] = []
-        implementation_intent = bool(re.search(
-            r"\b(?:implement|build|create|develop|write code|modify|edit|fix|refactor|dashboard|interface|frontend|backend)\b", text
+        implementation_intent = VoiceAgent._is_code_mutation_request(text)
+        test_intent = bool(re.search(
+            r"\b(?:run|execute|write|add|create|fix|verify|check)\s+"
+            r"(?:(?:the|full|all|some|new|unit|integration|regression)\s+){0,2}"
+            r"(?:tests?|pytest|test suite)\b",
+            text,
+            re.IGNORECASE,
         ))
-        test_intent = bool(re.search(r"\b(?:pytest|tests?|verify|validation|quality gate|regression)\b", text))
         if implementation_intent:
             preferred.extend(("code.write", "code.debug", "repository.analyze", "code.test"))
         elif test_intent:
@@ -2051,14 +2121,13 @@ class VoiceAgent:
             preferred.extend(("trading.market_analysis", "trading.strategy.evaluate", "trading.risk"))
         if re.search(r"\b(?:research|investigate|evidence|compare|sources)\b", text):
             preferred.extend(("research.deep", "research.verify", "research.synthesize", "web.search", "documentation.lookup"))
-        if re.search(r"\b(?:report|write[- ]?up|documentation|document|proposal)\b", text):
-            preferred.extend(("writing.report", "documentation.write"))
         if re.search(r"\b(?:deploy|release|publish|hosting)\b", text):
             preferred.extend(("deployment.plan", "deployment.verify", "deployment.build"))
-        for cap in preferred:
-            if cap in caps:
-                return cap
-        return caps[0] if caps else ""
+        for capability in preferred:
+            if capability in caps:
+                return capability
+        # Do not guess caps[0]: an unrelated routing match must not become an action.
+        return ""
 
     @staticmethod
     def _validate_planner_steps(raw_steps: Any) -> tuple[list[dict[str, Any]], str | None]:
@@ -2231,14 +2300,8 @@ class VoiceAgent:
 
         # Protect user intent: if this is an explicitly read-only request, tell all
         # specialists not to mutate files, settings, reports, or external systems.
-        read_only = bool(re.search(
-            r"\b(?:read[- ]only|do not (?:edit|modify|write|change)|without (?:changing|modifying|editing)|audit only|inspect only)\b",
-            prompt, re.IGNORECASE,
-        ))
-        may_modify_code = bool(re.search(
-            r"\b(?:implement|build|create|develop|fix|modify|edit|refactor|write code|change the code)\b",
-            prompt, re.IGNORECASE,
-        )) and not read_only
+        read_only = self._is_read_only_mission_request(prompt)
+        may_modify_code = self._is_code_mutation_request(prompt) and not read_only
         sequential = bool(re.search(r"\b(?:then|after|once|based on|using the results from|following)\b", prompt, re.IGNORECASE))
         research_steps = [
             item["agent_id"] for item in workstreams
@@ -2386,17 +2449,41 @@ class VoiceAgent:
                 for key, record in records.items()
             )
             report_key_points = [
-                f"{record.get('agent_id', 'specialist')} · {record.get('status', 'unknown')}: {record.get('output', '')[:1800]}"
+                f"{record.get('agent_id', 'specialist')} completed {record.get('capability', 'its assigned')} "
+                f"with status {record.get('status', 'unknown')}; detailed findings are included below."
                 for record in records.values()
             ]
             report_limitations = [
                 f"{record.get('agent_id', 'specialist')}: {record.get('error')}"
                 for record in records.values() if record.get("error")
             ]
+            report_sections: list[str] = []
+            for record in records.values():
+                agent_name = str(record.get("agent_id", "specialist"))
+                report_sections.append(
+                    f"### {agent_name}\n\n"
+                    f"**Capability:** {record.get('capability', 'unspecified')}\n\n"
+                    f"**Execution status:** {record.get('status', 'unknown')}\n\n"
+                    f"{str(record.get('output', '')).strip() or 'No output was returned.'}"
+                    + (f"\n\n**Failure detail:** {record['error']}" if record.get("error") else "")
+                )
+            report_body = (
+                "## Actual specialist findings\n\n"
+                + "\n\n".join(report_sections)
+                + "\n\n## Execution and evidence boundaries\n\n"
+                + "Only the specialist outputs and retrieval provenance supplied above are represented here. "
+                + "Search snippets or provider-extracted page content are not independent browser verification. "
+                + (
+                    "The user explicitly requested a read-only workflow; no files, settings, models, or commands were changed or executed."
+                    if read_only else
+                    "Only actions evidenced in child-task outputs are represented; no additional actions are claimed."
+                )
+            )
             writer_result = await context.delegate(
-                prompt=("Prepare a final report draft based only on the supplied specialist outputs. Separate verified facts, "
-                        "inferences, failures and unresolved checks. Do not claim unperformed steps.\n\n"
-                        f"MISSION:\n{prompt}\n\nACTUAL WORKSTREAM RESULTS:\n{collected[:16000]}"),
+                prompt=("Prepare the complete final report in Markdown using the supplied research outputs. "
+                        "Include the executive recommendation, comparison and evidence details available in those outputs, "
+                        "verified source links, best model by use case, and limitations. Do not invent missing facts or claim unperformed steps.\n\n"
+                        f"MISSION:\n{prompt}\n\nACTUAL WORKSTREAM RESULTS:\n{collected[:20000]}"),
                 agent_id=writer_spec.agent_id,
                 capabilities=("writing.report",),
                 context={
@@ -2404,20 +2491,38 @@ class VoiceAgent:
                     "stage": "final_report_draft",
                     "original_request": prompt[:8000],
                     "workstream_results": records,
-                    "purpose": "Summarize the mission objective, actual specialist findings, evidence quality and unresolved gaps.",
+                    "purpose": "Produce the requested report from actual specialist findings and evidence, without claiming independent verification.",
                     "key_points": report_key_points,
-                    "source_material": [collected[:16000]],
+                    "body": report_body[:24000],
+                    "source_material": [collected[:20000]],
                     "limitations": report_limitations,
                     "write_mode": "draft_only",
                 },
                 requested_by=context.agent.agent_id,
             )
-            report_task_id, report_status = writer_result.task_id, writer_result.status.value
+            report_task_id = writer_result.task_id
+            writer_output = writer_result.output
+            if isinstance(writer_output, Mapping):
+                report_text = str(
+                    writer_output.get("content") or writer_output.get("summary") or self._render_output(writer_output)
+                ).strip()
+            else:
+                report_text = str(writer_output or writer_result.summary or "").strip()
+            report_status = writer_result.status.value if report_text else "invalid_output"
             records["final_report_draft"] = {
                 "agent_id": writer_result.agent_id, "task_id": writer_result.task_id,
-                "status": writer_result.status.value, "output": str(writer_result.output or writer_result.summary)[:6000],
+                "status": report_status, "output": report_text[:24000],
                 "artifact_paths": list(writer_result.artifacts),
-                "note": "This is a Scribe draft result; no file persistence is claimed by this generic workflow.",
+                "note": "Scribe's Markdown draft is rendered in the main mission result; no file persistence is claimed.",
+            }
+        elif report_requested:
+            report_status = "unavailable"
+            records["final_report_draft"] = {
+                "agent_id": "documentation.scribe",
+                "status": "unavailable",
+                "output": "A final report was requested, but no executable writing.report handler was available.",
+                "artifact_paths": [],
+                "note": "The report stage was required but could not be dispatched.",
             }
 
         failed = [record for record in records.values() if record.get("status") != TaskStatus.SUCCEEDED.value]
@@ -2444,9 +2549,13 @@ class VoiceAgent:
             if workflow_step.status in {WorkflowStepStatus.FAILED, WorkflowStepStatus.BLOCKED}:
                 lines.append(f"- DAG {step_id}: {workflow_step.status.value}; {workflow_step.error or 'No details.'}")
         lines.extend(["", "## Results"])
-        for record in records.values():
+        for step_id, record in records.items():
             if record.get("output"):
-                lines.append(f"\n### {record.get('agent_id','specialist')} · {record.get('status','unknown')}\n{record['output'][:4000]}")
+                output_limit = 24000 if step_id == "final_report_draft" else 6000
+                lines.append(
+                    f"\n### {record.get('agent_id','specialist')} · {record.get('status','unknown')}\n"
+                    f"{record['output'][:output_limit]}"
+                )
         lines.extend([
             "", "## Evidence boundaries",
             "Task-context transfer is visible in delegated request context; it is not the same as direct agent inbox delivery.",
