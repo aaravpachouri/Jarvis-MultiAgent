@@ -98,7 +98,7 @@ async function proxyBackendPost(req, res, pathname) {
   }
 
   const contentType = req.headers["content-type"];
-  if (typeof contentType !== "string" || !/^application\\/json(?:\\s*;|$)/i.test(contentType)) {
+  if (typeof contentType !== "string" || contentType.split(";")[0].trim().toLowerCase() !== "application/json") {
     return sendJsonError(res, 415, "Content-Type must be application/json.");
   }
 
