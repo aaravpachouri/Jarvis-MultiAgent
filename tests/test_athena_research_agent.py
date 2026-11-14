@@ -402,3 +402,153 @@ def test_non_tavily_official_research_keeps_topic_specific_primary_source_counti
     assert result["extracted_content_threshold_met"] is True
     assert result["research_status"] == "retrieval_complete_with_extracted_content"
     assert result["complete"] is True
+
+
+MODEL_COMPARISON_PROMPT = """
+Run a complete multi-agent research and analysis task.
+
+OBJECTIVE:
+Recommend the best local AI model setup for a student developer using Windows 11, Python and Ollama.
+
+Compare:
+1. Qwen 3 4B
+2. Llama 3.2 3B
+3. Gemma 3 4B
+
+REQUIREMENTS:
+- Research current model information using reliable official sources.
+- Compare reasoning, coding, speed, memory requirements, context length, licensing and Ollama compatibility.
+"""
+
+
+def _model_card_content(model_name: str) -> str:
+    return (
+        f"The {model_name} model publishes reasoning benchmark results, including MMLU and GPQA. "
+        "Its coding performance includes code generation and HumanEval benchmark results. "
+        "Published inference speed is measured in tokens per second on stated hardware. "
+        "Memory requirements describe RAM, VRAM and quantization options for local inference. "
+        "The model card documents the context window, context length and supported token limits. "
+        "The model licensing terms identify the applicable license and usage conditions. "
+        "Ollama compatibility is documented for local model execution."
+    )
+
+
+def test_model_comparison_queries_are_targeted_to_all_three_named_models():
+    queries = ResearchAgent._build_queries(MODEL_COMPARISON_PROMPT)
+    assert len(queries) == 3
+    assert any("Qwen 3 4B" in query for query in queries)
+    assert any("Llama 3.2 3B" in query for query in queries)
+    assert any("Gemma 3 4B" in query for query in queries)
+
+
+def test_model_comparison_recognizes_only_publisher_owned_or_ollama_model_pages():
+    assert ResearchAgent._is_primary_source(
+        MODEL_COMPARISON_PROMPT, "https://qwen.ai/models/qwen3"
+    )
+    assert ResearchAgent._is_primary_source(
+        MODEL_COMPARISON_PROMPT, "https://llama.com/docs/model-cards/llama3_2"
+    )
+    assert ResearchAgent._is_primary_source(
+        MODEL_COMPARISON_PROMPT, "https://ai.google.dev/gemma/docs/core"
+    )
+    assert ResearchAgent._is_primary_source(
+        MODEL_COMPARISON_PROMPT, "https://ollama.com/library/gemma3"
+    )
+    assert not ResearchAgent._is_primary_source(
+        MODEL_COMPARISON_PROMPT, "https://random-model-review.example/models/gemma3"
+    )
+
+
+def test_model_comparison_evidence_matrix_covers_all_requested_dimensions_with_source_links():
+    sources = [{
+        "url": "https://qwen.ai/models/qwen3",
+        "page_content": _model_card_content("Qwen 3 4B"),
+    }]
+    matrix = ResearchAgent._build_model_evidence_matrix(sources)
+    assert set(matrix) == {
+        "Reasoning", "Coding performance", "Speed", "Memory requirements",
+        "Context length", "Licensing", "Ollama compatibility",
+    }
+    assert all(matrix.values())
+    assert all(
+        item["url"] == sources[0]["url"]
+        for entries in matrix.values()
+        for item in entries
+    )
+
+
+def test_generic_model_card_content_counts_as_substantive_but_navigation_does_not():
+    assert ResearchAgent._has_substantive_page_content(_model_card_content("Qwen 3 4B"))
+    assert not ResearchAgent._has_substantive_page_content(
+        "API Reference Integrations Changelog Examples Get Started Documentation Index"
+    )
+
+
+def test_model_comparison_is_complete_only_with_three_official_model_sources_and_all_dimensions():
+    agent = ResearchAgent()
+    queries = agent._build_queries(MODEL_COMPARISON_PROMPT)
+    docs = [
+        ("Qwen 3 4B", "https://qwen.ai/models/qwen3"),
+        ("Llama 3.2 3B", "https://llama.com/docs/model-cards/llama3_2"),
+        ("Gemma 3 4B", "https://ai.google.dev/gemma/docs/core"),
+    ]
+    outcomes = {
+        query: {
+            "provider": "Tavily Search API",
+            "retrieved_at": "2026-11-14T12:00:00+00:00",
+            "retrieval_status": "complete",
+            "partial": False,
+            "results": [{
+                "title": f"{model_name} official model card",
+                "url": url,
+                "domain": url.split("/")[2],
+                "snippet": f"Official {model_name} model information.",
+                "page_content": _model_card_content(model_name),
+            }],
+        }
+        for query, (model_name, url) in zip(queries, docs)
+    }
+    result = asyncio.run(
+        agent(SimpleNamespace(prompt=MODEL_COMPARISON_PROMPT), FakeContext(outcomes))
+    )
+    assert result["requested_model_targets"] == ["Qwen 3 4B", "Llama 3.2 3B", "Gemma 3 4B"]
+    assert result["primary_source_count"] == 3
+    assert result["extracted_content_count"] == 3
+    assert result["model_target_coverage_complete"] is True
+    assert result["technical_coverage_complete"] is True
+    assert set(result["technical_dimensions_covered"]) == set(result["technical_dimensions_required"])
+    assert result["research_status"] == "retrieval_complete_with_extracted_content"
+    assert result["complete"] is True
+
+
+def test_model_comparison_does_not_pass_when_one_named_model_lacks_its_official_source():
+    agent = ResearchAgent()
+    queries = agent._build_queries(MODEL_COMPARISON_PROMPT)
+    urls = [
+        "https://qwen.ai/models/qwen3",
+        "https://qwen.ai/models/qwen3-4b-instruct",
+        "https://llama.com/docs/model-cards/llama3_2",
+    ]
+    outcomes = {
+        query: {
+            "provider": "Tavily Search API",
+            "retrieval_status": "complete",
+            "partial": False,
+            "results": [{
+                "title": "Official model card",
+                "url": url,
+                "domain": url.split("/")[2],
+                "snippet": "Official model information.",
+                "page_content": _model_card_content("Model"),
+            }],
+        }
+        for query, url in zip(queries, urls)
+    }
+    result = asyncio.run(
+        agent(SimpleNamespace(prompt=MODEL_COMPARISON_PROMPT), FakeContext(outcomes))
+    )
+    assert result["primary_source_count"] == 3
+    assert result["model_target_coverage_complete"] is False
+    assert result["model_target_coverage"]["Gemma 3 4B"] == []
+    assert result["research_status"] == "insufficient_model_target_coverage"
+    assert result["complete"] is False
