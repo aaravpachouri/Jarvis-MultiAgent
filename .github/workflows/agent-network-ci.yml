@@ -1,0 +1,52 @@
+name: Agent network CI
+
+on:
+  push:
+    branches:
+      - refactor/remove-desktop-companion
+  pull_request:
+    branches:
+      - publish/jarvis-multiagent
+    paths:
+      - "agents/**"
+      - "core/**"
+      - "evaluation/**"
+      - "tests/**"
+      - "dashboard/**"
+      - "dashboard_server.py"
+      - "main.py"
+      - "pyproject.toml"
+      - ".github/workflows/agent-network-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: "${{ matrix.os }} / Python 3.12"
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-2022]
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install project and test dependencies
+        run: python -m pip install -e ".[dev]"
+      - name: Set up Node.js for dashboard route tests
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Compile application and tests
+        run: python -m compileall -q agents core tests dashboard_server.py main.py
+      - name: Run dashboard API proxy regression tests
+        run: node --test dashboard/tests/*.test.cjs
+      - name: Run full regression suite
+        run: python -m pytest -q

@@ -1,0 +1,66 @@
+{
+  "agent_id": "voice.jarvis",
+  "name": "JARVIS",
+  "role": "Main voice, chat and coordination handler",
+  "description": "Primary interface for text and future speech input/output. Routes user intent to specialist agents, manages task handoffs and communicates results.",
+  "capabilities": [
+    "conversation.handle",
+    "task.coordinate",
+    "voice.input",
+    "voice.output"
+  ],
+  "routing_keywords": [
+    "jarvis",
+    "talk to me",
+    "voice command",
+    "listen",
+    "speak",
+    "say this",
+    "assistant",
+    "coordinate task"
+  ],
+  "tags": [
+    "core",
+    "main-handler",
+    "voice-chat"
+  ],
+  "requires_approval_for": [],
+  "max_concurrency": 4,
+  "timeout_seconds": 180,
+  "version": "0.1.0",
+  "enabled": true,
+  "metadata": {
+    "profile_only": false,
+    "folder": "voice_agent",
+    "operator_guide": {
+      "best_for": [
+        "Starting a conversation",
+        "Automatically routing a request to the right specialist",
+        "Coordinating multi-step work and combining specialist outputs"
+      ],
+      "functions": [
+        {
+          "capability": "conversation.handle",
+          "description": "Handle chat requests and return a direct conversational response."
+        },
+        {
+          "capability": "task.coordinate",
+          "description": "Select executable specialists, ask Planner for dependency-aware steps on complex missions, delegate bounded workstreams, and synthesize returned results."
+        },
+        {
+          "capability": "voice.input",
+          "description": "Accept speech input through the dashboard's supported browser voice-input path."
+        },
+        {
+          "capability": "voice.output",
+          "description": "Speak returned text through the dashboard's supported browser speech-output path."
+        }
+      ],
+      "boundaries": [
+        "JARVIS coordinates specialists; it does not make a specialist's capability available when that specialist has no executable handler.",
+        "A planned step is not proof of execution. It reports only observed child-task results and runtime events.",
+        "Protected operations still require the configured approval and permission controls."
+      ]
+    }
+  }
+}

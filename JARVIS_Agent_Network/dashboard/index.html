@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#080b12">
+  <meta name="description" content="Local-first JARVIS agent network intelligence dashboard">
+  <title>JARVIS/X // Living Intelligence</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+  <script src="/assets/app.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <a class="brand" href="#overview" aria-label="JARVIS overview">
+        <span class="brand-mark"><span></span><span></span><span></span></span>
+        <span class="brand-copy"><strong>JARVIS<span class="brand-x">/X</span></strong><small>AGENT NETWORK</small></span>
+      </a>
+      <div class="workspace-label">WORKSPACE <span class="tiny-dot"></span></div>
+      <nav class="nav-group" aria-label="Primary navigation">
+        <button class="nav-item active" data-view="overview"><span class="nav-icon">◈</span><span>Overview</span><span class="nav-key">01</span></button>
+        <button class="nav-item" data-view="agents"><span class="nav-icon">⌘</span><span>Agent network</span><span class="nav-count" id="nav-agent-count">10</span></button>
+        <button class="nav-item" data-view="tasks"><span class="nav-icon">⟲</span><span>Task center</span><span class="nav-count" id="nav-task-count">—</span></button>
+        <button class="nav-item" data-view="markets"><span class="nav-icon">⌁</span><span>Market intelligence</span><span class="nav-live" title="Read-only market data"></span></button>
+        <button class="nav-item" data-view="reports"><span class="nav-icon">▤</span><span>Reports & artifacts</span></button>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="side-system-card">
+          <div class="side-system-top"><span class="tiny-dot pulse"></span><span>LOCAL RUNTIME</span><span class="system-on">ON</span></div>
+          <div class="side-system-value" id="side-ready">— / — <span>agents ready</span></div>
+          <div class="side-meter"><span id="side-meter-fill"></span></div>
+          <div class="side-system-foot"><span>Loopback only</span><span>v1.0</span></div>
+        </div>
+        <div class="sidebar-user"><div class="user-orbit">J</div><div class="user-copy"><strong>Operator</strong><small>LOCAL SESSION</small></div><span class="user-status"></span></div>
+      </div>
+    </aside>
+
+    <main class="main-area">
+      <header class="topbar">
+        <div class="breadcrumbs"><span class="crumb-muted">JARVIS /X</span><span class="crumb-slash">/</span><span id="breadcrumb-current">Overview</span></div>
+        <div class="topbar-actions">
+          <div class="system-pill"><span class="tiny-dot pulse"></span><span>CORE SYSTEMS</span><strong id="core-status">CHECKING</strong></div>
+          <button class="icon-button mobile-menu" id="menu-toggle" aria-label="Toggle navigation">☰</button>
+          <button class="icon-button" id="refresh-all" aria-label="Refresh dashboard" title="Refresh dashboard">↻</button>
+          <div class="top-avatar" title="Local operator">J<span></span></div>
+        </div>
+      </header>
+
+      <div class="page-content">
+        <section class="view active" id="view-overview">
+          <div class="hero-row">
+            <div>
+              <div class="eyebrow"><span class="eyebrow-line"></span> INTELLIGENCE / COMMAND DECK</div>
+              <h1>Good evening, <span>Operator.</span></h1>
+              <p class="hero-subtitle">Your network is standing by. Here's the signal across your system.</p>
+            </div>
+            <div class="hero-clock"><span class="clock-label">LOCAL SYSTEM TIME</span><strong id="clock-time">--:--:--</strong><span id="clock-date">SYNCING TIMEZONE</span></div>
+          </div>
+
+          <div class="metric-ribbon" role="group" aria-label="System metrics">
+            <article class="metric-cell"><div class="metric-top"><span class="metric-label">AGENT IDENTITIES</span><span class="metric-glyph">◈</span></div><div class="metric-value" id="metric-identities">—</div><div class="metric-foot"><span class="metric-sub">Registered in network</span><span class="metric-index">01</span></div></article>
+            <article class="metric-cell"><div class="metric-top"><span class="metric-label">EXECUTABLE</span><span class="metric-glyph green">⌘</span></div><div class="metric-value" id="metric-ready">—<small> / —</small></div><div class="metric-foot"><span class="status-text"><i class="status-dot green-bg"></i> Handler-backed</span><span class="metric-index">02</span></div></article>
+            <article class="metric-cell"><div class="metric-top"><span class="metric-label">TASK OUTCOMES</span><span class="metric-glyph violet">⟲</span></div><div class="metric-value" id="metric-tasks">—</div><div class="metric-foot"><span class="metric-sub">Terminal lifecycle events</span><span class="metric-index">03</span></div></article>
+            <article class="metric-cell"><div class="metric-top"><span class="metric-label">RUNTIME UPTIME</span><span class="metric-glyph amber">◷</span></div><div class="metric-value" id="metric-uptime">—</div><div class="metric-foot"><span class="metric-sub">This dashboard session</span><span class="metric-index">04</span></div></article>
+          </div>
+
+          <div class="section-heading"><div><span class="section-kicker">01 / COMMAND</span><h2>Mission control</h2></div><span class="section-note"><span class="tiny-dot pulse"></span> DIRECT RUNTIME LINK</span></div>
+          <section class="command-panel">
+            <div class="command-main">
+              <div class="command-intro"><div class="command-emblem"><span class="emblem-ring"></span><span class="emblem-core">J</span></div><div><div class="command-title">What are we solving today?</div><div class="command-description">Send a task through JARVIS. Your request can be delegated to the right specialist.</div></div></div>
+              <form id="task-form" class="task-form">
+                <label class="sr-only" for="task-prompt">Describe your task</label>
+                <textarea id="task-prompt" rows="2" maxlength="6000" placeholder="Ask JARVIS to research, plan, analyze markets, write documentation…" required></textarea>
+                <div class="composer-bottom"><div class="composer-meta"><span class="keycap">↵</span><span>Run task</span><span class="meta-divider"></span><span id="char-count">0 / 6000</span></div><div class="composer-actions"><label class="sr-only" for="agent-target">Target agent</label><select id="agent-target" aria-label="Target agent"><option value="voice.jarvis">JARVIS · Auto-coordinate</option></select><button class="run-button" id="run-task" type="submit"><span>Run task</span><span class="run-arrow">↗</span></button></div></div>
+              </form>
+              <div class="quick-prompts"><span class="quick-label">QUICK START</span><button data-prompt="Live Indian market snapshot">Market snapshot <span>↗</span></button><button data-prompt="Give me a prioritized plan to improve the JARVIS Agent Network">Build a roadmap <span>↗</span></button><button data-prompt="Research the latest reliable approaches to local-first AI agents">Deep research <span>↗</span></button></div>
+            </div>
+            <aside class="command-rail"><div class="rail-title">EXECUTION FLOW <span>LIVE</span></div><div class="flow-list"><div class="flow-step"><span class="flow-node active-node">01</span><div><strong>Intent received</strong><small>Task prompt enters runtime</small></div></div><div class="flow-connector"></div><div class="flow-step"><span class="flow-node">02</span><div><strong>Agent routing</strong><small>Capabilities matched</small></div></div><div class="flow-connector"></div><div class="flow-step"><span class="flow-node">03</span><div><strong>Specialist execution</strong><small>Delegation as required</small></div></div><div class="flow-connector"></div><div class="flow-step"><span class="flow-node">04</span><div><strong>Result returned</strong><small>Traceable task outcome</small></div></div></div><div class="rail-foot"><span class="shield-icon">⬡</span><span>LOCAL-FIRST · READ-ONLY MARKETS</span></div></aside>
+          </section>
+          <div class="task-result hidden" id="task-result" aria-live="polite"><div class="result-header"><div><span class="section-kicker">LATEST EXECUTION</span><h3 id="result-title">Task complete</h3></div><button class="text-button" id="dismiss-result">Dismiss ×</button></div><div class="result-meta" id="result-meta"></div><pre class="result-output" id="result-output"></pre></div>
+
+          <div class="section-heading heading-tight"><div><span class="section-kicker">02 / LIVING INTELLIGENCE</span><h2>Neural command field</h2></div><div class="network-live-label"><span class="tiny-dot pulse"></span><span id="network-state-label">SYNCHRONIZING AGENTS</span><button class="subtle-button" data-navigate="agents">Open network ↗</button></div></div>
+          <section class="living-network-stage" aria-label="Agent network visualization"><div class="network-stage-top"><span>JARVIS /X · COORDINATION CORE</span><span><i class="network-key ready-key"></i> READY <i class="network-key registered-key"></i> REGISTERED</span></div><div id="living-network" class="living-network"><div class="loading-state"><span class="spinner"></span> Establishing neural links…</div></div><div class="network-stage-bottom"><div><span class="network-bottom-kicker">ACTIVE INTELLIGENCE</span><strong id="network-agent-summary">Waiting for runtime</strong></div><div><span class="network-bottom-kicker">MISSION STATE</span><strong id="network-mission-state">STANDING BY</strong></div><button class="network-command-link" data-navigate="tasks">Open mission cockpit ↗</button></div></section>
+          <div class="agent-mosaic" id="agent-mosaic"><div class="loading-state"><span class="spinner"></span> Establishing agent links…</div></div>
+
+          <div class="lower-grid">
+            <section class="panel market-panel"><div class="panel-heading"><div><span class="section-kicker">03 / SIGNAL</span><h2>Market intelligence</h2></div><button class="mini-icon-button" id="refresh-market" title="Run a new market snapshot">↻</button></div><div id="market-overview" class="market-overview"><div class="loading-state"><span class="spinner"></span> Reading market report…</div></div><div class="panel-footer"><span id="market-updated">Waiting for report metadata</span><button class="text-button" data-navigate="markets">Open intelligence <span>↗</span></button></div></section>
+            <section class="panel activity-panel"><div class="panel-heading"><div><span class="section-kicker">04 / TRACE</span><h2>Recent activity</h2></div><button class="text-button" data-navigate="tasks">All tasks <span>↗</span></button></div><div id="recent-activity" class="activity-list"><div class="loading-state"><span class="spinner"></span> Loading task history…</div></div><div class="panel-footer"><span class="trace-foot"><span class="tiny-dot"></span> AUDIT METADATA ONLY</span><span id="audit-count">— events</span></div></section>
+          </div>
+          <footer class="page-footer"><span>JARVIS /X <span class="footer-divider">—</span> AGENT NETWORK INTELLIGENCE</span><span><span class="tiny-dot"></span> LOCAL SESSION · NO ORDER EXECUTION</span></footer>
+        </section>
+
+        <section class="view" id="view-agents">
+          <div class="page-title-row"><div><div class="eyebrow"><span class="eyebrow-line"></span> NETWORK / REGISTRY</div><h1>Agent <span>network.</span></h1><p class="hero-subtitle">Every identity, its actual runtime status, and the capabilities it exposes.</p></div><div class="title-actions"><div class="system-pill"><span class="tiny-dot pulse"></span><span id="agent-status-summary">LOADING AGENTS</span></div></div></div>
+          <div class="filter-row"><div class="search-box"><span>⌕</span><input id="agent-search" type="search" placeholder="Find an agent or capability…" aria-label="Search agents"></div><div class="filter-chips" id="agent-filters"><button class="filter-chip active" data-filter="all">All identities <span id="filter-all-count">10</span></button><button class="filter-chip" data-filter="ready">Ready <span id="filter-ready-count">—</span></button><button class="filter-chip" data-filter="registered">Registered <span id="filter-registered-count">—</span></button></div></div>
+          <div class="agent-grid" id="agent-grid"></div>
+        </section>
+
+        <section class="view" id="view-tasks">
+          <div class="page-title-row"><div><div class="eyebrow"><span class="eyebrow-line"></span> EXECUTION / OBSERVABILITY</div><h1>Task <span>center.</span></h1><p class="hero-subtitle">Recent executions, persisted lifecycle events, and inspectable results.</p></div><button class="subtle-button" data-navigate="overview">+ New task <span>↗</span></button></div>
+          <div class="metric-ribbon task-metrics"><article class="metric-cell"><div class="metric-top"><span class="metric-label">RECORDED EVENTS</span><span class="metric-glyph">▤</span></div><div class="metric-value" id="task-event-count">—</div><div class="metric-foot"><span class="metric-sub">Lifecycle log</span></div></article><article class="metric-cell"><div class="metric-top"><span class="metric-label">SUCCEEDED</span><span class="metric-glyph green">✓</span></div><div class="metric-value" id="task-succeeded-count">—</div><div class="metric-foot"><span class="metric-sub">Terminal outcomes</span></div></article><article class="metric-cell"><div class="metric-top"><span class="metric-label">FAILED / TIMED OUT</span><span class="metric-glyph amber">!</span></div><div class="metric-value" id="task-failed-count">—</div><div class="metric-foot"><span class="metric-sub">Requires inspection</span></div></article><article class="metric-cell"><div class="metric-top"><span class="metric-label">MALFORMED LINES</span><span class="metric-glyph violet">⌁</span></div><div class="metric-value" id="task-malformed-count">—</div><div class="metric-foot"><span class="metric-sub">Audit file integrity</span></div></article></div>
+          <section class="panel table-panel"><div class="panel-heading"><div><span class="section-kicker">PERSISTED / RECENT</span><h2>Execution timeline</h2></div><button class="mini-icon-button" id="refresh-tasks" title="Refresh tasks">↻</button></div><div class="table-scroll"><table class="data-table"><thead><tr><th>STATUS</th><th>AGENT</th><th>TASK ID</th><th>FINISHED</th><th>DETAIL</th></tr></thead><tbody id="task-table-body"><tr><td colspan="5" class="empty-cell">Loading execution history…</td></tr></tbody></table></div><div class="panel-footer"><span>Stored task history excludes prompt and output content by design.</span><span id="task-log-path">data/task_history.jsonl</span></div></section>
+          <section class="panel output-panel"><div class="panel-heading"><div><span class="section-kicker">IN-MEMORY / THIS SESSION</span><h2>Recent results</h2></div><span class="session-tag">SESSION ONLY</span></div><div id="session-results" class="session-results"><div class="empty-state">Run a task to see its full result here.</div></div></section>
+        </section>
+
+        <section class="view" id="view-markets">
+          <div class="page-title-row"><div><div class="eyebrow"><span class="eyebrow-line"></span> QUANT / READ-ONLY</div><h1>Market <span>intelligence.</span></h1><p class="hero-subtitle">A grounded view of the latest report saved by your Quant agent.</p></div><button class="run-button" id="run-market-snapshot"><span>Request snapshot</span><span class="run-arrow">↗</span></button></div>
+          <div id="market-detail" class="market-detail"><div class="loading-state"><span class="spinner"></span> Loading saved market report…</div></div>
+          <div class="market-disclaimer"><span class="shield-icon">⬡</span><div><strong>Read-only research, not an execution terminal.</strong><p>Report retrieval time is not necessarily the quote timestamp. Confirm source timestamps and feed status before relying on values. JARVIS does not place orders.</p></div></div>
+        </section>
+
+        <section class="view" id="view-reports">
+          <div class="page-title-row"><div><div class="eyebrow"><span class="eyebrow-line"></span> ARTIFACTS / LOCAL FILES</div><h1>Reports & <span>artifacts.</span></h1><p class="hero-subtitle">Open the files generated by your agents without leaving the dashboard.</p></div><button class="mini-icon-button large" id="refresh-reports" title="Refresh reports">↻</button></div>
+          <div class="report-layout"><section class="panel report-list-panel"><div class="panel-heading"><div><span class="section-kicker">DATA / REPORTS</span><h2>Local artifacts</h2></div><span class="session-tag">ON DISK</span></div><div id="report-list" class="report-list"><div class="loading-state"><span class="spinner"></span> Scanning report directory…</div></div></section><section class="panel report-viewer"><div class="viewer-top"><div><span class="section-kicker">FILE PREVIEW</span><h2 id="viewer-title">Select a report</h2></div><button class="mini-icon-button" id="copy-report" disabled title="Copy report contents">⧉</button></div><pre id="viewer-content" class="viewer-content">Choose a file from the list to inspect its contents.</pre></section></div>
+        </section>
+      </div>
+    </main>
+  </div>
+  <div class="toast-stack" id="toast-stack" aria-live="polite"></div>
+  <div class="modal-backdrop hidden" id="agent-modal" role="dialog" aria-modal="true" aria-labelledby="modal-agent-name"><div class="modal-card"><button class="modal-close" id="close-agent-modal" aria-label="Close">×</button><div id="agent-modal-content"></div></div></div>
+</body>
+</html>

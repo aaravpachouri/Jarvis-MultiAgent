@@ -1,0 +1,88 @@
+{
+  "agent_id": "coding.forge",
+  "name": "Forge",
+  "role": "Software engineering, debugging and code quality specialist",
+  "description": "Inspects repositories, designs and implements features, debugs failures, refactors, writes tests and verifies code.",
+  "capabilities": [
+    "code.inspect",
+    "code.write",
+    "code.debug",
+    "code.test",
+    "code.refactor",
+    "repository.analyze"
+  ],
+  "routing_keywords": [
+    "write code",
+    "coding",
+    "source code",
+    "inspect the repository",
+    "inspect this repo",
+    "repository",
+    "repo",
+    "debug",
+    "bug",
+    "traceback",
+    "stack trace",
+    "exception",
+    "fix error",
+    "implement",
+    "refactor",
+    "build an app",
+    "saas app",
+    "unit test"
+  ],
+  "tags": [
+    "engineering",
+    "quality-gates"
+  ],
+  "requires_approval_for": [
+    "production_write",
+    "external_publish"
+  ],
+  "max_concurrency": 2,
+  "timeout_seconds": 300,
+  "version": "0.1.0",
+  "enabled": true,
+  "metadata": {
+    "profile_only": false,
+    "folder": "coding_agent",
+    "execution_mode": "executable",
+    "operator_guide": {
+      "best_for": [
+        "Inspecting and understanding a codebase",
+        "Implementing requested code changes",
+        "Debugging, refactoring, and testing"
+      ],
+      "functions": [
+        {
+          "capability": "code.inspect",
+          "description": "Inspect source code and explain how an implementation works."
+        },
+        {
+          "capability": "code.write",
+          "description": "Implement code changes and requested features in the available workspace."
+        },
+        {
+          "capability": "code.debug",
+          "description": "Diagnose errors, exceptions, and failing behavior."
+        },
+        {
+          "capability": "code.test",
+          "description": "Create or run relevant tests and report their actual results."
+        },
+        {
+          "capability": "code.refactor",
+          "description": "Restructure code while preserving intended behavior."
+        },
+        {
+          "capability": "repository.analyze",
+          "description": "Analyze repository structure, dependencies, and implementation patterns."
+        }
+      ],
+      "boundaries": [
+        "Production writes and external publishing remain approval-gated.",
+        "A test is reported as passed only when it was actually executed and returned a passing result."
+      ]
+    }
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "agent_id": "deployment.launch",
+  "name": "Launch",
+  "role": "Build, deployment and release verification specialist",
+  "description": "Selects suitable hosting approaches, prepares build/release configuration, investigates failures and verifies health after approved deployment.",
+  "capabilities": [
+    "deployment.plan",
+    "deployment.build",
+    "deployment.release",
+    "deployment.verify",
+    "deployment.rollback",
+    "deployment.cicd"
+  ],
+  "routing_keywords": [
+    "deploy",
+    "deployment",
+    "host",
+    "publish app",
+    "production",
+    "release",
+    "build pipeline",
+    "ci/cd",
+    "vercel",
+    "render",
+    "cloud hosting",
+    "health check"
+  ],
+  "tags": [
+    "operations",
+    "release"
+  ],
+  "requires_approval_for": [
+    "production_release",
+    "paid_resource_create",
+    "production_rollback"
+  ],
+  "max_concurrency": 1,
+  "timeout_seconds": 300,
+  "version": "0.1.0",
+  "enabled": true,
+  "metadata": {
+    "profile_only": true,
+    "folder": "deployment_agent"
+  }
+}
