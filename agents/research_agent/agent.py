@@ -632,7 +632,7 @@ class ResearchAgent:
                     (hint for model_key, hint in _MODEL_SOURCE_HINTS.items() if model_key in lowered_target),
                     "",
                 )
-                query = f"{target} model card reasoning coding context license {source_hint}"
+                query = f"{target} official model card reasoning coding context license {source_hint}"
                 queries.append(" ".join(query.split())[:179].rstrip())
             return queries
 
