@@ -440,7 +440,7 @@ def test_model_comparison_queries_are_targeted_to_all_three_named_models_and_off
     llama = next(query for query in queries if "Llama 3.2 3B" in query)
     gemma = next(query for query in queries if "Gemma 3 4B" in query)
     assert "qwen.ai" in qwen and "QwenLM/Qwen3" in qwen
-    assert "llama.com" in llama and "meta-llama/llama-models" in llama
+    assert "meta-llama/llama-models" in llama and "ollama.com/library/llama3.2" in llama
     assert "deepmind.google" in gemma and "registry.ollama.com/library/gemma3" in gemma
 
 
