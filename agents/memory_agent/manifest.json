@@ -57,6 +57,39 @@
     "storage": "local_json",
     "default_store": "data/memory_notes.json",
     "explicit_save_required": true,
-    "external_sync": false
+    "external_sync": false,
+    "operator_guide": {
+      "best_for": [
+        "Saving a note when explicitly asked",
+        "Finding or recalling a previously saved note",
+        "Deleting a saved note when explicitly asked"
+      ],
+      "functions": [
+        {
+          "capability": "memory.save",
+          "description": "Save user-requested information as a local note."
+        },
+        {
+          "capability": "memory.recall",
+          "description": "Retrieve a saved note or remembered item."
+        },
+        {
+          "capability": "memory.search",
+          "description": "Search the local notes store."
+        },
+        {
+          "capability": "memory.delete",
+          "description": "Delete a saved note at the user's request."
+        },
+        {
+          "capability": "notes.manage",
+          "description": "List and manage the user's local notes."
+        }
+      ],
+      "boundaries": [
+        "Saving requires an explicit user request; ordinary conversation is not automatically saved.",
+        "Credential-like information is excluded. Storage is local JSON with no external synchronization."
+      ]
+    }
   }
 }
