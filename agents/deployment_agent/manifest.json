@@ -39,6 +39,23 @@
     "folder": "deployment_agent",
     "execution_mode": "read_only_preflight_only",
     "network_access": false,
-    "command_execution": false
+    "command_execution": false,
+    "operator_guide": {
+      "best_for": [
+        "Preparing deployment and release preflight checks",
+        "Reviewing hosting and CI/CD readiness",
+        "Identifying production-release risks"
+      ],
+      "functions": [
+        {
+          "capability": "deployment.plan",
+          "description": "Prepare an evidence-based deployment preflight plan from the active workspace."
+        }
+      ],
+      "boundaries": [
+        "Current handler is read-only preflight only: it does not run builds, commands, health checks, or deployment actions.",
+        "It cannot publish releases, change infrastructure, roll back production, or create paid resources."
+      ]
+    }
   }
 }
