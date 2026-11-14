@@ -172,6 +172,8 @@ class ResearchAgent:
                 "requested_model_targets": model_targets,
                 "model_target_coverage": {target: [] for target in model_targets},
                 "model_target_coverage_complete": not model_comparison_requested,
+                "model_target_extracted_coverage": {target: [] for target in model_targets},
+                "model_target_content_coverage_complete": not model_comparison_requested,
                 "complete": False,
             }
         api_comparison_requested = "tavily" in prompt.casefold() and "search api" in prompt.casefold()
