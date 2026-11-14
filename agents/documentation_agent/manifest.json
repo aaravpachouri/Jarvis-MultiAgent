@@ -57,6 +57,55 @@
     "folder": "documentation_agent",
     "execution_mode": "draft_only_with_scoped_diagnostic_report_persistence",
     "writes_files": "coordinator_authorized_local_diagnostic_report_only",
-    "independent_verification": false
+    "independent_verification": false,
+    "operator_guide": {
+      "best_for": [
+        "Drafting emails, reports, proposals, and meeting notes",
+        "Writing READMEs, API references, and architecture documentation",
+        "Preparing release notes and structured write-ups"
+      ],
+      "functions": [
+        {
+          "capability": "documentation.write",
+          "description": "Draft new documentation from supplied, evidence-backed context."
+        },
+        {
+          "capability": "documentation.update",
+          "description": "Propose or draft updates to existing documentation."
+        },
+        {
+          "capability": "documentation.api",
+          "description": "Write API reference material and usage documentation."
+        },
+        {
+          "capability": "documentation.release_notes",
+          "description": "Prepare release notes and change summaries."
+        },
+        {
+          "capability": "documentation.architecture",
+          "description": "Describe system architecture, components, and workflows."
+        },
+        {
+          "capability": "writing.email",
+          "description": "Draft emails and professional correspondence."
+        },
+        {
+          "capability": "writing.report",
+          "description": "Prepare reports and structured findings."
+        },
+        {
+          "capability": "writing.notes",
+          "description": "Organize meeting notes and working notes."
+        },
+        {
+          "capability": "writing.proposal",
+          "description": "Draft project and business proposals."
+        }
+      ],
+      "boundaries": [
+        "Normal outputs are drafts; this agent does not send emails or publish documents externally.",
+        "Arbitrary filesystem writes are not supported. The only manifest-declared persistence exception is a coordinator-authorized local agent-system diagnostic report under data/reports."
+      ]
+    }
   }
 }

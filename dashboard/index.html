@@ -9,7 +9,8 @@
   <link rel="stylesheet" href="/assets/styles.css">
   <script src="/assets/result-format.js" defer></script>
   <script src="/assets/athena-evidence.js?v=1" defer></script>
-  <script src="/assets/app.js?v=athena-evidence-20261112-1" defer></script>
+  <script src="/assets/conversation-ui.js?v=coordination-workspace-1" defer></script>
+  <script src="/assets/app.js?v=coordination-workspace-1" defer></script>
 </head>
 <body class="hud-active">
   <div id="login-screen" class="login-screen" hidden>
@@ -137,9 +138,19 @@
                 </section>
               </aside>
 
-              <section class="mk-center-stage" aria-label="Living JARVIS suit intelligence core">
-                <div class="mk-stage-topline"><div><span class="mk-bracket"></span><div><strong>SUIT INTERFACE / MARK XI</strong><small id="network-state-label">INITIALIZING NEURAL LINKS</small></div></div><div class="mk-stage-status"><i class="mk-led pulse"></i><span id="network-agent-summary">Waiting for runtime</span></div></div>
-                <div class="mk-stage-scene">
+              <section class="mk-center-stage" aria-label="JARVIS conversation and coordination workspace">
+                <div class="mk-stage-topline"><div><span class="mk-bracket"></span><div><strong>JARVIS /X · CONVERSATION</strong><small id="network-state-label">SPECIALIST NETWORK READY</small></div></div><div class="mk-stage-status"><i class="mk-led pulse"></i><span id="network-agent-summary">Waiting for runtime</span></div></div>
+                <nav class="mk-stage-tabs" aria-label="Main workspace view">
+                  <button type="button" class="active" data-stage-tab="conversation" aria-pressed="true">CONVERSATION</button>
+                  <button type="button" data-stage-tab="network" aria-pressed="false">AGENT NETWORK</button>
+                  <span id="mk-conversation-state">WAITING FOR A DIRECTIVE</span>
+                </nav>
+                <section class="mk-conversation-view" id="mk-conversation-view" aria-label="Conversation with JARVIS and specialist agents">
+                  <div class="mk-conversation-feed" id="mk-conversation-feed" aria-live="polite" aria-relevant="additions text">
+                    <div class="mk-conversation-welcome"><span class="mk-welcome-reactor">◉</span><span class="mk-welcome-kicker">JARVIS /X · READY</span><h2>What should we work on?</h2><p>Send a request below. JARVIS can answer directly or coordinate the specialist agents. Their actual handoffs and returned results will be shown with the response.</p><div class="mk-welcome-hints"><span>Research & evidence</span><span>Code & testing</span><span>Planning</span><span>Market analysis</span></div></div>
+                  </div>
+                </section>
+                <div class="mk-stage-scene mk-network-view is-hidden" id="mk-network-view">
                   <div class="mk-scene-grid" aria-hidden="true"></div><div class="mk-radar-ring radar-one" aria-hidden="true"></div><div class="mk-radar-ring radar-two" aria-hidden="true"></div><div class="mk-radar-ring radar-three" aria-hidden="true"></div><div class="mk-scan-beam" aria-hidden="true"></div>
                   <svg class="mk-connection-svg" viewBox="0 0 1000 800" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="linkGlow"><stop offset="0" stop-color="#11c9f4" stop-opacity=".12"/><stop offset=".5" stop-color="#2feaff" stop-opacity=".7"/><stop offset="1" stop-color="#11c9f4" stop-opacity=".12"/></linearGradient></defs><g class="mk-network-links" id="mk-network-links"></g></svg>
                   <svg class="mk-suit-drawing" viewBox="0 0 520 690" role="img" aria-label="Original animated line-art armored intelligence suit with illuminated eyes and arc reactor">
@@ -183,7 +194,7 @@
                   <div class="mk-edge-readout mk-readout-left"><span>POWER CORE</span><b>ARC / XI</b><small>STABLE FIELD</small></div><div class="mk-edge-readout mk-readout-right"><span>NETWORK LINK</span><b id="hud-network-link">ESTABLISHING</b><small>LOOPBACK CHANNEL</small></div>
                   <div class="mk-scene-corner mk-corner-a">MK-XI <span>SUIT DIAGNOSTICS</span></div><div class="mk-scene-corner mk-corner-b">JARVIS <span>COORDINATION FIELD</span></div>
                 </div>
-                <div class="mk-stage-footer"><div><small>ACTIVE INTELLIGENCE</small><strong id="network-agent-summary-footer">8 EXECUTABLE · 10 IDENTITIES</strong></div><div class="mk-stage-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><button type="button" class="mk-mini-link" data-hud-panel="mission">OPEN MISSION COCKPIT ↗</button></div>
+                <div class="mk-stage-footer"><div><small>ACTIVE INTELLIGENCE</small><strong id="network-agent-summary-footer">8 EXECUTABLE · 10 IDENTITIES</strong></div><div class="mk-stage-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><button type="button" class="mk-mini-link" data-stage-tab="conversation">VIEW CONVERSATION ↗</button></div>
               </section>
 
               <aside class="mk-rail mk-right-rail" aria-label="Mission and specialist console">
@@ -205,9 +216,9 @@
                   <div class="mk-command-policy"><span><i class="mk-led"></i> LOCAL RUNTIME</span><span>PERMISSIONS ENFORCED</span><span>NO LIVE TRADE EXECUTION</span></div>
                 </section>
                 <section class="mk-panel mk-focus-panel">
-                  <div class="mk-panel-head"><span>AGENT PANEL</span><span class="mk-panel-head-tools"><i class="mk-led pulse"></i><small id="hud-focus-state-head">READY</small></span></div>
+                  <div class="mk-panel-head"><span>SPECIALIST PROFILE</span><span class="mk-panel-head-tools"><i class="mk-led pulse"></i><small id="hud-focus-state-head">READY</small></span></div>
                   <div class="mk-focus-head"><div class="mk-focus-orb" id="hud-focus-symbol">⌘</div><div><h2 id="hud-focus-name">Forge</h2><p id="hud-focus-role">CODING SPECIALIST</p></div><span class="mk-focus-live" id="hud-focus-status">ONLINE</span></div>
-                  <div class="mk-agent-tabs"><button class="active" type="button" data-focus-tab="chat">CHAT</button><button type="button" data-focus-tab="tools">TOOLS</button><button type="button" data-focus-tab="files" data-open-workspace="reports">FILES</button><button type="button" data-focus-tab="logs" data-hud-panel="mission">LOGS</button></div>
+                  <div class="mk-agent-tabs"><button class="active" type="button" data-focus-tab="chat">CHAT</button><button type="button" data-focus-tab="tools">FUNCTIONS</button><button type="button" data-focus-tab="files" data-open-workspace="reports">FILES</button><button type="button" data-focus-tab="logs" data-hud-panel="mission">LOGS</button></div>
                   <div class="mk-focus-description" id="hud-focus-description">Select an agent in the suit interface to inspect its role and route a task directly.</div>
                   <div class="mk-focus-feed" id="hud-focus-feed"><div class="mk-chat-system"><i class="mk-led"></i> SPECIALIST CHANNEL READY</div><div class="mk-chat-bubble agent-bubble"><strong>JARVIS/X</strong><p>Choose an agent from the neural field to open its working context.</p></div></div>
                   <form id="hud-direct-form" class="mk-direct-composer" autocomplete="off"><label class="sr-only" for="hud-direct-prompt">Send a task to the selected specialist</label><textarea id="hud-direct-prompt" maxlength="6000" rows="2" placeholder="Send a message to Forge…" spellcheck="false"></textarea><div class="mk-direct-actions"><span id="hud-direct-route">ROUTE · CODING.FORGE</span><button type="submit" id="hud-direct-send" aria-label="Send task to selected agent">➤</button></div></form>

@@ -46,6 +46,43 @@
   "metadata": {
     "profile_only": false,
     "folder": "coding_agent",
-    "execution_mode": "executable"
+    "execution_mode": "executable",
+    "operator_guide": {
+      "best_for": [
+        "Inspecting and understanding a codebase",
+        "Implementing requested code changes",
+        "Debugging, refactoring, and testing"
+      ],
+      "functions": [
+        {
+          "capability": "code.inspect",
+          "description": "Inspect source code and explain how an implementation works."
+        },
+        {
+          "capability": "code.write",
+          "description": "Implement code changes and requested features in the available workspace."
+        },
+        {
+          "capability": "code.debug",
+          "description": "Diagnose errors, exceptions, and failing behavior."
+        },
+        {
+          "capability": "code.test",
+          "description": "Create or run relevant tests and report their actual results."
+        },
+        {
+          "capability": "code.refactor",
+          "description": "Restructure code while preserving intended behavior."
+        },
+        {
+          "capability": "repository.analyze",
+          "description": "Analyze repository structure, dependencies, and implementation patterns."
+        }
+      ],
+      "boundaries": [
+        "Production writes and external publishing remain approval-gated.",
+        "A test is reported as passed only when it was actually executed and returned a passing result."
+      ]
+    }
   }
 }

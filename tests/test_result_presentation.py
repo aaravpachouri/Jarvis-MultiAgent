@@ -15,22 +15,27 @@ FORMATTER_JS = ROOT / "dashboard" / "assets" / "result-format.js"
 MARKET_PULSE_OUTPUT = """MARKET PULSE — INDIA — SUCCESS Root task: e7bdc929-7ced-481c-bd74-c43cffed58c5 Quant task: 7c40c753-18cf-4754-8731-509045fa26c6 · status=succeeded Company searches attempted: 8 Usable company quotes: 8 Usable index quotes: 2/2 Research candidates: 0 Report: C:/Users/Hp/Downloads/JARVIS_Agent_Network_Phase3_Scribe_Athena_Planner/data/reports/market_pulse_india.md ## Stage records - stage=quant_market_data; agent_id=trading.quant; capability=trading.market_analysis; task_id=7c40c753-18cf-4754-8731-509045fa26c6; status=succeeded - stage=evidence_review; agent_id=research.athena; capability=research.synthesize; task_id=d3bc6d55-46a1-43e2-b523-0efb07a37f7a; status=succeeded - stage=scribe_report_draft; agent_id=documentation.scribe; capability=writing.report; task_id=f80ee5fc-98d5-4703-be39-0c31ef7e579e; status=succeeded ## Limitations Use exchange-issued market hours/holiday data to confirm session status. No such status endpoint was used here. The market feed is not guaranteed real-time. An empty shortlist is valid when no candidates meet the screen. No brokerage account was accessed and no orders were placed."""
 
 
-def test_dashboard_loads_result_formatter_before_main_app():
+def test_dashboard_loads_result_and_conversation_helpers_before_main_app():
     html = HTML.read_text(encoding="utf-8")
     formatter_tag = '<script src="/assets/result-format.js" defer></script>'
-    app_tag = '<script src="/assets/app.js?v=athena-evidence-20261112-1" defer></script>'
+    conversation_tag = '<script src="/assets/conversation-ui.js?v=coordination-workspace-1" defer></script>'
+    app_tag = '<script src="/assets/app.js?v=coordination-workspace-1" defer></script>'
     assert formatter_tag in html
-    assert html.index(formatter_tag) < html.index(app_tag)
+    assert conversation_tag in html
+    assert app_tag in html
+    assert html.index(formatter_tag) < html.index(conversation_tag) < html.index(app_tag)
 
 
-def test_mission_result_surfaces_a_formatted_answer_and_raw_details():
+def test_mission_result_surfaces_full_answers_in_the_central_conversation():
     app = APP_JS.read_text(encoding="utf-8")
     assert "renderTaskResult(latest.output)" in app
-    assert "renderTaskResult(output, { compact: true })" in app
-    assert "renderTaskResult(r.output || r.error || r.summary || 'No output')" in app
+    assert "renderTaskResult(output)" in app
+    assert "renderConversation()" in app
+    assert "getMissionCoordination(state.liveEvents || [], entry.taskId)" in app
+    assert "OPEN FULL RESPONSE ↗" in app
     assert "data-open-result-report" in app
     assert "openResultReport" in app
-    assert "if (state.currentView === 'overview' && state.lastHudTask?.output) openHudPanel('mission')" in app
+    assert "if (state.currentView === 'overview' && state.lastHudTask?.output) openHudPanel('mission')" not in app
 
 
 def _run_node_json(expression: str):

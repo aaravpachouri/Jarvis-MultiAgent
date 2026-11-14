@@ -99,6 +99,7 @@
     dashboardStarted = true;
     hideLogin();
     bindEvents();
+    setHudStageTab('conversation');
     updateClock();
     window.setInterval(updateClock, 1000);
     await refreshOverview(false);
@@ -465,8 +466,11 @@
       let subline = identity.specialty;
       let quote = identity.motto;
       if (tab === 'capabilities') {
-        subline = 'CAPABILITY PROFILE';
-        quote = (agent.capabilities || []).slice(0, 2).join(' · ') || 'No capabilities declared by the runtime.';
+        subline = 'DECLARED FUNCTIONS';
+        const guide = agent.metadata?.operator_guide || {};
+        const functionCount = Array.isArray(guide.functions) && guide.functions.length
+          ? guide.functions.length : (agent.capabilities || []).length;
+        quote = `${functionCount} FUNCTIONS · SELECT FOR FULL SCOPE & EXECUTION LIMITS`;
       } else if (tab === 'tasks') {
         const observed = (state.liveEvents || []).filter(event => event.agent_id === agent.agent_id && (String(event.type || '').startsWith('task.') || String(event.type || '').startsWith('agent.action.'))).length;
         subline = 'OBSERVED RUNTIME EVENTS';
@@ -645,6 +649,114 @@
     renderAgentDock();
   }
 
+  function setHudStageTab(tab = 'conversation') {
+    const activeTab = tab === 'network' ? 'network' : 'conversation';
+    $$('[data-stage-tab]').forEach(button => {
+      const active = button.dataset.stageTab === activeTab;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+    $('#mk-conversation-view')?.classList.toggle('is-hidden', activeTab !== 'conversation');
+    $('#mk-network-view')?.classList.toggle('is-hidden', activeTab !== 'network');
+  }
+
+  function renderConversation() {
+    const host = $('#mk-conversation-feed');
+    if (!host) return;
+    const shouldFollow = host.scrollHeight - host.scrollTop - host.clientHeight < 120 || state.taskBusy;
+    const byTask = new Map();
+    const recent = [...(state.overview?.recent_results || [])].reverse();
+    recent.forEach((item, index) => {
+      const taskId = String(item.task_id || `session-result-${index}`);
+      byTask.set(taskId, {
+        ...item,
+        taskId: item.task_id || '',
+        agentId: item.agent_id || 'voice.jarvis',
+        prompt: item.prompt || '',
+        output: item.output || item.error || item.summary || '',
+        startedAt: item.started_at || item.timestamp || '',
+        finishedAt: item.finished_at || '',
+        _current: false
+      });
+    });
+    if (state.lastHudTask) {
+      const current = state.lastHudTask;
+      const taskId = String(current.taskId || '__current__');
+      const previous = byTask.get(taskId) || {};
+      byTask.set(taskId, {
+        ...previous,
+        ...current,
+        taskId: current.taskId || '',
+        agentId: current.agentId || current.agent_id || previous.agentId || 'voice.jarvis',
+        prompt: current.prompt || previous.prompt || '',
+        output: current.output || previous.output || '',
+        status: current.status || previous.status || 'queued',
+        startedAt: current.startedAt || current.started_at || previous.startedAt || new Date().toISOString(),
+        finishedAt: current.finishedAt || current.finished_at || previous.finishedAt || '',
+        _current: true
+      });
+    }
+    const entries = [...byTask.values()]
+      .sort((a, b) => (Date.parse(a.startedAt || a.finishedAt) || 0) - (Date.parse(b.startedAt || b.finishedAt) || 0))
+      .slice(-12);
+    if (!entries.length) {
+      host.innerHTML = '<div class="mk-conversation-welcome"><span class="mk-welcome-reactor">◉</span><span class="mk-welcome-kicker">JARVIS /X · READY</span><h2>What should we work on?</h2><p>Send a request below. JARVIS can answer directly or coordinate the specialist agents. Their actual handoffs and returned results will appear with the response.</p><div class="mk-welcome-hints"><span>Research & evidence</span><span>Code & testing</span><span>Planning</span><span>Market analysis</span></div></div>';
+      const status = $('#mk-conversation-state');
+      if (status) status.textContent = 'WAITING FOR A DIRECTIVE';
+      return;
+    }
+    host.innerHTML = entries.map(entry => {
+      const agent = state.agents.find(item => item.agent_id === (entry.agentId || entry.agent_id));
+      const identity = identityFor(agent || { agent_id: entry.agentId || entry.agent_id });
+      const name = identity.short || agent?.name || entry.agentId || 'JARVIS';
+      const status = String(entry.status || 'unknown').toLowerCase();
+      const active = Boolean(entry._current && state.taskBusy);
+      const statusLabel = active ? 'EXECUTING' : status.replace(/[_-]+/g, ' ').toUpperCase();
+      const prompt = entry.prompt || 'The original prompt is not retained in this session.';
+      const output = entry.output || entry.error || entry.summary || '';
+      const outputMarkup = output
+        ? renderTaskResult(output)
+        : `<div class="mk-turn-pending"><span class="spinner"></span><strong>${active ? 'JARVIS is coordinating this request' : 'No response text was retained'}</strong><p>${active ? 'Waiting for the next runtime update. The coordination trace below contains only observed handoffs.' : 'The runtime recorded a task outcome without a readable response body.'}</p></div>`;
+      const coordination = window.JARVISConversationUI
+        ? window.JARVISConversationUI.getMissionCoordination(state.liveEvents || [], entry.taskId)
+        : { handoffs: [] };
+      const coordinationMarkup = window.JARVISConversationUI
+        ? window.JARVISConversationUI.renderCoordinationMarkup(coordination, {
+            agents: state.agents,
+            rootAgentId: entry.agentId || entry.agent_id || 'voice.jarvis',
+            running: active
+          })
+        : '';
+      const taskMeta = [
+        entry.taskId ? `TRACE · ${String(entry.taskId).slice(0, 18)}` : '',
+        entry.startedAt ? fmtDate(entry.startedAt) : ''
+      ].filter(Boolean).join(' · ');
+      return `<article class="mk-conversation-turn ${active ? 'is-running' : ''} status-${escapeHTML(status)}">
+        <div class="mk-turn-user">
+          <span class="mk-turn-role">YOU</span>
+          <p>${escapeHTML(prompt)}</p>
+        </div>
+        <div class="mk-turn-assistant">
+          <header class="mk-turn-assistant-head">
+            <img src="/assets/agents/${escapeHTML(identity.slug)}.svg" alt="" loading="lazy" decoding="async">
+            <div><strong>${escapeHTML(name)}</strong><small>${escapeHTML(identity.specialty || agent?.role || 'JARVIS SPECIALIST')}</small></div>
+            <span class="mk-turn-status ${active ? 'is-active' : status === 'succeeded' ? 'is-success' : ['failed','timed_out','cancelled'].includes(status) ? 'is-error' : ''}">${escapeHTML(statusLabel)}</span>
+          </header>
+          <div class="mk-turn-output">${outputMarkup}</div>
+          ${coordinationMarkup}
+          <footer class="mk-turn-footer"><span>${escapeHTML(taskMeta || 'SESSION RESPONSE')}</span><button type="button" data-stage-tab="network">VIEW NETWORK ↗</button></footer>
+        </div>
+      </article>`;
+    }).join('');
+    const stateLabel = $('#mk-conversation-state');
+    const latest = entries[entries.length - 1];
+    if (stateLabel) {
+      const status = String(latest.status || 'recorded').toUpperCase().replace(/[_-]+/g, ' ');
+      stateLabel.textContent = state.taskBusy ? 'COORDINATION / LIVE TRACE' : `LATEST RESPONSE · ${status}`;
+    }
+    if (shouldFollow) host.scrollTop = host.scrollHeight;
+  }
+
   function renderHudFocusPanel() {
     const agent = state.agents.find(item => item.agent_id === state.selectedAgentId) || state.agents.find(item => item.agent_id === 'coding.forge') || state.agents[0];
     if (!agent) return;
@@ -670,7 +782,7 @@
     if (!feed) return;
     const tab = state.focusTab || 'chat';
     if (tab === 'tools') {
-      feed.innerHTML = `<div class="mk-chat-system"><i class="mk-led"></i> DECLARED CAPABILITIES · ${(agent.capabilities || []).length}</div><div class="hud-capabilities mk-capability-cloud">${(agent.capabilities || []).map(cap => `<span>${escapeHTML(cap)}</span>`).join('') || '<span>No capabilities declared by runtime.</span>'}</div>`;
+      feed.innerHTML = `<div class="mk-chat-system"><i class="mk-led"></i> LIVE MANIFEST · ${(agent.capabilities || []).length} DECLARED CAPABILITIES</div>${window.JARVISConversationUI ? window.JARVISConversationUI.renderOperatorGuide(agent) : `<div class="hud-capabilities mk-capability-cloud">${(agent.capabilities || []).map(cap => `<span>${escapeHTML(cap)}</span>`).join('')}</div>`}`;
       return;
     }
     if (tab === 'logs') {
@@ -685,7 +797,8 @@
     if (last) {
       const promptText = escapeHTML(last.prompt || 'Mission request');
       const output = String(last.output || '');
-      feed.innerHTML = `<div class="mk-chat-system"><i class="mk-led ${state.taskBusy ? 'pulse' : ''}"></i> ${state.taskBusy ? 'EXECUTION ACTIVE · WAITING FOR RUNTIME' : `LAST RESULT · ${escapeHTML(String(last.status || 'UNKNOWN').toUpperCase())}`}</div><div class="mk-chat-bubble operator-bubble"><strong>OPERATOR</strong><p>${promptText}</p></div><div class="mk-chat-bubble agent-bubble result-agent-bubble"><strong>${escapeHTML(agent.name || agent.agent_id)}</strong>${state.taskBusy ? '<p>Task is still executing in the local runtime. This display reflects the request lifecycle; it does not invent intermediate tool events.</p>' : `<div class="hud-result-mount">${renderTaskResult(output, { compact: true })}</div>`}${!state.taskBusy && last.taskId ? `<small>${escapeHTML(last.taskId)}</small>` : ''}</div>`;
+      const preview = summarizeTaskResult(output);
+      feed.innerHTML = `<div class="mk-chat-system"><i class="mk-led ${state.taskBusy ? 'pulse' : ''}"></i> ${state.taskBusy ? 'TASK ACTIVE · CENTRAL RESPONSE VIEW' : `LATEST TASK · ${escapeHTML(String(last.status || 'UNKNOWN').toUpperCase())}`}</div><div class="mk-chat-bubble operator-bubble"><strong>OPERATOR REQUEST</strong><p>${promptText}</p></div><div class="mk-chat-bubble agent-bubble result-agent-bubble"><strong>${escapeHTML(agent.name || agent.agent_id)}</strong><p>${state.taskBusy ? 'This specialist task is still executing. Live delegation and return events are shown in the central conversation workspace.' : escapeHTML(preview || 'The full response is available in the central conversation workspace.')}</p><button type="button" class="mk-focus-open-conversation" data-stage-tab="conversation">OPEN FULL RESPONSE ↗</button>${!state.taskBusy && last.taskId ? `<small>${escapeHTML(last.taskId)}</small>` : ''}</div>`;
     } else {
       const agentEvents = (state.liveEvents || []).filter(item => item.agent_id === agent.agent_id || item.from_agent_id === agent.agent_id || item.to_agent_id === agent.agent_id).sort(compareRuntimeEventsNewestFirst).slice(0, 3);
       const activityMarkup = agentEvents.map(item => `<div class="mk-chat-bubble"><strong>${escapeHTML(String(item.type || 'RUNTIME EVENT').replace(/[._-]+/g, ' ').toUpperCase())}</strong><p>${escapeHTML(item.to_agent_id ? `${item.from_agent_id} delegated to ${item.to_agent_id}.` : item.payload?.parent_task_id ? `Child task linked to parent ${item.payload.parent_task_id}.` : 'Observed lifecycle event from the local runtime.')}</p><small>${escapeHTML(fmtDate(item.timestamp))}</small></div>`).join('');
@@ -851,15 +964,19 @@
     if (!agent) return;
     if (document.body.classList.contains('hud-active') || state.currentView === 'overview') {
       state.selectedAgentId = agentId;
-      state.focusTab = 'chat';
+      state.focusTab = 'tools';
       renderLivingNetwork();
+      renderAgentDock();
       renderHudFocusPanel();
-      openHudPanel('agent', agentId);
+      setHudStageTab('network');
       return;
     }
     const status = hudStatus(agent);
     const identity = identityFor(agent);
-    $('#agent-modal-content').innerHTML = `<div class="modal-agent-top"><img class="modal-agent-portrait" src="/assets/agents/${identity.slug}.svg" alt=""><span class="agent-symbol">${escapeHTML(symbols[agent.name] || '◈')}</span><div><h2 id="modal-agent-name">${escapeHTML(identity.short || agent.name)}</h2><p>${escapeHTML(identity.specialty)} · ${escapeHTML(status.toUpperCase())}</p><p>${escapeHTML(identity.persona)}</p></div></div><div class="modal-section"><h3>ROLE & PURPOSE</h3><p>${escapeHTML(agent.description || agent.role || 'No description provided.')}</p></div><div class="modal-section"><h3>CAPABILITIES (${(agent.capabilities || []).length})</h3><div class="modal-capabilities">${(agent.capabilities || []).map(c => `<span class="capability-chip">${escapeHTML(c)}</span>`).join('')}</div></div><div class="modal-section"><h3>RUNTIME DETAILS</h3><p>State: <strong>${escapeHTML(status)}</strong><br>Enabled: <strong>${agent.enabled === false ? 'No' : 'Yes'}</strong><br>Max concurrency: <strong>${escapeHTML(agent.max_concurrency ?? '—')}</strong><br>Timeout: <strong>${escapeHTML(agent.timeout_seconds ?? '—')}s</strong><br>Tags: <strong>${escapeHTML((agent.tags || []).join(', ') || 'None')}</strong></p></div><div class="modal-section"><h3>ROUTING KEYWORDS</h3><p>${escapeHTML((agent.routing_keywords || []).join(' · ') || 'No routing keywords declared.')}</p></div>${['ready','busy'].includes(status) ? `<button class="run-button" id="target-agent-task" data-target="${escapeHTML(agent.agent_id)}">Run a task with ${escapeHTML(agent.name)} <span class="run-arrow">↗</span></button>` : '<p class="market-signal-copy">This identity is registered but has no executable handler in the current runtime.</p>'}`;
+    const operatorGuide = window.JARVISConversationUI
+      ? window.JARVISConversationUI.renderOperatorGuide(agent)
+      : `<div class="modal-capabilities">${(agent.capabilities || []).map(c => `<span class="capability-chip">${escapeHTML(c)}</span>`).join('')}</div>`;
+    $('#agent-modal-content').innerHTML = `<div class="modal-agent-top"><img class="modal-agent-portrait" src="/assets/agents/${identity.slug}.svg" alt=""><span class="agent-symbol">${escapeHTML(symbols[agent.name] || '◈')}</span><div><h2 id="modal-agent-name">${escapeHTML(identity.short || agent.name)}</h2><p>${escapeHTML(identity.specialty)} · ${escapeHTML(status.toUpperCase())}</p><p>${escapeHTML(identity.persona)}</p></div></div><div class="modal-section"><h3>ROLE & PURPOSE</h3><p>${escapeHTML(agent.description || agent.role || 'No description provided.')}</p></div><div class="modal-section"><h3>FUNCTIONS & EXECUTION BOUNDARIES</h3>${operatorGuide}</div><div class="modal-section"><h3>RUNTIME DETAILS</h3><p>State: <strong>${escapeHTML(status)}</strong><br>Enabled: <strong>${agent.enabled === false ? 'No' : 'Yes'}</strong><br>Max concurrency: <strong>${escapeHTML(agent.max_concurrency ?? '—')}</strong><br>Timeout: <strong>${escapeHTML(agent.timeout_seconds ?? '—')}s</strong><br>Tags: <strong>${escapeHTML((agent.tags || []).join(', ') || 'None')}</strong></p></div><div class="modal-section"><h3>ROUTING KEYWORDS</h3><p>${escapeHTML((agent.routing_keywords || []).join(' · ') || 'No routing keywords declared.')}</p></div>${['ready','busy'].includes(status) ? `<button class="run-button" id="target-agent-task" data-target="${escapeHTML(agent.agent_id)}">Run a task with ${escapeHTML(agent.name)} <span class="run-arrow">↗</span></button>` : '<p class="market-signal-copy">This identity is registered but has no executable handler in the current runtime.</p>'}`;
     $('#agent-modal').classList.remove('hidden');
     const runBtn = $('#target-agent-task');
     if (runBtn) runBtn.addEventListener('click', () => { $('#agent-target').value = agent.agent_id; $('#agent-modal').classList.add('hidden'); navigate('overview'); $('#task-prompt').focus(); toast(`Direct target set to ${agent.name}. Enter a task to continue.`); });
@@ -1151,7 +1268,7 @@
       if ($('#hud-gauge-tasks')) $('#hud-gauge-tasks').style.setProperty('--gauge', `${outcomes ? Math.min(100, outcomes % 101) * 3.6 : 0}deg`);
       if ($('#hud-gauge-up')) $('#hud-gauge-up').style.setProperty('--gauge', `${Math.min(100, seconds / 3600 * 100) * 3.6}deg`);
       if (!state.agents.some(agent => agent.agent_id === state.selectedAgentId)) state.selectedAgentId = state.agents.find(agent => agent.agent_id === 'coding.forge')?.agent_id || state.agents[0]?.agent_id || 'voice.jarvis';
-      renderAgentMosaic(); renderAgentGrid(); renderMarketOverview(data.market); renderActivity(data.task_history); renderTasks(); renderMarketDetail(); renderMissionWidget(); renderHudFocusPanel();
+      renderAgentMosaic(); renderAgentGrid(); renderMarketOverview(data.market); renderActivity(data.task_history); renderTasks(); renderMarketDetail(); renderMissionWidget(); renderHudFocusPanel(); renderConversation();
       if (showToast) toast('Dashboard synced with the local runtime.', 'success');
     } catch (error) {
       $('#core-status').textContent = 'OFFLINE'; $('#core-status').style.color = 'var(--red)';
@@ -1165,8 +1282,7 @@
     if (state.taskBusy) { setHudToast('A mission is already running. Wait for its result before starting another.', 'error'); return; }
     const targetAgentId = agentId || 'voice.jarvis';
     state.taskBusy = true;
-    state.lastHudTask = { prompt, agentId: targetAgentId, status: 'queued', output: '', taskId: '' };
-    if (state.hudPanel === 'mission') openHudPanel('mission');
+    state.lastHudTask = { prompt, agentId: targetAgentId, status: 'queued', output: '', taskId: '', startedAt: new Date().toISOString() };
     document.body.classList.add('mission-running');
     const button = $('#run-task'); const original = button?.innerHTML;
     const sendButton = $('#hud-command-send');
@@ -1179,7 +1295,7 @@
       $('#result-meta').textContent = `Accepted by local runtime · ${targetAgentId}`;
       $('#result-output').textContent = 'Waiting for the runtime to start the task…';
     }
-    renderLivingNetwork(); renderMissionWidget(); renderHudFocusPanel(); renderActivity(state.overview?.task_history);
+    renderLivingNetwork(); renderMissionWidget(); renderHudFocusPanel(); renderActivity(state.overview?.task_history); renderConversation();
     setHudToast(`Mission accepted by ${targetAgentId}. Live runtime events will appear as they occur.`);
     const mainPrompt = $('#hud-command-prompt');
     const directPrompt = $('#hud-direct-prompt');
@@ -1217,7 +1333,7 @@
           $('#result-meta').textContent = `${state.lastHudTask.agentId} · ${status} · ${taskId} · ${fmtDate(job.started_at || job.accepted_at)}`;
           $('#result-output').textContent = state.lastHudTask.output || (status === 'running' ? 'Runtime is working. Waiting for a terminal event…' : 'Mission accepted; waiting for task.started.');
         }
-        renderLivingNetwork(); renderMissionWidget(); renderHudFocusPanel(); renderActivity(state.overview?.task_history);
+        renderLivingNetwork(); renderMissionWidget(); renderHudFocusPanel(); renderActivity(state.overview?.task_history); renderConversation();
         if (['succeeded','failed','timed_out','cancelled'].includes(status)) {
           terminalRecord = result;
           state.lastHudTask.status = status;
@@ -1234,11 +1350,8 @@
         setHudToast(succeeded ? 'Mission completed. The result came from the local runtime.' : `Mission finished with status: ${state.lastHudTask.status}.`, succeeded ? 'success' : 'error');
       }
       await refreshOverview(false);
-      renderMissionWidget(); renderHudFocusPanel(); renderActivity(state.overview?.task_history);
+      renderMissionWidget(); renderHudFocusPanel(); renderActivity(state.overview?.task_history); renderConversation();
       if (state.currentView === 'tasks') renderTasks();
-      // Put the readable result in front of the operator when a HUD mission ends;
-      // the raw response remains available inside the result card for debugging.
-      if (state.currentView === 'overview' && state.lastHudTask?.output) openHudPanel('mission');
       if ($('#task-result') && state.currentView !== 'overview') $('#task-result').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     } catch (error) {
       state.lastHudTask = { ...state.lastHudTask, status: 'failed', output: error.message };
@@ -1248,12 +1361,12 @@
         $('#result-output').textContent = error.message;
       }
       setHudToast(`Task request failed: ${error.message}`, 'error');
-      renderMissionWidget(); renderHudFocusPanel(); renderActivity(state.overview?.task_history);
+      renderMissionWidget(); renderHudFocusPanel(); renderActivity(state.overview?.task_history); renderConversation();
     } finally {
       state.taskBusy = false;
       state.activeMissionId = null;
       document.body.classList.remove('mission-running');
-      renderLivingNetwork(); renderMissionWidget(); renderHudFocusPanel(); renderActivity(state.overview?.task_history);
+      renderLivingNetwork(); renderMissionWidget(); renderHudFocusPanel(); renderActivity(state.overview?.task_history); renderConversation();
       if (document.body.classList.contains('hud-active') && state.hudPanel === 'mission') openHudPanel('mission');
       if (button) { button.disabled = false; button.innerHTML = original || '<span>Run task</span>'; }
       if (sendButton) sendButton.disabled = false;
@@ -1310,11 +1423,13 @@
     $$('#agent-filters .filter-chip').forEach(btn => btn.addEventListener('click', () => { state.agentFilter = btn.dataset.filter; $$('#agent-filters .filter-chip').forEach(b => b.classList.toggle('active', b === btn)); renderAgentGrid(); }));
     document.addEventListener('click', event => {
       if (event.target.closest('#hud-mini-suit')) { event.preventDefault(); cycleHudSuitProfile(); return; }
+      const stageTab = event.target.closest('[data-stage-tab]');
+      if (stageTab) { setHudStageTab(stageTab.dataset.stageTab); return; }
       const focusTab = event.target.closest('[data-focus-tab]');
       if (focusTab) { if (focusTab.dataset.openWorkspace) { navigate(focusTab.dataset.openWorkspace); return; } state.focusTab = focusTab.dataset.focusTab; renderHudFocusPanel(); return; }
       if (event.target.closest('[data-hud-refresh]')) { refreshOverview(true); return; }
       const agentPick = event.target.closest('[data-hud-agent-select]');
-      if (agentPick) { openHudPanel('agent', agentPick.dataset.hudAgentSelect); return; }
+      if (agentPick) { state.selectedAgentId = agentPick.dataset.hudAgentSelect; state.focusTab = 'tools'; renderLivingNetwork(); renderAgentDock(); renderHudFocusPanel(); return; }
       const hudPanel = event.target.closest('[data-hud-panel]');
       if (hudPanel) { openHudPanel(hudPanel.dataset.hudPanel, hudPanel.dataset.agentId || null); return; }
       const workspace = event.target.closest('[data-open-workspace]');

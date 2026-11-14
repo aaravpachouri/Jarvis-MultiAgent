@@ -42,6 +42,40 @@
     "folder": "research_agent",
     "provider": "Scout delegated web search",
     "delegates_to": "search.scout",
-    "evidence_policy": "search snippets are not independently verified"
+    "evidence_policy": "search snippets are not independently verified",
+    "operator_guide": {
+      "best_for": [
+        "Deep research across multiple sources",
+        "Comparing options and evaluating trade-offs",
+        "Synthesizing evidence and identifying verification gaps"
+      ],
+      "functions": [
+        {
+          "capability": "research.deep",
+          "description": "Build a structured research brief from retrieved sources."
+        },
+        {
+          "capability": "research.compare",
+          "description": "Compare options, approaches, and trade-offs using available evidence."
+        },
+        {
+          "capability": "research.verify",
+          "description": "Assess claims against the retrieved evidence and identify what remains unverified."
+        },
+        {
+          "capability": "research.synthesize",
+          "description": "Combine retrieved material into a coherent evidence-led synthesis."
+        },
+        {
+          "capability": "research.literature",
+          "description": "Organize scholarly and literature-search findings."
+        }
+      ],
+      "boundaries": [
+        "Athena delegates external web and scholarly retrieval to Scout; it is not a separate search service.",
+        "Search snippets are discovery evidence, not independent verification of the underlying page.",
+        "It reports source and provider gaps rather than inventing missing evidence."
+      ]
+    }
   }
 }

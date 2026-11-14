@@ -47,6 +47,38 @@
     "folder": "planner_agent",
     "execution_mode": "local_structured_planning",
     "requires_web_search": false,
-    "requires_code_execution": false
+    "requires_code_execution": false,
+    "operator_guide": {
+      "best_for": [
+        "Breaking a goal into ordered steps",
+        "Prioritizing tasks and dependencies",
+        "Creating checklists, milestones, and validation gates"
+      ],
+      "functions": [
+        {
+          "capability": "planning.breakdown",
+          "description": "Decompose a goal into concrete steps and deliverables."
+        },
+        {
+          "capability": "planning.prioritize",
+          "description": "Order work by importance, urgency, and prerequisites."
+        },
+        {
+          "capability": "planning.dependencies",
+          "description": "Identify dependencies and a valid execution order."
+        },
+        {
+          "capability": "planning.checklist",
+          "description": "Create actionable checklists and completion criteria."
+        },
+        {
+          "capability": "planning.milestones",
+          "description": "Define milestones and measurable checkpoints."
+        }
+      ],
+      "boundaries": [
+        "Planning is not execution. Planner does not run code, perform web searches, change files, or deploy systems."
+      ]
+    }
   }
 }
