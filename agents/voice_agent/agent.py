@@ -2447,6 +2447,7 @@ class VoiceAgent:
                     "depends_on": list(_dependencies),
                     "planner_step_ids": [step["id"] for step in plan_steps if step.get("agent_id") == _agent_id],
                     "output": output_text[:6000],
+                    "scout_delegations": list(research_output.get("query_provenance", []) or []) if _capability.startswith("research.") else [],
                     "artifacts": list(child.artifacts),
                     "error": (research_error or str(child.error or "")[:1200]) if (research_quality_failed or not child.succeeded) else None,
                 }
@@ -2530,12 +2531,48 @@ class VoiceAgent:
                 ).strip()
             else:
                 report_text = str(writer_output or writer_result.summary or "").strip()
-            report_status = writer_result.status.value if report_text else "invalid_output"
+            if report_text:
+                trace_lines = [
+                    "## Actual agent execution trace",
+                    "",
+                    f"- JARVIS → Planner · planning.breakdown · task={plan_result.task_id} · status={plan_result.status.value}",
+                ]
+                for workstream_record in records.values():
+                    trace_lines.append(
+                        f"- JARVIS → {workstream_record.get('agent_id', 'unknown')} · "
+                        f"{workstream_record.get('capability', 'unknown')} · "
+                        f"task={workstream_record.get('task_id', 'MISSING TASK ID')} · "
+                        f"status={workstream_record.get('status', 'unknown')}"
+                    )
+                    for delegation in workstream_record.get("scout_delegations", []) or []:
+                        trace_lines.append(
+                            f"- {workstream_record.get('agent_id', 'specialist')} → "
+                            f"{delegation.get('delegated_agent_id', 'search.scout')} · "
+                            f"{delegation.get('provider', 'unknown provider')} · "
+                            f"task={delegation.get('delegation_task_id') or 'MISSING TASK ID'} · "
+                            f"status={delegation.get('status', 'unknown')} · "
+                            f"retrieved_at={delegation.get('retrieved_at') or 'MISSING'} · "
+                            f"results={delegation.get('result_count', 0)}"
+                        )
+                trace_lines.append(
+                    f"- JARVIS → {writer_result.agent_id} · writing.report · "
+                    f"task={writer_result.task_id} · status={writer_result.status.value}"
+                )
+                report_text = report_text.rstrip() + "\n\n" + "\n".join(trace_lines) + "\n"
+            report_quality = self._validate_model_comparison_report(prompt, report_text)
+            report_status = (
+                writer_result.status.value if writer_result.succeeded and report_text
+                else writer_result.status.value if not writer_result.succeeded
+                else "invalid_output"
+            )
+            if report_quality.get("required") and not report_quality.get("complete"):
+                report_status = "quality_gate_failed"
             records["final_report_draft"] = {
                 "agent_id": writer_result.agent_id, "task_id": writer_result.task_id,
                 "status": report_status, "output": report_text[:24000],
                 "artifact_paths": list(writer_result.artifacts),
-                "note": "Scribe's Markdown draft is rendered in the main mission result; no file persistence is claimed.",
+                "quality_gate": report_quality,
+                "note": "Scribe's Markdown draft and coordinator-appended execution trace are rendered in the main mission result; no file persistence is claimed.",
             }
         elif report_requested:
             report_status = "unavailable"
@@ -2605,6 +2642,54 @@ class VoiceAgent:
                       "child_task_ids": [record.get("task_id") for record in records.values() if record.get("task_id")],
                       "workstream_count": len(workstreams), "dag_status": workflow_result.status.value},
         )
+
+    @staticmethod
+    def _validate_model_comparison_report(prompt: str, report_text: str) -> dict[str, Any]:
+        """Reject generic drafts when the mission asked for a complete three-model report."""
+        required_models = ("Qwen 3 4B", "Llama 3.2 3B", "Gemma 3 4B")
+        is_model_comparison = all(
+            re.search(re.escape(model), str(prompt or ""), re.IGNORECASE)
+            for model in required_models
+        )
+        if not is_model_comparison:
+            return {"required": False, "complete": True, "missing": []}
+
+        text = str(report_text or "")
+        lowered = text.casefold()
+        markdown_table = bool(re.search(r"(?m)^\\s*\\|.*\\|\\s*$", text))
+        checks = {
+            "executive recommendation": bool(re.search(r"executive recommendation", lowered)),
+            "three-model comparison table": markdown_table and all(model.casefold() in lowered for model in required_models),
+            "best model for coding, research and general desktop-assistant use": (
+                bool(re.search(r"best model|recommendation by use case|use-case recommendation", lowered))
+                and all(term in lowered for term in ("coding", "research", "general desktop assistant"))
+            ),
+            "Windows 11 + Python + Ollama setup": (
+                "setup" in lowered and "windows 11" in lowered and "python" in lowered and "ollama" in lowered
+            ),
+            "official sources, links and retrieval dates": (
+                "official" in lowered and "source" in lowered and "https://" in lowered
+                and bool(re.search(r"20\\d{2}-\\d{2}-\\d{2}", text))
+            ),
+            "limitations and missing-evidence discussion": (
+                "limitations" in lowered and ("missing evidence" in lowered or "uncertainties" in lowered)
+            ),
+            "actual execution trace with task IDs": (
+                "actual agent execution trace" in lowered
+                and "planning.planner" in lowered
+                and "research.athena" in lowered
+                and "documentation.scribe" in lowered
+                and "search.scout" in lowered
+                and bool(re.search(r"task=[0-9a-f]{8}-[0-9a-f-]{27,}", lowered))
+            ),
+        }
+        missing = [label for label, present in checks.items() if not present]
+        return {
+            "required": True,
+            "complete": not missing,
+            "missing": missing,
+            "sections_present": [label for label, present in checks.items() if present],
+        }
 
     @staticmethod
     def _is_compound_request(prompt: str) -> bool:
