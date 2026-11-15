@@ -124,7 +124,7 @@ The evidence-backed recommendation is conditional; do not treat unpublished meas
 
 ## Three-model comparison table
 
-| Model | Reasoning | Coding | Speed | Memory | Context | License | Ollama |
+| Model | Reasoning and instruction following | Coding performance | Inference speed | RAM and VRAM | Context length | Licensing | Ollama compatibility |
 |---|---|---|---|---|---|---|---|
 | Qwen 3 4B | sourced | sourced | missing | estimate | sourced | sourced | sourced |
 | Llama 3.2 3B | sourced | sourced | missing | estimate | sourced | sourced | sourced |
