@@ -2446,7 +2446,7 @@ class VoiceAgent:
                     "correlation_id": child.metadata.get("correlation_id") if isinstance(child.metadata, Mapping) else None,
                     "depends_on": list(_dependencies),
                     "planner_step_ids": [step["id"] for step in plan_steps if step.get("agent_id") == _agent_id],
-                    "output": output_text[:6000],
+                    "output": output_text[:24000 if _capability.startswith("research.") else 6000],
                     "scout_delegations": list(research_output.get("query_provenance", []) or []) if _capability.startswith("research.") else [],
                     "artifacts": list(child.artifacts),
                     "error": (research_error or str(child.error or "")[:1200]) if (research_quality_failed or not child.succeeded) else None,
@@ -2506,7 +2506,7 @@ class VoiceAgent:
                 prompt=("Prepare the complete final report in Markdown using the supplied research outputs. "
                         "Include the executive recommendation, comparison and evidence details available in those outputs, "
                         "verified source links, best model by use case, and limitations. Do not invent missing facts or claim unperformed steps.\n\n"
-                        f"MISSION:\n{prompt}\n\nACTUAL WORKSTREAM RESULTS:\n{collected[:20000]}"),
+                        f"MISSION:\n{prompt}\n\nACTUAL WORKSTREAM RESULTS:\n{collected[:30000]}"),
                 agent_id=writer_spec.agent_id,
                 capabilities=("writing.report",),
                 context={
@@ -2516,8 +2516,8 @@ class VoiceAgent:
                     "workstream_results": records,
                     "purpose": "Produce the requested report from actual specialist findings and evidence, without claiming independent verification.",
                     "key_points": report_key_points,
-                    "body": report_body[:24000],
-                    "source_material": [collected[:20000]],
+                    "body": report_body[:30000],
+                    "source_material": [collected[:30000]],
                     "limitations": report_limitations,
                     "write_mode": "draft_only",
                 },
@@ -2567,6 +2567,10 @@ class VoiceAgent:
             )
             if report_quality.get("required") and not report_quality.get("complete"):
                 report_status = "quality_gate_failed"
+                report_text = report_text.rstrip() + "\n\n## Scribe report quality gate\n\n" + (
+                    "Status: FAILED. Missing required deliverables: "
+                    + "; ".join(report_quality.get("missing", [])) + ".\n"
+                )
             records["final_report_draft"] = {
                 "agent_id": writer_result.agent_id, "task_id": writer_result.task_id,
                 "status": report_status, "output": report_text[:24000],
@@ -2656,7 +2660,7 @@ class VoiceAgent:
 
         text = str(report_text or "")
         lowered = text.casefold()
-        markdown_table = bool(re.search(r"(?m)^\\s*\\|.*\\|\\s*$", text))
+        markdown_table = bool(re.search(r"(?m)^\s*\|.*\|\s*$", text))
         checks = {
             "executive recommendation": bool(re.search(r"executive recommendation", lowered)),
             "three-model comparison table": markdown_table and all(model.casefold() in lowered for model in required_models),
@@ -2669,7 +2673,7 @@ class VoiceAgent:
             ),
             "official sources, links and retrieval dates": (
                 "official" in lowered and "source" in lowered and "https://" in lowered
-                and bool(re.search(r"20\\d{2}-\\d{2}-\\d{2}", text))
+                and bool(re.search(r"20\d{2}-\d{2}-\d{2}", text))
             ),
             "limitations and missing-evidence discussion": (
                 "limitations" in lowered and ("missing evidence" in lowered or "uncertainties" in lowered)
