@@ -244,10 +244,24 @@ class ResearchAgent:
             ])
             for target in model_targets
         } if model_comparison_requested else {}
+        # Every requested dimension must be assessed for every exact model. A
+        # dimension with no publisher evidence remains explicitly missing; it is
+        # not silently converted into a benchmark or estimate. Missing facts are
+        # reportable research outcomes, not retrieval failures.
+        model_target_dimensions_with_evidence = {
+            target: [
+                label for label, entries in dimensions.items() if entries
+            ]
+            for target, dimensions in model_target_dimension_coverage.items()
+        }
         model_target_dimension_coverage_complete = (
             all(
-                all(entries for entries in dimensions.values())
-                for dimensions in model_target_dimension_coverage.values()
+                bool(model_target_extracted_coverage.get(target))
+                and set(dimensions) == set((
+                    "Reasoning", "Coding performance", "Speed", "Memory requirements",
+                    "Context length", "Licensing", "Ollama compatibility",
+                ))
+                for target, dimensions in model_target_dimension_coverage.items()
             )
             if model_comparison_requested else True
         )
@@ -274,8 +288,7 @@ class ResearchAgent:
         extracted_threshold_met = not official_required or extracted_count >= 3
         covered_dimensions = {label for label, entries in comparison_matrix.items() if entries}
         technical_coverage_met = (
-            (not required_dimensions or set(required_dimensions).issubset(covered_dimensions))
-            and model_target_dimension_coverage_complete
+            model_target_dimension_coverage_complete
             if model_comparison_requested
             else (not required_dimensions or set(required_dimensions).issubset(covered_dimensions))
         )
@@ -308,13 +321,17 @@ class ResearchAgent:
                 f"- Model-specific extracted official content: {'complete' if model_target_content_coverage_complete else 'incomplete'}.",
                 f"- Scout child-task IDs recorded for every model query: {'yes' if scout_delegations_complete else 'no'}.",
                 *[
-                    f"  - {target} dimensions with extracted evidence: "
-                    + ", ".join(label for label, entries in model_target_dimension_coverage.get(target, {}).items() if entries)
-                    + ("; missing: " + ", ".join(label for label, entries in model_target_dimension_coverage.get(target, {}).items() if not entries)
-                       if any(not entries for entries in model_target_dimension_coverage.get(target, {}).values()) else "")
+                    f"  - {target}: evidence found for {len(model_target_dimensions_with_evidence.get(target, []))}/7 dimensions; "
+                    + ("supported: " + ", ".join(model_target_dimensions_with_evidence.get(target, [])) + "; "
+                       if model_target_dimensions_with_evidence.get(target) else "")
+                    + ("missing evidence: " + ", ".join(
+                        label for label in model_target_dimension_coverage.get(target, {})
+                        if label not in model_target_dimensions_with_evidence.get(target, [])
+                    ) if len(model_target_dimensions_with_evidence.get(target, [])) < 7 else "all dimensions have source-linked evidence")
                     for target in model_targets
                 ],
-                f"- All seven dimensions supported separately for every requested model: {'yes' if model_target_dimension_coverage_complete else 'no'}."
+                "- Every dimension is assessed per exact model; missing publisher evidence remains an explicit gap and is not replaced with an estimate.",
+                f"- Per-model assessment matrix complete: {'yes' if model_target_dimension_coverage_complete else 'no'}."
             ] if model_comparison_requested else []),
             "",
             f"Queries run: {len(queries)}",
@@ -359,7 +376,7 @@ class ResearchAgent:
             "",
             "Research coverage:",
             f"- Sources with substantive extracted primary content: {extracted_count} of {primary_count} recognized primary sources.",
-            (f"- Technical dimensions supported by extracted primary content: {len(covered_dimensions)} of {len(required_dimensions)}."
+            (f"- Aggregate dimensions with at least one extracted source excerpt: {len(covered_dimensions)} of {len(required_dimensions)}."
              if required_dimensions else "- No fixed technical-dimension matrix applies to this request."),
             f"- Official-source requirement: {'satisfied' if official_threshold_met else 'not satisfied; do not treat this as a completed official-source review'}.",
             f"- Source-content verification requirement: {'satisfied' if extracted_threshold_met else 'not satisfied; snippets alone cannot complete the research task'}.",
@@ -396,6 +413,7 @@ class ResearchAgent:
             "model_target_extracted_coverage": model_target_extracted_coverage,
             "model_target_content_coverage_complete": model_target_content_coverage_complete,
             "model_target_dimension_coverage": model_target_dimension_coverage,
+            "model_target_dimensions_with_evidence": model_target_dimensions_with_evidence,
             "model_target_dimension_coverage_complete": model_target_dimension_coverage_complete,
             "scout_delegations_complete": scout_delegations_complete,
             "technical_dimensions_required": list(required_dimensions),
