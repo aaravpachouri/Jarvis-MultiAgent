@@ -180,17 +180,26 @@ class ResearchAgent:
         model_comparison_requested = model_comparison_requested or (
             len(model_targets) >= 2 and bool(re.search(r"\bcompare\b", prompt, re.IGNORECASE))
         )
-        evidence_sources = [
-            item for item in sources
-            if self._is_relevant_api_source(item["url"])
-        ] if api_comparison_requested else sources
         if api_comparison_requested:
+            evidence_sources = [item for item in sources if self._is_relevant_api_source(item["url"])]
             comparison_matrix = self._build_technical_evidence_matrix(evidence_sources)
             required_dimensions = tuple(comparison_matrix)
         elif model_comparison_requested:
+            evidence_sources = [
+                item for item in sources
+                if any(
+                    self._is_official_model_source(target, item["url"])
+                    and self._has_exact_model_identity(
+                        target,
+                        " ".join((item.get("title", ""), item.get("snippet", ""), item.get("page_content", ""))),
+                    )
+                    for target in model_targets
+                )
+            ]
             comparison_matrix = self._build_model_evidence_matrix(evidence_sources)
             required_dimensions = tuple(comparison_matrix)
         else:
+            evidence_sources = sources
             comparison_matrix = {}
             required_dimensions = ()
 
@@ -198,6 +207,10 @@ class ResearchAgent:
             target: [
                 item["url"] for item in sources
                 if self._is_official_model_source(target, item["url"])
+                and self._has_exact_model_identity(
+                    target,
+                    " ".join((item.get("title", ""), item.get("snippet", ""), item.get("page_content", ""))),
+                )
             ]
             for target in model_targets
         } if model_comparison_requested else {}
@@ -208,12 +221,40 @@ class ResearchAgent:
             target: [
                 item["url"] for item in sources
                 if self._is_official_model_source(target, item["url"])
+                and self._has_exact_model_identity(
+                    target,
+                    " ".join((item.get("title", ""), item.get("snippet", ""), item.get("page_content", ""))),
+                )
                 and self._has_substantive_page_content(item.get("page_content", ""))
             ]
             for target in model_targets
         } if model_comparison_requested else {}
         model_target_content_coverage_complete = (
             all(model_target_extracted_coverage.values()) if model_comparison_requested else True
+        )
+        model_target_dimension_coverage = {
+            target: self._build_model_evidence_matrix([
+                item for item in evidence_sources
+                if self._is_official_model_source(target, item["url"])
+                and self._has_exact_model_identity(
+                    target,
+                    " ".join((item.get("title", ""), item.get("snippet", ""), item.get("page_content", ""))),
+                )
+                and self._has_substantive_page_content(item.get("page_content", ""))
+            ])
+            for target in model_targets
+        } if model_comparison_requested else {}
+        model_target_dimension_coverage_complete = (
+            all(
+                all(entries for entries in dimensions.values())
+                for dimensions in model_target_dimension_coverage.values()
+            )
+            if model_comparison_requested else True
+        )
+        scout_delegations_complete = (
+            len(query_provenance) == len(queries)
+            and all(item.get("delegation_task_id") for item in query_provenance)
+            if model_comparison_requested else True
         )
 
         # Official-source gates count substantive extracted content from recognized
@@ -233,8 +274,10 @@ class ResearchAgent:
         extracted_threshold_met = not official_required or extracted_count >= 3
         covered_dimensions = {label for label, entries in comparison_matrix.items() if entries}
         technical_coverage_met = (
-            not required_dimensions
-            or set(required_dimensions).issubset(covered_dimensions)
+            (not required_dimensions or set(required_dimensions).issubset(covered_dimensions))
+            and model_target_dimension_coverage_complete
+            if model_comparison_requested
+            else (not required_dimensions or set(required_dimensions).issubset(covered_dimensions))
         )
         verification_level = "provider_extracted_page_content" if extracted_count else "search_snippets_not_independently_verified"
         lines = [
@@ -262,7 +305,16 @@ class ResearchAgent:
                     )
                     for target in model_targets
                 ],
-                f"- Model-specific extracted official content: {'complete' if model_target_content_coverage_complete else 'incomplete'}."
+                f"- Model-specific extracted official content: {'complete' if model_target_content_coverage_complete else 'incomplete'}.",
+                f"- Scout child-task IDs recorded for every model query: {'yes' if scout_delegations_complete else 'no'}.",
+                *[
+                    f"  - {target} dimensions with extracted evidence: "
+                    + ", ".join(label for label, entries in model_target_dimension_coverage.get(target, {}).items() if entries)
+                    + ("; missing: " + ", ".join(label for label, entries in model_target_dimension_coverage.get(target, {}).items() if not entries)
+                       if any(not entries for entries in model_target_dimension_coverage.get(target, {}).values()) else "")
+                    for target in model_targets
+                ],
+                f"- All seven dimensions supported separately for every requested model: {'yes' if model_target_dimension_coverage_complete else 'no'}."
             ] if model_comparison_requested else []),
             "",
             f"Queries run: {len(queries)}",
@@ -271,7 +323,7 @@ class ResearchAgent:
             "",
             "Scout delegation and retrieval provenance:",
             *[
-                f"- {item.get('delegated_agent_id', 'search.scout')} via {item.get('provider') or 'unspecified provider'}: {item.get('status')} ({item.get('result_count', 0)} results); query: {item.get('query')}"
+                f"- {item.get('delegated_agent_id', 'search.scout')} task={item.get('delegation_task_id') or 'MISSING TASK ID'} via {item.get('provider') or 'unspecified provider'}: {item.get('status')} ({item.get('result_count', 0)} results); query: {item.get('query')}"
                 for item in query_provenance
             ],
             "",
@@ -341,6 +393,9 @@ class ResearchAgent:
             "model_target_coverage_complete": model_target_coverage_complete,
             "model_target_extracted_coverage": model_target_extracted_coverage,
             "model_target_content_coverage_complete": model_target_content_coverage_complete,
+            "model_target_dimension_coverage": model_target_dimension_coverage,
+            "model_target_dimension_coverage_complete": model_target_dimension_coverage_complete,
+            "scout_delegations_complete": scout_delegations_complete,
             "technical_dimensions_required": list(required_dimensions),
             "research_status": (
                 "partial" if has_partial_failure
@@ -348,6 +403,7 @@ class ResearchAgent:
                 else "insufficient_extracted_content" if not extracted_threshold_met
                 else "insufficient_model_target_coverage" if not model_target_coverage_complete
                 else "insufficient_model_target_content" if not model_target_content_coverage_complete
+                else "insufficient_scout_task_provenance" if not scout_delegations_complete
                 else "insufficient_technical_coverage" if not technical_coverage_met
                 else "retrieval_complete_with_extracted_content" if extracted_count
                 else "retrieval_complete_unverified"
@@ -358,7 +414,8 @@ class ResearchAgent:
             "complete": (
                 not has_partial_failure and bool(sources) and official_threshold_met
                 and extracted_threshold_met and model_target_coverage_complete
-                and model_target_content_coverage_complete and technical_coverage_met
+                and model_target_content_coverage_complete and scout_delegations_complete
+                and model_target_dimension_coverage_complete and technical_coverage_met
             ),
         }
 
@@ -746,7 +803,7 @@ class ResearchAgent:
 
     @staticmethod
     def _is_official_model_source(target: str, url: str) -> bool:
-        """Recognize publisher-owned model pages and official Ollama catalogue hosts."""
+        """Recognize publisher/Ollama pages for the requested model family and variant only."""
         parsed = urlparse(str(url or ""))
         host = parsed.netloc.casefold().removeprefix("www.")
         path = parsed.path.casefold().rstrip("/")
@@ -755,30 +812,42 @@ class ResearchAgent:
 
         if "qwen" in name:
             return (
-                host in {"qwen.ai", "qwenlm.github.io"}
-                or (host == "github.com" and path.startswith("/qwenlm/"))
-                or (host == "huggingface.co" and path.startswith("/qwen/"))
-                or (host in ollama_hosts and path.startswith("/library/qwen3"))
+                (host == "qwen.ai" and bool(re.search(r"qwen[-_/]?3", path)))
+                or (host == "github.com" and (path == "/qwenlm/qwen3" or path.startswith("/qwenlm/qwen3/")))
+                or (host == "huggingface.co" and path.startswith("/qwen/") and bool(re.search(r"qwen[-_/]?3", path)))
+                or (host in ollama_hosts and bool(re.fullmatch(r"/library/qwen3(?::4b)?", path)))
             )
         if "llama" in name:
             return (
-                host in {"llama.com", "ai.meta.com"}
-                or (host == "github.com" and path.startswith("/meta-llama/"))
-                or (host == "huggingface.co" and path.startswith("/meta-llama/"))
-                or (host in ollama_hosts and path.startswith("/library/llama3.2"))
+                (host in {"llama.com", "ai.meta.com"} and bool(re.search(r"llama[-_]?3[._-]?2", path)))
+                or (host == "github.com" and path.startswith("/meta-llama/llama-models")
+                    and bool(re.search(r"llama[-_]?3[._-]?2", path)))
+                or (host == "huggingface.co" and path.startswith("/meta-llama/") and bool(re.search(r"llama[-_]?3[._-]?2", path)))
+                or (host in ollama_hosts and bool(re.fullmatch(r"/library/llama3\.2(?::3b)?", path)))
             )
         if "gemma" in name:
-            google_publisher_hosts = {
-                "ai.google.dev", "deepmind.google", "blog.google",
-                "developers.googleblog.com", "research.google",
-            }
+            google_publisher_hosts = {"ai.google.dev", "deepmind.google", "blog.google", "developers.googleblog.com", "research.google"}
+            is_gemma3_path = bool(re.search(r"gemma[-_]?3|model_card_3", path))
             github_google_orgs = ("/google/", "/google-deepmind/", "/google-gemma/")
             return (
-                (host in google_publisher_hosts and "gemma" in path)
-                or (host == "github.com" and "gemma" in path and path.startswith(github_google_orgs))
-                or (host == "huggingface.co" and "gemma" in path and path.startswith(github_google_orgs))
-                or (host in ollama_hosts and path.startswith("/library/gemma3"))
+                (host in google_publisher_hosts and is_gemma3_path)
+                or (host == "github.com" and "gemma" in path and path.startswith(github_google_orgs) and is_gemma3_path)
+                or (host == "huggingface.co" and "gemma" in path and path.startswith(github_google_orgs) and is_gemma3_path)
+                or (host in ollama_hosts and bool(re.fullmatch(r"/library/gemma3(?::4b)?", path)))
             )
+        return False
+
+    @staticmethod
+    def _has_exact_model_identity(target: str, content: str) -> bool:
+        """Require the extracted title/snippet/page to identify the exact requested size."""
+        value = " ".join(str(content or "").split()).casefold()
+        name = str(target or "").casefold()
+        if "qwen" in name:
+            return bool(re.search(r"qwen[\s_-]*3", value) and re.search(r"(?:\\b4\\s*b\\b|qwen3\\s*:\\s*4b)", value))
+        if "llama" in name:
+            return bool(re.search(r"llama[\s_-]*3[.]2", value) and re.search(r"(?:\\b3\\s*b\\b|llama3[.]2\\s*:\\s*3b)", value))
+        if "gemma" in name:
+            return bool(re.search(r"gemma[\s_-]*3", value) and re.search(r"(?:\\b4\\s*b\\b|gemma3\\s*:\\s*4b)", value))
         return False
 
     @classmethod
