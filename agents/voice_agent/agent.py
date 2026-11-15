@@ -2448,6 +2448,16 @@ class VoiceAgent:
                     "planner_step_ids": [step["id"] for step in plan_steps if step.get("agent_id") == _agent_id],
                     "output": output_text[:24000 if _capability.startswith("research.") else 6000],
                     "scout_delegations": list(research_output.get("query_provenance", []) or []) if _capability.startswith("research.") else [],
+                    "research_data": {
+                        key: research_output.get(key)
+                        for key in (
+                            "question", "queries", "sources", "research_status", "complete",
+                            "requested_model_targets", "model_target_coverage",
+                            "model_target_extracted_coverage", "model_target_dimension_coverage",
+                            "model_target_dimensions_with_evidence", "model_target_dimension_coverage_complete",
+                            "scout_delegations_complete", "technical_dimensions_required",
+                        )
+                    } if _capability.startswith("research.") else {},
                     "artifacts": list(child.artifacts),
                     "error": (research_error or str(child.error or "")[:1200]) if (research_quality_failed or not child.succeeded) else None,
                 }
@@ -2502,6 +2512,16 @@ class VoiceAgent:
                     "Only actions evidenced in child-task outputs are represented; no additional actions are claimed."
                 )
             )
+            model_research_record = next(
+                (record for record in records.values() if record.get("research_data")),
+                None,
+            )
+            if model_research_record and self._is_model_comparison_report_request(prompt):
+                report_body = self._build_model_comparison_report_body(
+                    prompt,
+                    model_research_record.get("research_data", {}),
+                    report_body,
+                )
             writer_result = await context.delegate(
                 prompt=("Prepare the complete final report in Markdown using the supplied research outputs. "
                         "Include the executive recommendation, comparison and evidence details available in those outputs, "
@@ -2646,6 +2666,132 @@ class VoiceAgent:
                       "child_task_ids": [record.get("task_id") for record in records.values() if record.get("task_id")],
                       "workstream_count": len(workstreams), "dag_status": workflow_result.status.value},
         )
+
+    @staticmethod
+    def _is_model_comparison_report_request(prompt: str) -> bool:
+        required = ("Qwen 3 4B", "Llama 3.2 3B", "Gemma 3 4B")
+        return all(re.search(re.escape(name), str(prompt or ""), re.IGNORECASE) for name in required)
+
+    @staticmethod
+    def _build_model_comparison_report_body(
+        prompt: str, research_data: Mapping[str, Any], execution_body: str
+    ) -> str:
+        """Give Scribe an evidence-led report outline without inventing missing facts."""
+        targets = list(research_data.get("requested_model_targets") or (
+            "Qwen 3 4B", "Llama 3.2 3B", "Gemma 3 4B"
+        ))
+        dimension_names = (
+            "Reasoning", "Coding performance", "Speed", "Memory requirements",
+            "Context length", "Licensing", "Ollama compatibility",
+        )
+        matrix = research_data.get("model_target_dimension_coverage") or {}
+        extracted = research_data.get("model_target_extracted_coverage") or {}
+        sources = research_data.get("sources") or []
+        retrieval_by_url = {
+            str(item.get("url", "")): str(item.get("retrieved_at") or "retrieval timestamp unavailable")
+            for item in sources if isinstance(item, Mapping)
+        }
+        lines = [
+            "# Local AI model comparison for Windows 11, Python and Ollama",
+            "",
+            "## Executive recommendation",
+            "",
+            "Do not select a winner from search snippets or incomparable provider claims. "
+            "Use this source-grounded shortlist, then benchmark the exact Ollama tags on the target Windows machine "
+            "with the same quantization, prompt set and concurrency. A model is not labelled fastest or best "
+            "without comparable measured evidence.",
+            "",
+            "## Evidence basis and retrieval date",
+            "",
+            "- Research status returned by Athena: {}.".format(research_data.get("research_status") or "not supplied"),
+            "- Athena research completeness flag: {}.".format(repr(research_data.get("complete"))),
+            "- Provider-extracted page content is provider-reported source material, not an independent browser audit.",
+            "- Search-result snippets are discovery leads only and are not used as technical evidence in the table.",
+            "- Inference speed and RAM/VRAM are not estimated unless retrieved evidence states a measurable value; no hardware benchmark was run.",
+            "",
+            "## Detailed three-model comparison table",
+            "",
+            "| Model | Reasoning and instruction following | Coding performance | Inference speed | RAM and VRAM | Context length | Licensing | Ollama compatibility |",
+            "|---|---|---|---|---|---|---|---|",
+        ]
+
+        def cell_for(target: str, dimension: str) -> str:
+            model_evidence = matrix.get(target, {}) if isinstance(matrix, Mapping) else {}
+            entries = model_evidence.get(dimension, []) if isinstance(model_evidence, Mapping) else []
+            if not entries:
+                return "Not found in extracted official content"
+            entry = entries[0]
+            excerpt = " ".join(str(entry.get("excerpt") or "").split())
+            url = str(entry.get("url") or "")
+            if not url:
+                return "Source URL missing; claim not usable"
+            excerpt = excerpt[:180].replace("|", "\\|")
+            return "{} ([source]({}))".format(excerpt, url)
+
+        for target in targets:
+            cells = [cell_for(target, dimension) for dimension in dimension_names]
+            lines.append("| " + target + " | " + " | ".join(cells) + " |")
+
+        lines.extend([
+            "",
+            "## Best model by use case",
+            "",
+            "| Use case | Evidence-based result |",
+            "|---|---|",
+            "| Coding | No defensible winner unless retrieved sources provide comparable coding benchmark results for all three exact variants. |",
+            "| Research | No tool-use or retrieval-accuracy comparison was established by the supplied research outputs; do not infer one from general reasoning claims. |",
+            "| General desktop-assistant tasks | No single winner is asserted without comparable instruction-following, latency and memory evidence on the same hardware. |",
+            "",
+            "## Recommended Windows 11 + Python + Ollama setup",
+            "",
+            "1. Use Ollama on Windows 11 and select the exact model tag from each model's official Ollama catalogue entry; do not substitute a coder, vision or newer-family variant.",
+            "2. Evaluate one model at a time with the same quantization and prompt set. Record first-token latency, generated tokens/second, peak system RAM, peak VRAM, and task success on the actual PC.",
+            "3. Use Python to call the local Ollama HTTP API and log model tag, quantization, prompt, duration and output quality so comparisons are reproducible.",
+            "4. Keep the final choice conditional on measured memory headroom and actual coding/research tasks. This report does not install models, download files or change settings.",
+            "",
+            "## Official sources and evidence provenance",
+        ])
+
+        for target in targets:
+            urls = extracted.get(target, []) if isinstance(extracted, Mapping) else []
+            lines.extend(["", "### " + target])
+            if not urls:
+                lines.append("- No exact-variant official source with substantive extracted content was returned.")
+            else:
+                for url in urls[:5]:
+                    retrieved = retrieval_by_url.get(str(url), "retrieval timestamp unavailable")
+                    lines.append("- [Official source]({}) — retrieved {}.".format(url, retrieved))
+
+        lines.extend([
+            "",
+            "## Limitations, uncertainties and missing evidence",
+            "",
+        ])
+        for target in targets:
+            model_evidence = matrix.get(target, {}) if isinstance(matrix, Mapping) else {}
+            evidence_dimensions = [
+                name for name, entries in model_evidence.items()
+                if isinstance(entries, list) and entries
+            ] if isinstance(model_evidence, Mapping) else []
+            missing = [name for name in dimension_names if name not in evidence_dimensions]
+            lines.append(
+                "- {}: source-linked extracted evidence for {}/7 dimensions. {}".format(
+                    target,
+                    len(evidence_dimensions),
+                    "Missing: " + ", ".join(missing) + "." if missing
+                    else "All seven dimensions have source-linked excerpts.",
+                )
+            )
+        lines.extend([
+            "- No inference-speed or peak RAM/VRAM measurement was generated by this research run.",
+            "- Provider-reported benchmark results are not directly comparable when hardware, software stack, quantization or evaluation protocols differ.",
+            "- Missing values remain unknown; no benchmark score, speed, memory figure or licensing term is inferred from model size.",
+            "",
+            "## Actual specialist findings and execution boundaries",
+            "",
+            execution_body,
+        ])
+        return "\n".join(lines) + "\n"
 
     @staticmethod
     def _validate_model_comparison_report(prompt: str, report_text: str) -> dict[str, Any]:
