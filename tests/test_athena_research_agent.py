@@ -546,7 +546,7 @@ def test_model_comparison_requires_extracted_official_content_for_each_named_mod
     queries = agent._build_queries(MODEL_COMPARISON_PROMPT)
     docs = [
         ("Qwen 3 4B", "https://qwen.ai/models/qwen3", _model_card_content("Qwen 3 4B")),
-        ("Llama 3.2 3B", "https://github.com/meta-llama/llama-models", _model_card_content("Llama 3.2 3B")),
+        ("Llama 3.2 3B", "https://github.com/meta-llama/llama-models/blob/main/models/llama3_2/MODEL_CARD.md", _model_card_content("Llama 3.2 3B")),
         ("Gemma 3 4B", "https://deepmind.google/models/gemma/gemma-3/", ""),
     ]
     outcomes = {
@@ -587,25 +587,26 @@ def test_model_comparison_requires_extracted_official_content_for_each_named_mod
 def test_model_comparison_does_not_pass_when_one_named_model_lacks_its_official_source():
     agent = ResearchAgent()
     queries = agent._build_queries(MODEL_COMPARISON_PROMPT)
-    urls = [
-        "https://qwen.ai/models/qwen3",
-        "https://qwen.ai/models/qwen3-4b-instruct",
-        "https://llama.com/docs/model-cards/llama3_2",
+    docs = [
+        ("Qwen 3 4B", "https://qwen.ai/models/qwen3", _model_card_content("Qwen 3 4B")),
+        ("Qwen 3 4B", "https://qwen.ai/models/qwen3-4b-instruct", _model_card_content("Qwen 3 4B")),
+        ("Llama 3.2 3B", "https://llama.com/docs/model-cards/llama3_2", _model_card_content("Llama 3.2 3B")),
     ]
     outcomes = {
         query: {
             "provider": "Tavily Search API",
+            "retrieved_at": "2026-11-15T12:00:00+00:00",
             "retrieval_status": "complete",
             "partial": False,
             "results": [{
-                "title": "Official model card",
+                "title": f"{model_name} official model card",
                 "url": url,
                 "domain": url.split("/")[2],
-                "snippet": "Official model information.",
-                "page_content": _model_card_content("Model"),
+                "snippet": f"Official {model_name} model information.",
+                "page_content": content,
             }],
         }
-        for query, url in zip(queries, urls)
+        for query, (model_name, url, content) in zip(queries, docs)
     }
     result = asyncio.run(
         agent(SimpleNamespace(prompt=MODEL_COMPARISON_PROMPT), FakeContext(outcomes))
