@@ -2100,6 +2100,28 @@ class VoiceAgent:
         return selected
 
     @staticmethod
+    def _is_explicit_deployment_request(prompt: str) -> bool:
+        """Require affirmative deployment intent; negated prohibitions are not work."""
+        text = str(prompt or "")
+        if VoiceAgent._is_read_only_mission_request(text):
+            return False
+        if re.search(
+            r"\b(?:do\s+not|don't|never|avoid|without)\b[^.!?\n]{0,120}\b"
+            r"(?:deploy|deployment|release|publish|launch|hosting)\b",
+            text,
+            re.IGNORECASE,
+        ):
+            return False
+        return bool(
+            re.search(
+                r"\b(?:plan|prepare|create|start|trigger|perform|deploy|release|publish|launch)\b"
+                r".{0,70}\b(?:deployment|app|application|service|release|launch|hosting)\b",
+                text,
+                re.IGNORECASE,
+            )
+        )
+
+    @staticmethod
     def _complex_workstream_capability(spec: Any, prompt: str) -> str:
         """Choose a declared capability only when the request explicitly needs it."""
         caps = tuple(getattr(spec, "capabilities", ()) or ())
@@ -2121,7 +2143,7 @@ class VoiceAgent:
             preferred.extend(("trading.market_analysis", "trading.strategy.evaluate", "trading.risk"))
         if re.search(r"\b(?:research|investigate|evidence|compare|sources)\b", text):
             preferred.extend(("research.deep", "research.verify", "research.synthesize", "web.search", "documentation.lookup"))
-        if re.search(r"\b(?:deploy|release|publish|hosting)\b", text):
+        if VoiceAgent._is_explicit_deployment_request(prompt):
             preferred.extend(("deployment.plan", "deployment.verify", "deployment.build"))
         for capability in preferred:
             if capability in caps:

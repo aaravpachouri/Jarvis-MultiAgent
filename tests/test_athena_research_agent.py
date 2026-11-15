@@ -433,12 +433,15 @@ def _model_card_content(model_name: str) -> str:
     )
 
 
-def test_model_comparison_queries_are_targeted_to_all_three_named_models():
+def test_model_comparison_queries_are_targeted_to_all_three_named_models_and_official_hosts():
     queries = ResearchAgent._build_queries(MODEL_COMPARISON_PROMPT)
     assert len(queries) == 3
-    assert any("Qwen 3 4B" in query for query in queries)
-    assert any("Llama 3.2 3B" in query for query in queries)
-    assert any("Gemma 3 4B" in query for query in queries)
+    qwen = next(query for query in queries if "Qwen 3 4B" in query)
+    llama = next(query for query in queries if "Llama 3.2 3B" in query)
+    gemma = next(query for query in queries if "Gemma 3 4B" in query)
+    assert "qwen.ai" in qwen and "QwenLM/Qwen3" in qwen
+    assert "meta-llama/llama-models" in llama and "ollama.com/library/llama3.2" in llama
+    assert "deepmind.google" in gemma and "registry.ollama.com/library/gemma3" in gemma
 
 
 def test_model_comparison_recognizes_only_publisher_owned_or_ollama_model_pages():
@@ -453,6 +456,16 @@ def test_model_comparison_recognizes_only_publisher_owned_or_ollama_model_pages(
     )
     assert ResearchAgent._is_primary_source(
         MODEL_COMPARISON_PROMPT, "https://ollama.com/library/gemma3"
+    )
+    assert ResearchAgent._is_primary_source(
+        MODEL_COMPARISON_PROMPT, "https://registry.ollama.com/library/gemma3"
+    )
+    assert ResearchAgent._is_primary_source(
+        MODEL_COMPARISON_PROMPT, "https://deepmind.google/models/gemma/gemma-3/"
+    )
+    assert ResearchAgent._is_primary_source(
+        MODEL_COMPARISON_PROMPT,
+        "https://github.com/meta-llama/llama-models/blob/main/models/llama3_2/MODEL_CARD.md"
     )
     assert not ResearchAgent._is_primary_source(
         MODEL_COMPARISON_PROMPT, "https://random-model-review.example/models/gemma3"
@@ -515,10 +528,58 @@ def test_model_comparison_is_complete_only_with_three_official_model_sources_and
     assert result["primary_source_count"] == 3
     assert result["extracted_content_count"] == 3
     assert result["model_target_coverage_complete"] is True
+    assert result["model_target_content_coverage_complete"] is True
+    assert set(result["model_target_extracted_coverage"]) == {
+        "Qwen 3 4B", "Llama 3.2 3B", "Gemma 3 4B"
+    }
+    assert all(result["model_target_extracted_coverage"].values())
     assert result["technical_coverage_complete"] is True
     assert set(result["technical_dimensions_covered"]) == set(result["technical_dimensions_required"])
     assert result["research_status"] == "retrieval_complete_with_extracted_content"
     assert result["complete"] is True
+
+
+def test_model_comparison_requires_extracted_official_content_for_each_named_model():
+    agent = ResearchAgent()
+    queries = agent._build_queries(MODEL_COMPARISON_PROMPT)
+    docs = [
+        ("Qwen 3 4B", "https://qwen.ai/models/qwen3", _model_card_content("Qwen 3 4B")),
+        ("Llama 3.2 3B", "https://github.com/meta-llama/llama-models", _model_card_content("Llama 3.2 3B")),
+        ("Gemma 3 4B", "https://deepmind.google/models/gemma/gemma-3/", ""),
+    ]
+    outcomes = {
+        query: {
+            "provider": "Tavily Search API",
+            "retrieval_status": "complete",
+            "partial": False,
+            "results": ([
+                {
+                    "title": f"{model_name} official model information",
+                    "url": url,
+                    "domain": url.split("/")[2],
+                    "snippet": "Official source discovery snippet",
+                    "page_content": content,
+                }
+            ] + ([
+                {
+                    "title": "Qwen additional official model reference",
+                    "url": "https://github.com/QwenLM/Qwen3",
+                    "domain": "github.com",
+                    "snippet": "Additional official Qwen source",
+                    "page_content": _model_card_content("Qwen 3 4B"),
+                }
+            ] if model_name == "Qwen 3 4B" else [])),
+        }
+        for query, (model_name, url, content) in zip(queries, docs)
+    }
+    result = asyncio.run(
+        agent(SimpleNamespace(prompt=MODEL_COMPARISON_PROMPT), FakeContext(outcomes))
+    )
+    assert result["model_target_coverage_complete"] is True
+    assert result["model_target_content_coverage_complete"] is False
+    assert result["model_target_extracted_coverage"]["Gemma 3 4B"] == []
+    assert result["research_status"] == "insufficient_model_target_content"
+    assert result["complete"] is False
 
 
 def test_model_comparison_does_not_pass_when_one_named_model_lacks_its_official_source():

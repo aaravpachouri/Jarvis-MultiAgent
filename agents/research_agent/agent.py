@@ -31,6 +31,14 @@ _PRIMARY_SOURCE_HINTS: dict[str, tuple[str, str, str]] = {
     ),
 }
 
+# Keep each model query focused on publisher-owned references plus the
+# corresponding Ollama catalogue entry. Search snippets remain discovery only.
+_MODEL_SOURCE_HINTS: dict[str, str] = {
+    "qwen": "site:qwen.ai OR site:github.com/QwenLM/Qwen3 OR site:ollama.com/library/qwen3",
+    "llama": "site:github.com/meta-llama/llama-models site:ollama.com/library/llama3.2",
+    "gemma": "site:deepmind.google OR site:ai.google.dev/gemma OR site:registry.ollama.com/library/gemma3",
+}
+
 
 class ResearchAgent:
     """Run three focused Scout searches and synthesize the retrieved evidence."""
@@ -164,6 +172,8 @@ class ResearchAgent:
                 "requested_model_targets": model_targets,
                 "model_target_coverage": {target: [] for target in model_targets},
                 "model_target_coverage_complete": not model_comparison_requested,
+                "model_target_extracted_coverage": {target: [] for target in model_targets},
+                "model_target_content_coverage_complete": not model_comparison_requested,
                 "complete": False,
             }
         api_comparison_requested = "tavily" in prompt.casefold() and "search api" in prompt.casefold()
@@ -193,6 +203,17 @@ class ResearchAgent:
         } if model_comparison_requested else {}
         model_target_coverage_complete = (
             all(model_target_coverage.values()) if model_comparison_requested else True
+        )
+        model_target_extracted_coverage = {
+            target: [
+                item["url"] for item in sources
+                if self._is_official_model_source(target, item["url"])
+                and self._has_substantive_page_content(item.get("page_content", ""))
+            ]
+            for target in model_targets
+        } if model_comparison_requested else {}
+        model_target_content_coverage_complete = (
+            all(model_target_extracted_coverage.values()) if model_comparison_requested else True
         )
 
         # Official-source gates count substantive extracted content from recognized
@@ -232,6 +253,17 @@ class ResearchAgent:
              if required_dimensions else "- Required technical dimensions: not applicable for this research type."),
             *([f"- Official source coverage for requested models: {'complete' if model_target_coverage_complete else 'incomplete'}."]
               if model_comparison_requested else []),
+            *([
+                "- Model-specific official source coverage:",
+                *[
+                    f"  - {target}: " + (
+                        "; ".join(model_target_coverage.get(target, [])[:3])
+                        if model_target_coverage.get(target) else "MISSING — no recognized publisher/Ollama URL"
+                    )
+                    for target in model_targets
+                ],
+                f"- Model-specific extracted official content: {'complete' if model_target_content_coverage_complete else 'incomplete'}."
+            ] if model_comparison_requested else []),
             "",
             f"Queries run: {len(queries)}",
             f"Queries with usable, non-failed retrieval: {len(successful_queries)}",
@@ -307,12 +339,15 @@ class ResearchAgent:
             "requested_model_targets": model_targets,
             "model_target_coverage": model_target_coverage,
             "model_target_coverage_complete": model_target_coverage_complete,
+            "model_target_extracted_coverage": model_target_extracted_coverage,
+            "model_target_content_coverage_complete": model_target_content_coverage_complete,
             "technical_dimensions_required": list(required_dimensions),
             "research_status": (
                 "partial" if has_partial_failure
                 else "insufficient_primary_sources" if not official_threshold_met
                 else "insufficient_extracted_content" if not extracted_threshold_met
                 else "insufficient_model_target_coverage" if not model_target_coverage_complete
+                else "insufficient_model_target_content" if not model_target_content_coverage_complete
                 else "insufficient_technical_coverage" if not technical_coverage_met
                 else "retrieval_complete_with_extracted_content" if extracted_count
                 else "retrieval_complete_unverified"
@@ -323,7 +358,7 @@ class ResearchAgent:
             "complete": (
                 not has_partial_failure and bool(sources) and official_threshold_met
                 and extracted_threshold_met and model_target_coverage_complete
-                and technical_coverage_met
+                and model_target_content_coverage_complete and technical_coverage_met
             ),
         }
 
@@ -590,14 +625,16 @@ class ResearchAgent:
 
         # Structured multi-option objectives must preserve every named target.
         if len(model_targets) >= 2:
-            criteria = (
-                "official model card reasoning coding benchmarks inference speed "
-                "memory RAM VRAM context length license Ollama compatibility"
-            )
-            return [
-                f"{target} {criteria}"[:179].rstrip()
-                for target in model_targets[:DEFAULT_QUERIES]
-            ]
+            queries: list[str] = []
+            for target in model_targets[:DEFAULT_QUERIES]:
+                lowered_target = target.casefold()
+                source_hint = next(
+                    (hint for model_key, hint in _MODEL_SOURCE_HINTS.items() if model_key in lowered_target),
+                    "",
+                )
+                query = f"{target} official model card reasoning coding context license Ollama compatibility {source_hint}"
+                queries.append(" ".join(query.split())[:179].rstrip())
+            return queries
 
         # Technical product research gets distinct, source-oriented query angles.
         if re.search(r"\btavily\b", clean, re.IGNORECASE) and re.search(r"\bsearch\s+api\b", clean, re.IGNORECASE):
@@ -709,34 +746,38 @@ class ResearchAgent:
 
     @staticmethod
     def _is_official_model_source(target: str, url: str) -> bool:
-        """Recognize publisher-owned model pages and the official Ollama model catalogue."""
+        """Recognize publisher-owned model pages and official Ollama catalogue hosts."""
         parsed = urlparse(str(url or ""))
         host = parsed.netloc.casefold().removeprefix("www.")
         path = parsed.path.casefold().rstrip("/")
         name = str(target or "").casefold()
+        ollama_hosts = {"ollama.com", "registry.ollama.com"}
 
         if "qwen" in name:
             return (
                 host in {"qwen.ai", "qwenlm.github.io"}
                 or (host == "github.com" and path.startswith("/qwenlm/"))
                 or (host == "huggingface.co" and path.startswith("/qwen/"))
-                or (host == "ollama.com" and path.startswith("/library/qwen3"))
+                or (host in ollama_hosts and path.startswith("/library/qwen3"))
             )
         if "llama" in name:
             return (
                 host in {"llama.com", "ai.meta.com"}
                 or (host == "github.com" and path.startswith("/meta-llama/"))
                 or (host == "huggingface.co" and path.startswith("/meta-llama/"))
-                or (host == "ollama.com" and path.startswith("/library/llama3.2"))
+                or (host in ollama_hosts and path.startswith("/library/llama3.2"))
             )
         if "gemma" in name:
+            google_publisher_hosts = {
+                "ai.google.dev", "deepmind.google", "blog.google",
+                "developers.googleblog.com", "research.google",
+            }
+            github_google_orgs = ("/google/", "/google-deepmind/", "/google-gemma/")
             return (
-                (host == "ai.google.dev" and "gemma" in path)
-                or (host == "deepmind.google" and "gemma" in path)
-                or (host == "blog.google" and "gemma" in path)
-                or (host == "github.com" and "gemma" in path)
-                or (host == "huggingface.co" and "gemma" in path)
-                or (host == "ollama.com" and path.startswith("/library/gemma3"))
+                (host in google_publisher_hosts and "gemma" in path)
+                or (host == "github.com" and "gemma" in path and path.startswith(github_google_orgs))
+                or (host == "huggingface.co" and "gemma" in path and path.startswith(github_google_orgs))
+                or (host in ollama_hosts and path.startswith("/library/gemma3"))
             )
         return False
 
