@@ -253,7 +253,7 @@ class ResearchAgent:
         )
         scout_delegations_complete = (
             len(query_provenance) == len(queries)
-            and all(item.get("delegation_task_id") for item in query_provenance)
+            and all(item.get("delegation_task_id") and item.get("retrieved_at") for item in query_provenance)
             if model_comparison_requested else True
         )
 
@@ -323,7 +323,7 @@ class ResearchAgent:
             "",
             "Scout delegation and retrieval provenance:",
             *[
-                f"- {item.get('delegated_agent_id', 'search.scout')} task={item.get('delegation_task_id') or 'MISSING TASK ID'} via {item.get('provider') or 'unspecified provider'}: {item.get('status')} ({item.get('result_count', 0)} results); query: {item.get('query')}"
+                f"- {item.get('delegated_agent_id', 'search.scout')} task={item.get('delegation_task_id') or 'MISSING TASK ID'} via {item.get('provider') or 'unspecified provider'}: {item.get('status')} ({item.get('result_count', 0)} results); retrieved_at: {item.get('retrieved_at') or 'MISSING'}; query: {item.get('query')}"
                 for item in query_provenance
             ],
             "",
@@ -332,6 +332,8 @@ class ResearchAgent:
         for index, source in enumerate(sources, 1):
             lines.append(f"{index}. {source['title'] or source['domain'] or source['url']}")
             lines.append(f"   URL: {source['url']}")
+            lines.append(f"   Retrieved at: {source.get('retrieved_at') or 'MISSING'}")
+            lines.append(f"   Provider: {source.get('provider') or 'unspecified'}")
             if source["snippet"]:
                 lines.append(f"   Search snippet (discovery only): {source['snippet'][:1200]}")
             if source.get("page_content"):
