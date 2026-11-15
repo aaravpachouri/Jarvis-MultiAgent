@@ -845,11 +845,11 @@ class ResearchAgent:
         value = " ".join(str(content or "").split()).casefold()
         name = str(target or "").casefold()
         if "qwen" in name:
-            return bool(re.search(r"qwen[\s_-]*3", value) and re.search(r"(?:\b4\s*b\b|qwen3\s*:\s*4b)", value))
+            return bool(re.search(r"qwen[\s_-]*3", value) and re.search(r"(?:(?<![0-9])4\s*b\b|qwen3\s*:\s*4b)", value))
         if "llama" in name:
-            return bool(re.search(r"llama[\s_-]*3[.]2", value) and re.search(r"(?:\b3\s*b\b|llama3[.]2\s*:\s*3b)", value))
+            return bool(re.search(r"llama[\s_-]*3[.]2", value) and re.search(r"(?:(?<![0-9])3\s*b\b|llama3[.]2\s*:\s*3b)", value))
         if "gemma" in name:
-            return bool(re.search(r"gemma[\s_-]*3", value) and re.search(r"(?:\b4\s*b\b|gemma3\s*:\s*4b)", value))
+            return bool(re.search(r"gemma[\s_-]*3", value) and re.search(r"(?:(?<![0-9])4\s*b\b|gemma3\s*:\s*4b)", value))
         return False
 
     @classmethod
