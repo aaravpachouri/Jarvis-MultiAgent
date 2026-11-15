@@ -22,6 +22,8 @@ class FakeContext:
             output=outcome,
             error=outcome.get("error"),
             summary=outcome.get("error", ""),
+            task_id=f"scout-task-{len(self.calls)}",
+            agent_id="search.scout",
         )
 
 
@@ -359,7 +361,7 @@ def test_athena_report_exposes_scout_query_and_provider_provenance():
     ), FakeContext(outcomes)))
     report = result["summary"]
     assert "Scout delegation and retrieval provenance:" in report
-    assert "search.scout via Tavily Search API: complete" in report
+    assert "search.scout task=scout-task-" in report and "via Tavily Search API: complete" in report
     assert all(query in report for query in queries)
     assert result["extracted_content_count"] == 3
 
@@ -452,7 +454,7 @@ def test_model_comparison_recognizes_only_publisher_owned_or_ollama_model_pages(
         MODEL_COMPARISON_PROMPT, "https://llama.com/docs/model-cards/llama3_2"
     )
     assert ResearchAgent._is_primary_source(
-        MODEL_COMPARISON_PROMPT, "https://ai.google.dev/gemma/docs/core"
+        MODEL_COMPARISON_PROMPT, "https://ai.google.dev/gemma/docs/core/model_card_3"
     )
     assert ResearchAgent._is_primary_source(
         MODEL_COMPARISON_PROMPT, "https://ollama.com/library/gemma3"
@@ -503,7 +505,7 @@ def test_model_comparison_is_complete_only_with_three_official_model_sources_and
     docs = [
         ("Qwen 3 4B", "https://qwen.ai/models/qwen3"),
         ("Llama 3.2 3B", "https://llama.com/docs/model-cards/llama3_2"),
-        ("Gemma 3 4B", "https://ai.google.dev/gemma/docs/core"),
+        ("Gemma 3 4B", "https://ai.google.dev/gemma/docs/core/model_card_3"),
     ]
     outcomes = {
         query: {
