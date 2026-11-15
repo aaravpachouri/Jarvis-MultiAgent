@@ -2807,9 +2807,17 @@ class VoiceAgent:
         text = str(report_text or "")
         lowered = text.casefold()
         markdown_table = bool(re.search(r"(?m)^\s*\|.*\|\s*$", text))
+        table_dimensions = (
+            "reasoning", "coding performance", "inference speed", "ram and vram",
+            "context length", "licensing", "ollama compatibility",
+        )
         checks = {
             "executive recommendation": bool(re.search(r"executive recommendation", lowered)),
-            "three-model comparison table": markdown_table and all(model.casefold() in lowered for model in required_models),
+            "three-model comparison table": (
+                markdown_table
+                and all(model.casefold() in lowered for model in required_models)
+                and all(dimension in lowered for dimension in table_dimensions)
+            ),
             "best model for coding, research and general desktop-assistant use": (
                 bool(re.search(r"best model|recommendation by use case|use-case recommendation", lowered))
                 and all(term in lowered for term in ("coding", "research", "general desktop assistant"))
