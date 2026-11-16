@@ -597,12 +597,18 @@ class VoiceAgent:
     @staticmethod
     def _is_research_to_forge_request(prompt: str) -> bool:
         """Recognize affirmative research-then-code tasks without routing exclusions to Forge."""
+        text = str(prompt or "").casefold()
         if (
             VoiceAgent._is_quant_market_research_request(prompt)
             or VoiceAgent._is_read_only_mission_request(prompt)
+            or re.search(
+                r"\\b(?:do not|don't|dont|never|avoid|without)\\b.{0,80}\\b"
+                r"(?:involve|use|delegate|send|pass|hand\\s+off)\\b.{0,40}\\bforge\\b",
+                text,
+                re.IGNORECASE,
+            )
         ):
             return False
-        text = str(prompt or "").casefold()
         has_research = any(term in text for term in ("research", "investigate", "find sources", "documentation"))
         # Mentioning Forge is not authorization to run it: phrases such as
         # "Do not involve Forge" must remain research-only. Require either a
