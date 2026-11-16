@@ -2557,7 +2557,18 @@ class VoiceAgent:
                 report_text = str(writer_output or writer_result.summary or "").strip()
             report_status = writer_result.status.value if report_text else "invalid_output"
             report_error = None
-            if writer_result.succeeded and report_text:
+            strict_report_contract = bool(
+                re.search(
+                    r"\b(?:complete|comprehensive|detailed|full)\b.{0,40}\b(?:final\s+)?report\b",
+                    prompt,
+                    re.IGNORECASE,
+                )
+                or (
+                    re.search(r"\bcompare\b", prompt, re.IGNORECASE)
+                    and len(re.findall(r"^\s*\d+[.)]\s+[A-Z][^\n]{2,100}$", prompt, re.MULTILINE)) >= 3
+                )
+            )
+            if writer_result.succeeded and report_text and strict_report_contract:
                 required_headings = [
                     "## Executive recommendation",
                     "## Specialist execution summary",
@@ -2624,6 +2635,8 @@ class VoiceAgent:
                     f"\n### {record.get('agent_id','specialist')} · {record.get('status','unknown')}\n"
                     f"{record['output'][:output_limit]}"
                 )
+                if record.get("error"):
+                    lines.append(f"\n**Failure detail:** {record['error']}")
         lines.extend([
             "", "## Evidence boundaries",
             "Task-context transfer is visible in delegated request context; it is not the same as direct agent inbox delivery.",
