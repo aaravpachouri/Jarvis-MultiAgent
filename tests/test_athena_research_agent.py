@@ -580,6 +580,47 @@ def test_model_comparison_is_complete_only_with_three_official_model_sources_and
     assert result["complete"] is True
 
 
+def test_model_comparison_requires_each_model_to_cover_all_seven_dimensions():
+    agent = ResearchAgent()
+    queries = agent._build_queries(MODEL_COMPARISON_PROMPT)
+    qwen_content = _model_card_content("Qwen 3 4B")
+    llama_content = _model_card_content("Llama 3.2 3B").replace(
+        "Published inference speed is measured in tokens per second on stated hardware. ", ""
+    )
+    gemma_content = _model_card_content("Gemma 3 4B")
+    docs = [
+        ("Qwen 3 4B", "https://qwen.ai/models/qwen3-4b", qwen_content),
+        ("Llama 3.2 3B", "https://llama.com/docs/model-cards/llama3_2", llama_content),
+        ("Gemma 3 4B", "https://ai.google.dev/gemma/docs/core/model_card_3", gemma_content),
+    ]
+    outcomes = {
+        query: {
+            "provider": "Tavily Search API",
+            "retrieval_status": "complete",
+            "partial": False,
+            "results": [{
+                "title": f"{model_name} official model card",
+                "url": url,
+                "domain": url.split("/")[2],
+                "snippet": f"Official {model_name} source",
+                "page_content": page_content,
+            }],
+        }
+        for query, (model_name, url, page_content) in zip(queries, docs)
+    }
+
+    result = asyncio.run(
+        agent(SimpleNamespace(prompt=MODEL_COMPARISON_PROMPT), FakeContext(outcomes))
+    )
+
+    # The union still covers all seven dimensions, but Llama's own source does not.
+    assert result["technical_coverage_complete"] is True
+    assert result["model_target_dimension_coverage"]["Llama 3.2 3B"]["Speed"] is False
+    assert result["model_target_dimension_coverage_complete"] is False
+    assert result["research_status"] == "insufficient_model_target_dimension_coverage"
+    assert result["complete"] is False
+
+
 def test_model_comparison_requires_extracted_official_content_for_each_named_model():
     agent = ResearchAgent()
     queries = agent._build_queries(MODEL_COMPARISON_PROMPT)
