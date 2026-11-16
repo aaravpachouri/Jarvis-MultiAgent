@@ -324,7 +324,7 @@ def _model_sources():
     }
 
 
-def _register_model_research_runtime(athena_handler, *, scout_calls=None, scribe_calls=None):
+def _register_model_research_runtime(athena_handler, *, scout_calls=None, scribe_calls=None, scribe_handler=None):
     runtime = AgentRuntime(registry=AgentRegistry(), bus=EventBus(), max_delegation_depth=6)
     runtime.register_agent(
         _spec("voice.jarvis", "JARVIS", ("conversation.handle", "task.coordinate")),
@@ -373,6 +373,8 @@ def _register_model_research_runtime(athena_handler, *, scout_calls=None, scribe
     async def scribe(task, context):
         if scribe_calls is not None:
             scribe_calls.append(task.context)
+        if scribe_handler is not None:
+            return await scribe_handler(task, context)
         return await DocumentationAgent()(task, context)
 
     runtime.register_agent(
@@ -475,6 +477,32 @@ async def test_read_only_research_mission_excludes_forge_and_memory_and_scribe_g
     assert "Llama 3.2 3B" in str(result.output)
     assert "Gemma 3 4B" in str(result.output)
     assert "documentation.scribe" in str(result.output)
+
+
+@pytest.mark.asyncio
+async def test_complex_mission_fails_when_scribe_returns_an_incomplete_report():
+    async def incomplete_scribe(task, context):
+        return {
+            "document_type": "report",
+            "content": "A short placeholder that omits the requested report sections.",
+            "draft_only": True,
+            "written_files": [],
+        }
+
+    runtime = _register_model_research_runtime(
+        ResearchAgent(),
+        scout_calls=[],
+        scribe_handler=incomplete_scribe,
+    )
+    result = await runtime.run_task(TaskRequest(
+        prompt=_MULTI_AGENT_MODEL_RESEARCH_PROMPT,
+        target_agent_id="voice.jarvis",
+    ))
+
+    assert result.status is TaskStatus.FAILED
+    assert "documentation.scribe" in str(result.output)
+    assert "invalid_report" in str(result.output)
+    assert "complete-report contract" in str(result.output)
 
 
 @pytest.mark.asyncio
