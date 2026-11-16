@@ -608,8 +608,8 @@ class VoiceAgent:
         # "Do not involve Forge" must remain research-only. Require either a
         # positive Forge handoff or an independently explicit code-mutation task.
         positive_forge_handoff = bool(re.search(
-            r"\\b(?:use|involve|delegate|send|pass|hand\\s+off)\\b.{0,100}\\bforge\\b"
-            r"|\\bwith\\s+forge\\b",
+            r"\b(?:use|involve|delegate|send|pass|hand\s+off)\b.{0,100}\bforge\b"
+            r"|\bwith\s+forge\b",
             text,
             re.IGNORECASE,
         ))
@@ -617,8 +617,8 @@ class VoiceAgent:
             VoiceAgent._is_code_mutation_request(prompt)
             or positive_forge_handoff
             or bool(re.search(
-                r"\\b(?:create|write)\\b.{0,80}\\b(?:[\\w./-]+\\.(?:py|js|ts|tsx|jsx)|"
-                r"test(?:s|_\\w+)?|module|script|function|component)\\b",
+                r"\b(?:create|write)\b.{0,80}\b(?:[\w./-]+\.(?:py|js|ts|tsx|jsx)|"
+                r"test(?:s|_\w+)?|module|script|function|component)\b",
                 text,
                 re.IGNORECASE,
             ))
