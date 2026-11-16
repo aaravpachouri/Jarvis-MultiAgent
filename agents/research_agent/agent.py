@@ -36,7 +36,7 @@ _PRIMARY_SOURCE_HINTS: dict[str, tuple[str, str, str]] = {
 _MODEL_SOURCE_HINTS: dict[str, str] = {
     "qwen": "site:qwen.ai OR site:github.com/QwenLM/Qwen3 OR site:ollama.com/library/qwen3",
     "llama": "site:github.com/meta-llama/llama-models site:ollama.com/library/llama3.2",
-    "gemma": "site:deepmind.google OR site:ai.google.dev/gemma OR site:registry.ollama.com/library/gemma3",
+    "gemma": "site:ai.google.dev/gemma/docs/core/model_card_3 OR site:ollama.com/library/gemma3",
 }
 
 
@@ -174,31 +174,58 @@ class ResearchAgent:
                 "model_target_coverage_complete": not model_comparison_requested,
                 "model_target_extracted_coverage": {target: [] for target in model_targets},
                 "model_target_content_coverage_complete": not model_comparison_requested,
+                "model_target_dimension_matrix": {
+                    target: {} for target in model_targets
+                },
+                "model_target_dimension_coverage": {
+                    target: {} for target in model_targets
+                },
+                "model_target_dimension_coverage_complete": not model_comparison_requested,
                 "complete": False,
             }
         api_comparison_requested = "tavily" in prompt.casefold() and "search api" in prompt.casefold()
         model_comparison_requested = model_comparison_requested or (
             len(model_targets) >= 2 and bool(re.search(r"\bcompare\b", prompt, re.IGNORECASE))
         )
-        evidence_sources = [
-            item for item in sources
-            if self._is_relevant_api_source(item["url"])
-        ] if api_comparison_requested else sources
+        model_target_sources = {
+            target: [
+                item for item in sources
+                if self._is_official_model_source(target, item["url"])
+            ]
+            for target in model_targets
+        } if model_comparison_requested else {}
+        model_target_specific_sources = {
+            target: [
+                item for item in sources
+                if self._is_requested_model_source(target, item)
+            ]
+            for target in model_targets
+        } if model_comparison_requested else {}
+
         if api_comparison_requested:
+            evidence_sources = [
+                item for item in sources
+                if self._is_relevant_api_source(item["url"])
+            ]
             comparison_matrix = self._build_technical_evidence_matrix(evidence_sources)
             required_dimensions = tuple(comparison_matrix)
         elif model_comparison_requested:
+            # A dimension only counts when the source itself identifies the exact
+            # requested model variant. A Gemma 4 page cannot fill Gemma 3's cells,
+            # and a Llama vision page cannot stand in for the text-only 3B model.
+            evidence_sources = [
+                item for target_sources in model_target_specific_sources.values()
+                for item in target_sources
+            ]
             comparison_matrix = self._build_model_evidence_matrix(evidence_sources)
             required_dimensions = tuple(comparison_matrix)
         else:
+            evidence_sources = sources
             comparison_matrix = {}
             required_dimensions = ()
 
         model_target_coverage = {
-            target: [
-                item["url"] for item in sources
-                if self._is_official_model_source(target, item["url"])
-            ]
+            target: [item["url"] for item in model_target_sources.get(target, [])]
             for target in model_targets
         } if model_comparison_requested else {}
         model_target_coverage_complete = (
@@ -206,14 +233,31 @@ class ResearchAgent:
         )
         model_target_extracted_coverage = {
             target: [
-                item["url"] for item in sources
-                if self._is_official_model_source(target, item["url"])
-                and self._has_substantive_page_content(item.get("page_content", ""))
+                item["url"] for item in model_target_specific_sources.get(target, [])
+                if self._has_substantive_page_content(item.get("page_content", ""))
             ]
             for target in model_targets
         } if model_comparison_requested else {}
         model_target_content_coverage_complete = (
             all(model_target_extracted_coverage.values()) if model_comparison_requested else True
+        )
+        model_target_dimension_matrix = {
+            target: self._build_model_evidence_matrix(model_target_specific_sources.get(target, []))
+            for target in model_targets
+        } if model_comparison_requested else {}
+        model_target_dimension_coverage = {
+            target: {
+                dimension: bool(entries)
+                for dimension, entries in matrix.items()
+            }
+            for target, matrix in model_target_dimension_matrix.items()
+        }
+        model_target_dimension_coverage_complete = (
+            all(
+                all(dimensions.values()) and set(dimensions) == set(required_dimensions)
+                for dimensions in model_target_dimension_coverage.values()
+            )
+            if model_comparison_requested else True
         )
 
         # Official-source gates count substantive extracted content from recognized
@@ -262,7 +306,21 @@ class ResearchAgent:
                     )
                     for target in model_targets
                 ],
-                f"- Model-specific extracted official content: {'complete' if model_target_content_coverage_complete else 'incomplete'}."
+                f"- Model-specific extracted official content: {'complete' if model_target_content_coverage_complete else 'incomplete'}.",
+                "- Per-model dimension coverage:",
+                *[
+                    f"  - {target}: "
+                    f"{sum(model_target_dimension_coverage.get(target, {}).values())}/"
+                    f"{len(required_dimensions)} dimensions supported; missing: "
+                    + (
+                        ", ".join(
+                            dimension for dimension, covered in model_target_dimension_coverage.get(target, {}).items()
+                            if not covered
+                        ) or "none"
+                    )
+                    for target in model_targets
+                ],
+                f"- Per-model dimension gate: {'met' if model_target_dimension_coverage_complete else 'not met'}."
             ] if model_comparison_requested else []),
             "",
             f"Queries run: {len(queries)}",
@@ -271,7 +329,10 @@ class ResearchAgent:
             "",
             "Scout delegation and retrieval provenance:",
             *[
-                f"- {item.get('delegated_agent_id', 'search.scout')} via {item.get('provider') or 'unspecified provider'}: {item.get('status')} ({item.get('result_count', 0)} results); query: {item.get('query')}"
+                f"- {item.get('delegated_agent_id', 'search.scout')} "
+                f"({item.get('capability', 'web.search')}; task={item.get('delegation_task_id') or 'not returned'}) "
+                f"via {item.get('provider') or 'unspecified provider'}: {item.get('status')} "
+                f"({item.get('result_count', 0)} results); query: {item.get('query')}"
                 for item in query_provenance
             ],
             "",
@@ -341,6 +402,9 @@ class ResearchAgent:
             "model_target_coverage_complete": model_target_coverage_complete,
             "model_target_extracted_coverage": model_target_extracted_coverage,
             "model_target_content_coverage_complete": model_target_content_coverage_complete,
+            "model_target_dimension_matrix": model_target_dimension_matrix,
+            "model_target_dimension_coverage": model_target_dimension_coverage,
+            "model_target_dimension_coverage_complete": model_target_dimension_coverage_complete,
             "technical_dimensions_required": list(required_dimensions),
             "research_status": (
                 "partial" if has_partial_failure
@@ -348,6 +412,7 @@ class ResearchAgent:
                 else "insufficient_extracted_content" if not extracted_threshold_met
                 else "insufficient_model_target_coverage" if not model_target_coverage_complete
                 else "insufficient_model_target_content" if not model_target_content_coverage_complete
+                else "insufficient_model_target_dimension_coverage" if not model_target_dimension_coverage_complete
                 else "insufficient_technical_coverage" if not technical_coverage_met
                 else "retrieval_complete_with_extracted_content" if extracted_count
                 else "retrieval_complete_unverified"
@@ -358,7 +423,9 @@ class ResearchAgent:
             "complete": (
                 not has_partial_failure and bool(sources) and official_threshold_met
                 and extracted_threshold_met and model_target_coverage_complete
-                and model_target_content_coverage_complete and technical_coverage_met
+                and model_target_content_coverage_complete
+                and model_target_dimension_coverage_complete
+                and technical_coverage_met
             ),
         }
 
