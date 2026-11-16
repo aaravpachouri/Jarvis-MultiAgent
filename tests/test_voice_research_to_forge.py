@@ -204,3 +204,12 @@ def test_explicit_research_then_forge_file_creation_still_routes_to_forge():
         "flask_service/app.py and flask_service/test_app.py and run pytest."
     )
     assert VoiceAgent._is_research_to_forge_request(prompt)
+
+
+
+def test_explicit_forge_exclusion_is_respected_without_research_only_label():
+    prompt = (
+        "Research the Python framework comparison and produce a report. "
+        "Do not involve Forge; keep this as a research and reporting task."
+    )
+    assert not VoiceAgent._is_research_to_forge_request(prompt)
