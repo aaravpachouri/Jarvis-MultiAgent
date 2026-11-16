@@ -2442,11 +2442,34 @@ class VoiceAgent:
                     "status": "quality_gate_failed" if research_quality_failed else child.status.value,
                     "research_status": research_status or None,
                     "research_complete": research_output.get("complete") if _capability.startswith("research.") else None,
+                    "research_evidence": (
+                        {
+                            "complete": research_output.get("complete"),
+                            "research_status": research_output.get("research_status"),
+                            "requested_model_targets": research_output.get("requested_model_targets", []),
+                            "model_target_coverage": research_output.get("model_target_coverage", {}),
+                            "model_target_extracted_coverage": research_output.get("model_target_extracted_coverage", {}),
+                            "model_target_dimension_matrix": research_output.get("model_target_dimension_matrix", {}),
+                            "model_target_dimension_coverage": research_output.get("model_target_dimension_coverage", {}),
+                            "technical_dimensions_required": research_output.get("technical_dimensions_required", []),
+                            "query_provenance": research_output.get("query_provenance", []),
+                            "sources": [
+                                {
+                                    key: source.get(key)
+                                    for key in ("title", "url", "domain", "provider", "retrieved_at", "publication_date")
+                                }
+                                for source in research_output.get("sources", [])[:40]
+                                if isinstance(source, Mapping)
+                            ],
+                        }
+                        if _capability.startswith("research.")
+                        else None
+                    ),
                     "parent_task_id": context.task.task_id,
                     "correlation_id": child.metadata.get("correlation_id") if isinstance(child.metadata, Mapping) else None,
                     "depends_on": list(_dependencies),
                     "planner_step_ids": [step["id"] for step in plan_steps if step.get("agent_id") == _agent_id],
-                    "output": output_text[:6000],
+                    "output": output_text[:18000],
                     "artifacts": list(child.artifacts),
                     "error": (research_error or str(child.error or "")[:1200]) if (research_quality_failed or not child.succeeded) else None,
                 }
@@ -2505,19 +2528,21 @@ class VoiceAgent:
                 prompt=("Prepare the complete final report in Markdown using the supplied research outputs. "
                         "Include the executive recommendation, comparison and evidence details available in those outputs, "
                         "verified source links, best model by use case, and limitations. Do not invent missing facts or claim unperformed steps.\n\n"
-                        f"MISSION:\n{prompt}\n\nACTUAL WORKSTREAM RESULTS:\n{collected[:20000]}"),
+                        f"MISSION:\n{prompt}\n\nACTUAL WORKSTREAM RESULTS:\n{collected[:30000]}"),
                 agent_id=writer_spec.agent_id,
                 capabilities=("writing.report",),
                 context={
                     "workflow": "complex_mission",
                     "stage": "final_report_draft",
                     "original_request": prompt[:8000],
+                    "planner_result": plan_view,
                     "workstream_results": records,
                     "purpose": "Produce the requested report from actual specialist findings and evidence, without claiming independent verification.",
                     "key_points": report_key_points,
                     "body": report_body[:24000],
-                    "source_material": [collected[:20000]],
+                    "source_material": [collected[:30000]],
                     "limitations": report_limitations,
+                    "read_only": read_only,
                     "write_mode": "draft_only",
                 },
                 requested_by=context.agent.agent_id,
@@ -2531,11 +2556,32 @@ class VoiceAgent:
             else:
                 report_text = str(writer_output or writer_result.summary or "").strip()
             report_status = writer_result.status.value if report_text else "invalid_output"
+            report_error = None
+            if writer_result.succeeded and report_text:
+                required_headings = [
+                    "## Executive recommendation",
+                    "## Specialist execution summary",
+                    "## Sources and provenance",
+                    "### Scout delegation trace",
+                    "## Limitations and unresolved gaps",
+                ]
+                if re.search(r"\b(?:compare|comparison|model-by-model)\b", prompt, re.IGNORECASE):
+                    required_headings.append("## Model-by-model comparison")
+                missing_headings = [heading for heading in required_headings if heading.casefold() not in report_text.casefold()]
+                if len(report_text) < 500 or missing_headings:
+                    report_status = "invalid_report"
+                    report_error = (
+                        "Scribe output did not satisfy the complete-report contract"
+                        + (f"; missing sections: {', '.join(missing_headings)}" if missing_headings else "")
+                        + ("; report was too short" if len(report_text) < 500 else ".")
+                    )
             records["final_report_draft"] = {
                 "agent_id": writer_result.agent_id, "task_id": writer_result.task_id,
                 "status": report_status, "output": report_text[:24000],
+                "complete": report_status == TaskStatus.SUCCEEDED.value,
+                "error": report_error,
                 "artifact_paths": list(writer_result.artifacts),
-                "note": "Scribe's Markdown draft is rendered in the main mission result; no file persistence is claimed.",
+                "note": "Scribe's complete Markdown report is rendered in the main mission result; no file persistence is claimed.",
             }
         elif report_requested:
             report_status = "unavailable"
