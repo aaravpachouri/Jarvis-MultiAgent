@@ -602,8 +602,8 @@ class VoiceAgent:
             VoiceAgent._is_quant_market_research_request(prompt)
             or VoiceAgent._is_read_only_mission_request(prompt)
             or re.search(
-                r"\\b(?:do not|don't|dont|never|avoid|without)\\b.{0,80}\\b"
-                r"(?:involve|use|delegate|send|pass|hand\\s+off)\\b.{0,40}\\bforge\\b",
+                r"\b(?:do not|don't|dont|never|avoid|without)\b.{0,80}\b"
+                r"(?:involve|use|delegate|send|pass|hand\s+off)\b.{0,40}\bforge\b",
                 text,
                 re.IGNORECASE,
             )
@@ -614,7 +614,7 @@ class VoiceAgent:
         # "Do not involve Forge" must remain research-only. Require either a
         # positive Forge handoff or an independently explicit code-mutation task.
         positive_forge_handoff = bool(re.search(
-            r"\b(?:use|involve|delegate|send|pass|hand\s+off)\b.{0,100}\bforge\b"
+            r"\b(?:use|delegate|send|pass|hand\s+off)\b.{0,100}\bforge\b"
             r"|\bwith\s+forge\b",
             text,
             re.IGNORECASE,
