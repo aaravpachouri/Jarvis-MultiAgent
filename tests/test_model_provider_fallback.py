@@ -91,3 +91,44 @@ def test_raises_when_all_providers_fail(monkeypatch):
     monkeypatch.setattr(client, "_request_provider", fake)
     with pytest.raises(ModelClientError, match="All configured model providers failed"):
         client.answer_chat([{"role": "user", "content": "hi"}])
+
+
+
+def test_retries_transient_gemini_503_before_succeeding(monkeypatch):
+    configure_all(monkeypatch)
+    client = OpenAICompatibleClient()
+    calls = []
+
+    def fake(provider, messages, *, json_mode):
+        calls.append(provider.name)
+        if provider.name == "gemini" and calls.count("gemini") < 3:
+            raise ModelClientError("HTTP 503")
+        if provider.name == "gemini":
+            return json.dumps({"ok": True})
+        raise AssertionError("Fallback provider should not be called after recovery")
+
+    monkeypatch.setattr(client, "_request_provider", fake)
+    monkeypatch.setattr("agents.voice_agent.model_client.time.sleep", lambda _: None)
+
+    assert client.decide([{"role": "user", "content": "create a file"}]) == {"ok": True}
+    assert calls == ["gemini", "gemini", "gemini"]
+    assert client.active_provider == "gemini"
+
+
+def test_persistent_transient_provider_failure_fails_over_to_next_provider(monkeypatch):
+    configure_all(monkeypatch)
+    client = OpenAICompatibleClient()
+    calls = []
+
+    def fake(provider, messages, *, json_mode):
+        calls.append(provider.name)
+        if provider.name == "gemini":
+            raise ModelClientError("HTTP 503")
+        return json.dumps({"ok": True})
+
+    monkeypatch.setattr(client, "_request_provider", fake)
+    monkeypatch.setattr("agents.voice_agent.model_client.time.sleep", lambda _: None)
+
+    assert client.decide([{"role": "user", "content": "create a file"}]) == {"ok": True}
+    assert calls == ["gemini", "gemini", "gemini", "groq"]
+    assert client.active_provider == "groq"
