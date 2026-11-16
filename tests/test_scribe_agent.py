@@ -118,6 +118,93 @@ def test_scribe_drafts_meeting_notes_with_action_checklist():
     assert "Keep Forge out of the current sprint" in output["content"]
 
 
+def test_scribe_renders_complete_mission_report_from_structured_research_evidence():
+    task = TaskRequest(
+        prompt=(
+            "Prepare the complete final report. Compare Qwen 3 4B, Llama 3.2 3B "
+            "and Gemma 3 4B, include official sources, limitations and the agent trace."
+        ),
+        target_agent_id="documentation.scribe",
+        context={
+            "workflow": "complex_mission",
+            "stage": "final_report_draft",
+            "read_only": True,
+            "planner_result": {
+                "agent_id": "planning.planner",
+                "task_id": "planner-task-1",
+                "status": "succeeded",
+            },
+            "workstream_results": {
+                "workstream_1": {
+                    "agent_id": "research.athena",
+                    "capability": "research.deep",
+                    "task_id": "athena-task-1",
+                    "status": "quality_gate_failed",
+                    "error": "Research quality gate failed: insufficient_model_target_dimension_coverage",
+                    "research_evidence": {
+                        "complete": False,
+                        "research_status": "insufficient_model_target_dimension_coverage",
+                        "requested_model_targets": ["Gemma 3 4B"],
+                        "model_target_coverage": {
+                            "Gemma 3 4B": ["https://ai.google.dev/gemma/docs/core/model_card_3"]
+                        },
+                        "model_target_extracted_coverage": {
+                            "Gemma 3 4B": ["https://ai.google.dev/gemma/docs/core/model_card_3"]
+                        },
+                        "technical_dimensions_required": ["Reasoning", "Speed"],
+                        "model_target_dimension_matrix": {
+                            "Gemma 3 4B": {
+                                "Reasoning": [{
+                                    "excerpt": "Gemma 3 4B reports a reasoning benchmark.",
+                                    "url": "https://ai.google.dev/gemma/docs/core/model_card_3",
+                                }],
+                                "Speed": [],
+                            }
+                        },
+                        "model_target_dimension_coverage": {
+                            "Gemma 3 4B": {"Reasoning": True, "Speed": False}
+                        },
+                        "query_provenance": [{
+                            "delegated_agent_id": "search.scout",
+                            "capability": "web.search",
+                            "delegation_task_id": "scout-task-1",
+                            "status": "complete",
+                            "result_count": 5,
+                            "query": "Gemma 3 4B official model card",
+                        }],
+                        "sources": [{
+                            "title": "Gemma 3 model card",
+                            "url": "https://ai.google.dev/gemma/docs/core/model_card_3",
+                            "provider": "Tavily Search API",
+                            "retrieved_at": "2026-11-16T10:00:00+00:00",
+                        }],
+                    },
+                }
+            },
+            "body": "This generic body must not replace the structured mission report.",
+            "limitations": ["No matched Windows hardware benchmark was provided."],
+        },
+    )
+
+    output = asyncio.run(create_handler()(task, None))
+    report = output["content"]
+
+    assert output["structured_report"] is True
+    assert output["draft_only"] is True
+    assert output["written_files"] == []
+    assert "## Executive recommendation" in report
+    assert "Recommendation withheld" in report
+    assert "## Model-by-model comparison" in report
+    assert "Gemma 3 4B" in report
+    assert "Speed" in report
+    assert "scout-task-1" in report
+    assert "planner-task-1" in report
+    assert "https://ai.google.dev/gemma/docs/core/model_card_3" in report
+    assert "Limitations and unresolved gaps" in report
+    assert "No same-hardware Windows 11 benchmark" in report
+    assert "This generic body must not replace" not in report
+
+
 def test_scribe_email_without_context_uses_clear_placeholders_not_fake_body() -> None:
     output = asyncio.run(create_handler()(
         TaskRequest(prompt="Draft a professional email to the project team"), None

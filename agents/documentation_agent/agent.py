@@ -226,6 +226,8 @@ class DocumentationAgent:
         decisions = cls._as_lines(material.get("decisions"))
         attendees = cls._as_lines(material.get("attendees"))
         limitations = cls._as_lines(material.get("limitations"))
+        if material.get("workflow") == "complex_mission" and material.get("stage") == "final_report_draft":
+            return cls._draft_complex_mission_report(title, prompt, material)
         missing: list[str] = []
         lines: list[str] = []
 
@@ -286,6 +288,197 @@ class DocumentationAgent:
             "missing_context": list(dict.fromkeys(missing)),
             "source_material_count": len(cls._as_lines(material.get("source_material"))),
             "summary": f"Scribe generated a {doc_type} draft; no files were written.",
+        }
+
+    @classmethod
+    def _draft_complex_mission_report(
+        cls, title: str, prompt: str, material: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        """Render a complete mission report from actual child-task evidence.
+
+        This is a deterministic formatter, not an LLM summary. It preserves task
+        IDs, model-specific source evidence, missing dimensions and uncertainty.
+        """
+        raw_records = material.get("workstream_results", {})
+        records = dict(raw_records) if isinstance(raw_records, Mapping) else {}
+        planner = material.get("planner_result", {})
+        planner = dict(planner) if isinstance(planner, Mapping) else {}
+        read_only = bool(material.get("read_only", False))
+        evidence_record = next(
+            (
+                dict(record.get("research_evidence", {}))
+                for record in records.values()
+                if isinstance(record, Mapping) and isinstance(record.get("research_evidence"), Mapping)
+            ),
+            {},
+        )
+        targets = cls._as_lines(evidence_record.get("requested_model_targets"))
+        dimension_matrix = evidence_record.get("model_target_dimension_matrix", {})
+        dimension_coverage = evidence_record.get("model_target_dimension_coverage", {})
+        official_coverage = evidence_record.get("model_target_coverage", {})
+        extracted_coverage = evidence_record.get("model_target_extracted_coverage", {})
+        sources = evidence_record.get("sources", [])
+        query_provenance = evidence_record.get("query_provenance", [])
+        technical_dimensions = cls._as_lines(evidence_record.get("technical_dimensions_required"))
+
+        research_complete = evidence_record.get("complete")
+        research_status = str(evidence_record.get("research_status") or "not supplied")
+        lines = [
+            f"# {title or 'Final Mission Report'}",
+            "",
+            "> Draft generated from actual Planner, specialist and Scout task outputs. This report does not independently verify provider claims.",
+            "",
+            "## Executive recommendation",
+            "",
+        ]
+        if targets and research_complete is not True:
+            lines.append(
+                f"Recommendation withheld. Athena returned status {research_status} and did not satisfy every per-model evidence gate. "
+                "Do not treat missing measurements or missing primary-source content as a tie or as proof of equal performance."
+            )
+        elif targets:
+            lines.append(
+                "Athena marked the source-evidence gates complete for the requested model variants. "
+                "This report does not invent a numerical winner: use the model-by-model evidence below, "
+                "then validate speed and memory on the target Windows hardware before choosing a deployment default."
+            )
+        else:
+            lines.append(
+                "This report consolidates the actual specialist outputs. Any recommendation not explicitly supported by those outputs is withheld."
+            )
+
+        lines.extend(["", "## Specialist execution summary", ""])
+        lines.append("| Specialist | Capability | Task ID | Status |")
+        lines.append("|---|---|---|---|")
+        if planner.get("agent_id") or planner.get("task_id"):
+            lines.append(
+                f"| {planner.get('agent_id', 'planning.planner')} | planning.breakdown | "
+                f"{planner.get('task_id', 'not returned')} | {planner.get('status', 'unknown')} |"
+            )
+        for record in records.values():
+            if not isinstance(record, Mapping):
+                continue
+            lines.append(
+                f"| {record.get('agent_id', 'unknown')} | {record.get('capability', 'unspecified')} | "
+                f"{record.get('task_id', 'not returned')} | {record.get('status', 'unknown')} |"
+            )
+        if not records and not planner:
+            lines.append("| No specialist result | — | — | unavailable |")
+
+        if targets:
+            lines.extend(["", "## Model-by-model comparison", ""])
+            lines.append(
+                f"Evidence completeness status: {research_status}. "
+                "All requested technical dimensions are required per model; a dimension found only for another model does not count."
+            )
+            lines.extend([
+                "",
+                "| Requested model | Official model sources | Extracted exact-variant sources | Dimensions evidenced | Missing dimensions |",
+                "|---|---:|---:|---:|---|",
+            ])
+            for target in targets:
+                official = cls._as_lines(official_coverage.get(target, [])) if isinstance(official_coverage, Mapping) else []
+                extracted = cls._as_lines(extracted_coverage.get(target, [])) if isinstance(extracted_coverage, Mapping) else []
+                per_model = dimension_coverage.get(target, {}) if isinstance(dimension_coverage, Mapping) else {}
+                if not isinstance(per_model, Mapping):
+                    per_model = {}
+                covered = [name for name, present in per_model.items() if present]
+                missing_dimensions = [name for name in technical_dimensions if not per_model.get(name, False)]
+                lines.append(
+                    f"| {target} | {len(official)} | {len(extracted)} | "
+                    f"{len(covered)}/{len(technical_dimensions)} | "
+                    f"{', '.join(missing_dimensions) if missing_dimensions else 'None'} |"
+                )
+
+            lines.extend(["", "### Dimension-level evidence", ""])
+            for target in targets:
+                lines.append(f"#### {target}")
+                target_matrix = dimension_matrix.get(target, {}) if isinstance(dimension_matrix, Mapping) else {}
+                if not isinstance(target_matrix, Mapping):
+                    target_matrix = {}
+                for dimension in technical_dimensions:
+                    entries = target_matrix.get(dimension, [])
+                    if not isinstance(entries, list) or not entries:
+                        lines.append(f"- **{dimension}:** Not established by extracted, exact-variant official content.")
+                        continue
+                    for entry in entries[:3]:
+                        if not isinstance(entry, Mapping):
+                            continue
+                        excerpt = str(entry.get("excerpt", "")).replace("\n", " ").strip()
+                        url = str(entry.get("url", "")).strip()
+                        if url:
+                            lines.append(f"- **{dimension}:** {excerpt} [Source]({url})")
+                        else:
+                            lines.append(f"- **{dimension}:** {excerpt}")
+                lines.append("")
+
+        lines.extend(["## Sources and provenance", ""])
+        if isinstance(sources, list) and sources:
+            seen_urls: set[str] = set()
+            for source in sources[:40]:
+                if not isinstance(source, Mapping):
+                    continue
+                url = str(source.get("url", "")).strip()
+                if not url or url in seen_urls:
+                    continue
+                seen_urls.add(url)
+                label = str(source.get("title") or source.get("domain") or url).replace("[", "(").replace("]", ")")
+                retrieved = str(source.get("retrieved_at") or evidence_record.get("retrieved_at") or "retrieval timestamp not supplied")
+                provider = str(source.get("provider") or "provider not supplied")
+                lines.append(f"- [{label}]({url}) — provider: {provider}; retrieved: {retrieved}.")
+        else:
+            lines.append("- No structured source list was returned by the research specialist.")
+
+        lines.extend(["", "### Scout delegation trace", ""])
+        if isinstance(query_provenance, list) and query_provenance:
+            for item in query_provenance:
+                if not isinstance(item, Mapping):
+                    continue
+                lines.append(
+                    f"- {item.get('delegated_agent_id', 'search.scout')} / {item.get('capability', 'web.search')} "
+                    f"task {item.get('delegation_task_id') or 'task ID not returned'} — "
+                    f"{item.get('status', 'unknown')}; {item.get('result_count', 0)} results; "
+                    f"query: {item.get('query', 'not supplied')}."
+                )
+        else:
+            lines.append("- No nested Scout task provenance was returned.")
+
+        lines.extend(["", "## Limitations and unresolved gaps", ""])
+        if targets:
+            if research_complete is not True:
+                lines.append(f"- Athena marked the research incomplete: {research_status}.")
+            for target in targets:
+                per_model = dimension_coverage.get(target, {}) if isinstance(dimension_coverage, Mapping) else {}
+                missing = [name for name in technical_dimensions if not per_model.get(name, False)] if isinstance(per_model, Mapping) else technical_dimensions
+                if missing:
+                    lines.append(f"- {target}: missing source-supported evidence for {', '.join(missing)}.")
+            lines.append("- Search snippets are discovery aids, not verified technical evidence.")
+            lines.append("- Provider-extracted content is not independent browser-level verification.")
+            lines.append("- Model file size is not the same as measured RAM or VRAM use.")
+            lines.append("- No same-hardware Windows 11 benchmark is claimed unless a specialist supplied one with its measurement conditions.")
+        if isinstance(material.get("limitations"), (list, tuple)):
+            lines.extend(f"- {item}" for item in cls._as_lines(material.get("limitations")))
+        for record in records.values():
+            if isinstance(record, Mapping) and record.get("error"):
+                lines.append(f"- {record.get('agent_id', 'specialist')}: {record.get('error')}")
+        if read_only:
+            lines.append("- Read-only boundary: no models, files, settings, commands or deployments were changed by this mission.")
+        if lines and lines[-1] == "":
+            lines.pop()
+
+        report = "\n".join(lines).strip() + "\n"
+        return {
+            "document_type": "report",
+            "title": title or "Final Mission Report",
+            "content": report,
+            "draft_only": True,
+            "written_files": [],
+            "commands_executed": [],
+            "independently_verified": False,
+            "structured_report": True,
+            "missing_context": [],
+            "source_material_count": len(sources) if isinstance(sources, list) else 0,
+            "summary": "Scribe rendered a structured final mission report from actual child-task evidence; no files were written.",
         }
 
     @classmethod

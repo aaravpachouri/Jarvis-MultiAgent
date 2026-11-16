@@ -36,7 +36,7 @@ _PRIMARY_SOURCE_HINTS: dict[str, tuple[str, str, str]] = {
 _MODEL_SOURCE_HINTS: dict[str, str] = {
     "qwen": "site:qwen.ai OR site:github.com/QwenLM/Qwen3 OR site:ollama.com/library/qwen3",
     "llama": "site:github.com/meta-llama/llama-models site:ollama.com/library/llama3.2",
-    "gemma": "site:deepmind.google OR site:ai.google.dev/gemma OR site:registry.ollama.com/library/gemma3",
+    "gemma": "site:ai.google.dev/gemma/docs/core/model_card_3 OR site:ollama.com/library/gemma3",
 }
 
 
@@ -174,31 +174,58 @@ class ResearchAgent:
                 "model_target_coverage_complete": not model_comparison_requested,
                 "model_target_extracted_coverage": {target: [] for target in model_targets},
                 "model_target_content_coverage_complete": not model_comparison_requested,
+                "model_target_dimension_matrix": {
+                    target: {} for target in model_targets
+                },
+                "model_target_dimension_coverage": {
+                    target: {} for target in model_targets
+                },
+                "model_target_dimension_coverage_complete": not model_comparison_requested,
                 "complete": False,
             }
         api_comparison_requested = "tavily" in prompt.casefold() and "search api" in prompt.casefold()
         model_comparison_requested = model_comparison_requested or (
             len(model_targets) >= 2 and bool(re.search(r"\bcompare\b", prompt, re.IGNORECASE))
         )
-        evidence_sources = [
-            item for item in sources
-            if self._is_relevant_api_source(item["url"])
-        ] if api_comparison_requested else sources
+        model_target_sources = {
+            target: [
+                item for item in sources
+                if self._is_official_model_source(target, item["url"])
+            ]
+            for target in model_targets
+        } if model_comparison_requested else {}
+        model_target_specific_sources = {
+            target: [
+                item for item in sources
+                if self._is_requested_model_source(target, item)
+            ]
+            for target in model_targets
+        } if model_comparison_requested else {}
+
         if api_comparison_requested:
+            evidence_sources = [
+                item for item in sources
+                if self._is_relevant_api_source(item["url"])
+            ]
             comparison_matrix = self._build_technical_evidence_matrix(evidence_sources)
             required_dimensions = tuple(comparison_matrix)
         elif model_comparison_requested:
+            # A dimension only counts when the source itself identifies the exact
+            # requested model variant. A Gemma 4 page cannot fill Gemma 3's cells,
+            # and a Llama vision page cannot stand in for the text-only 3B model.
+            evidence_sources = [
+                item for target_sources in model_target_specific_sources.values()
+                for item in target_sources
+            ]
             comparison_matrix = self._build_model_evidence_matrix(evidence_sources)
             required_dimensions = tuple(comparison_matrix)
         else:
+            evidence_sources = sources
             comparison_matrix = {}
             required_dimensions = ()
 
         model_target_coverage = {
-            target: [
-                item["url"] for item in sources
-                if self._is_official_model_source(target, item["url"])
-            ]
+            target: [item["url"] for item in model_target_sources.get(target, [])]
             for target in model_targets
         } if model_comparison_requested else {}
         model_target_coverage_complete = (
@@ -206,14 +233,31 @@ class ResearchAgent:
         )
         model_target_extracted_coverage = {
             target: [
-                item["url"] for item in sources
-                if self._is_official_model_source(target, item["url"])
-                and self._has_substantive_page_content(item.get("page_content", ""))
+                item["url"] for item in model_target_specific_sources.get(target, [])
+                if self._has_substantive_page_content(item.get("page_content", ""))
             ]
             for target in model_targets
         } if model_comparison_requested else {}
         model_target_content_coverage_complete = (
             all(model_target_extracted_coverage.values()) if model_comparison_requested else True
+        )
+        model_target_dimension_matrix = {
+            target: self._build_model_evidence_matrix(model_target_specific_sources.get(target, []))
+            for target in model_targets
+        } if model_comparison_requested else {}
+        model_target_dimension_coverage = {
+            target: {
+                dimension: bool(entries)
+                for dimension, entries in matrix.items()
+            }
+            for target, matrix in model_target_dimension_matrix.items()
+        }
+        model_target_dimension_coverage_complete = (
+            all(
+                all(dimensions.values()) and set(dimensions) == set(required_dimensions)
+                for dimensions in model_target_dimension_coverage.values()
+            )
+            if model_comparison_requested else True
         )
 
         # Official-source gates count substantive extracted content from recognized
@@ -262,7 +306,21 @@ class ResearchAgent:
                     )
                     for target in model_targets
                 ],
-                f"- Model-specific extracted official content: {'complete' if model_target_content_coverage_complete else 'incomplete'}."
+                f"- Model-specific extracted official content: {'complete' if model_target_content_coverage_complete else 'incomplete'}.",
+                "- Per-model dimension coverage:",
+                *[
+                    f"  - {target}: "
+                    f"{sum(model_target_dimension_coverage.get(target, {}).values())}/"
+                    f"{len(required_dimensions)} dimensions supported; missing: "
+                    + (
+                        ", ".join(
+                            dimension for dimension, covered in model_target_dimension_coverage.get(target, {}).items()
+                            if not covered
+                        ) or "none"
+                    )
+                    for target in model_targets
+                ],
+                f"- Per-model dimension gate: {'met' if model_target_dimension_coverage_complete else 'not met'}."
             ] if model_comparison_requested else []),
             "",
             f"Queries run: {len(queries)}",
@@ -271,7 +329,10 @@ class ResearchAgent:
             "",
             "Scout delegation and retrieval provenance:",
             *[
-                f"- {item.get('delegated_agent_id', 'search.scout')} via {item.get('provider') or 'unspecified provider'}: {item.get('status')} ({item.get('result_count', 0)} results); query: {item.get('query')}"
+                f"- {item.get('delegated_agent_id', 'search.scout')} "
+                f"({item.get('capability', 'web.search')}; task={item.get('delegation_task_id') or 'not returned'}) "
+                f"via {item.get('provider') or 'unspecified provider'}: {item.get('status')} "
+                f"({item.get('result_count', 0)} results); query: {item.get('query')}"
                 for item in query_provenance
             ],
             "",
@@ -341,6 +402,9 @@ class ResearchAgent:
             "model_target_coverage_complete": model_target_coverage_complete,
             "model_target_extracted_coverage": model_target_extracted_coverage,
             "model_target_content_coverage_complete": model_target_content_coverage_complete,
+            "model_target_dimension_matrix": model_target_dimension_matrix,
+            "model_target_dimension_coverage": model_target_dimension_coverage,
+            "model_target_dimension_coverage_complete": model_target_dimension_coverage_complete,
             "technical_dimensions_required": list(required_dimensions),
             "research_status": (
                 "partial" if has_partial_failure
@@ -348,6 +412,7 @@ class ResearchAgent:
                 else "insufficient_extracted_content" if not extracted_threshold_met
                 else "insufficient_model_target_coverage" if not model_target_coverage_complete
                 else "insufficient_model_target_content" if not model_target_content_coverage_complete
+                else "insufficient_model_target_dimension_coverage" if not model_target_dimension_coverage_complete
                 else "insufficient_technical_coverage" if not technical_coverage_met
                 else "retrieval_complete_with_extracted_content" if extracted_count
                 else "retrieval_complete_unverified"
@@ -358,7 +423,9 @@ class ResearchAgent:
             "complete": (
                 not has_partial_failure and bool(sources) and official_threshold_met
                 and extracted_threshold_met and model_target_coverage_complete
-                and model_target_content_coverage_complete and technical_coverage_met
+                and model_target_content_coverage_complete
+                and model_target_dimension_coverage_complete
+                and technical_coverage_met
             ),
         }
 
@@ -573,16 +640,22 @@ class ResearchAgent:
             agent_id="search.scout",
             context={"research_query": query, "requested_by": "research.athena"},
         )
+        provenance = {
+            "delegated_agent_id": getattr(result, "agent_id", "search.scout"),
+            "delegation_task_id": getattr(result, "task_id", None),
+            "capability": "web.search",
+            "requested_by": "research.athena",
+        }
         if not getattr(result, "succeeded", False):
             error = getattr(result, "error", None) or getattr(result, "summary", None) or "Scout task failed."
-            return {"results": [], "error": str(error), "delegated_agent_id": getattr(result, "agent_id", "search.scout"), "delegation_task_id": getattr(result, "task_id", None), "requested_by": "research.athena"}
+            return {"results": [], "error": str(error), **provenance}
         output = getattr(result, "output", None)
         if not isinstance(output, dict):
-            return {"results": [], "error": "Scout returned an unexpected output format."}
+            return {"results": [], "error": "Scout returned an unexpected output format.", **provenance}
         if not output.get("results"):
             detail = output.get("error") or output.get("summary") or "Scout returned zero results."
-            return {**output, "results": [], "error": str(detail), "delegated_agent_id": getattr(result, "agent_id", "search.scout"), "delegation_task_id": getattr(result, "task_id", None), "requested_by": "research.athena"}
-        return {**output, "delegated_agent_id": getattr(result, "agent_id", "search.scout"), "delegation_task_id": getattr(result, "task_id", None), "requested_by": "research.athena"}
+            return {**output, "results": [], "error": str(detail), **provenance}
+        return {**output, **provenance}
 
     @staticmethod
     def _extract_model_targets(prompt: str) -> list[str]:
@@ -746,39 +819,88 @@ class ResearchAgent:
 
     @staticmethod
     def _is_official_model_source(target: str, url: str) -> bool:
-        """Recognize publisher-owned model pages and official Ollama catalogue hosts."""
+        """Recognize publisher-owned pages for the requested model family/version.
+
+        Nearby variants are deliberately excluded: Gemma 4 is not Gemma 3,
+        Llama vision is not the text-only 3B model, and Qwen Coder is not Qwen3 4B.
+        Exact parameter-count matching is checked separately against source content.
+        """
         parsed = urlparse(str(url or ""))
         host = parsed.netloc.casefold().removeprefix("www.")
         path = parsed.path.casefold().rstrip("/")
+        query = parsed.query.casefold()
         name = str(target or "").casefold()
         ollama_hosts = {"ollama.com", "registry.ollama.com"}
 
         if "qwen" in name:
+            if "qwen3-coder" in path or "qwen3.5" in path:
+                return False
             return (
-                host in {"qwen.ai", "qwenlm.github.io"}
-                or (host == "github.com" and path.startswith("/qwenlm/"))
-                or (host == "huggingface.co" and path.startswith("/qwen/"))
-                or (host in ollama_hosts and path.startswith("/library/qwen3"))
+                (host == "qwen.ai" and ("qwen3" in path or "qwen3" in query))
+                or (host == "qwenlm.github.io" and "qwen3" in path)
+                or (host == "github.com" and path.startswith("/qwenlm/qwen3"))
+                or (host == "huggingface.co" and path.startswith("/qwen/qwen3"))
+                or (host in ollama_hosts and bool(re.fullmatch(r"/library/qwen3(?::4b)?", path)))
             )
         if "llama" in name:
+            if "vision" in path:
+                return False
             return (
-                host in {"llama.com", "ai.meta.com"}
-                or (host == "github.com" and path.startswith("/meta-llama/"))
-                or (host == "huggingface.co" and path.startswith("/meta-llama/"))
-                or (host in ollama_hosts and path.startswith("/library/llama3.2"))
+                (host == "llama.com" and bool(re.search(r"llama3[_\-.]?2|llama-3\.2|3[_\-.]2", path)))
+                or (host == "ai.meta.com" and bool(re.search(r"llama.{0,20}3[._-]?2", path)))
+                or (host == "github.com" and path.startswith("/meta-llama/llama-models"))
+                or (host == "huggingface.co" and path.startswith("/meta-llama/llama-3.2"))
+                or (host in ollama_hosts and bool(re.fullmatch(r"/library/llama3\.2(?::3b)?", path)))
             )
         if "gemma" in name:
+            if "model_card_4" in path or "gemma-4" in path or "gemma4" in path:
+                return False
             google_publisher_hosts = {
                 "ai.google.dev", "deepmind.google", "blog.google",
                 "developers.googleblog.com", "research.google",
             }
             github_google_orgs = ("/google/", "/google-deepmind/", "/google-gemma/")
             return (
-                (host in google_publisher_hosts and "gemma" in path)
-                or (host == "github.com" and "gemma" in path and path.startswith(github_google_orgs))
-                or (host == "huggingface.co" and "gemma" in path and path.startswith(github_google_orgs))
-                or (host in ollama_hosts and path.startswith("/library/gemma3"))
+                (
+                    host == "ai.google.dev"
+                    and path.startswith("/gemma/")
+                    and ("model_card_3" in path or "gemma-3" in path)
+                )
+                or (
+                    host in google_publisher_hosts
+                    and host != "ai.google.dev"
+                    and ("gemma-3" in path or "/gemma/gemma-3" in path)
+                )
+                or (host == "github.com" and "gemma3" in path and path.startswith(github_google_orgs))
+                or (host == "huggingface.co" and "gemma-3" in path and path.startswith(github_google_orgs))
+                or (host in ollama_hosts and bool(re.fullmatch(r"/library/gemma3(?::4b)?", path)))
             )
+        return False
+
+    @classmethod
+    def _is_requested_model_source(cls, target: str, source: dict[str, Any]) -> bool:
+        """Require the source content to identify the exact requested model size."""
+        url = str(source.get("url", "") or "")
+        if not cls._is_official_model_source(target, url):
+            return False
+        identity = " ".join(
+            str(source.get(field, "") or "")
+            for field in ("title", "snippet", "page_content", "url")
+        ).casefold()
+        normalized = re.sub(r"[^a-z0-9.]+", " ", identity)
+
+        if "qwen" in target.casefold():
+            family_match = bool(re.search(r"\bqwen\s*3\b", normalized))
+            size_match = bool(re.search(r"\b4\s*b\b|\b4\s*billion\b", normalized))
+            return family_match and size_match
+        if "llama" in target.casefold():
+            family_match = bool(re.search(r"\bllama\s*3\.2\b", normalized))
+            size_match = bool(re.search(r"\b3\s*b\b|\b3\.21\s*b\b|\b3\s*billion\b", normalized))
+            return family_match and size_match
+        if "gemma" in target.casefold():
+            family_match = bool(re.search(r"\bgemma\s*3\b", normalized))
+            size_match = bool(re.search(r"\b4\s*b\b|\b4\s*billion\b", normalized))
+            return family_match and size_match
         return False
 
     @classmethod

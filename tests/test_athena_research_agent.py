@@ -359,7 +359,8 @@ def test_athena_report_exposes_scout_query_and_provider_provenance():
     ), FakeContext(outcomes)))
     report = result["summary"]
     assert "Scout delegation and retrieval provenance:" in report
-    assert "search.scout via Tavily Search API: complete" in report
+    assert "search.scout (web.search; task=" in report
+    assert "via Tavily Search API: complete" in report
     assert all(query in report for query in queries)
     assert result["extracted_content_count"] == 3
 
@@ -441,7 +442,7 @@ def test_model_comparison_queries_are_targeted_to_all_three_named_models_and_off
     gemma = next(query for query in queries if "Gemma 3 4B" in query)
     assert "qwen.ai" in qwen and "QwenLM/Qwen3" in qwen
     assert "meta-llama/llama-models" in llama and "ollama.com/library/llama3.2" in llama
-    assert "deepmind.google" in gemma and "registry.ollama.com/library/gemma3" in gemma
+    assert "ai.google.dev/gemma/docs/core/model_card_3" in gemma and "ollama.com/library/gemma3" in gemma
 
 
 def test_model_comparison_recognizes_only_publisher_owned_or_ollama_model_pages():
@@ -452,7 +453,7 @@ def test_model_comparison_recognizes_only_publisher_owned_or_ollama_model_pages(
         MODEL_COMPARISON_PROMPT, "https://llama.com/docs/model-cards/llama3_2"
     )
     assert ResearchAgent._is_primary_source(
-        MODEL_COMPARISON_PROMPT, "https://ai.google.dev/gemma/docs/core"
+        MODEL_COMPARISON_PROMPT, "https://ai.google.dev/gemma/docs/core/model_card_3"
     )
     assert ResearchAgent._is_primary_source(
         MODEL_COMPARISON_PROMPT, "https://ollama.com/library/gemma3"
@@ -490,6 +491,46 @@ def test_model_comparison_evidence_matrix_covers_all_requested_dimensions_with_s
     )
 
 
+
+
+def test_model_source_recognition_rejects_neighboring_model_variants():
+    assert not ResearchAgent._is_official_model_source(
+        "Gemma 3 4B", "https://ai.google.dev/gemma/docs/core/model_card_4"
+    )
+    assert not ResearchAgent._is_official_model_source(
+        "Llama 3.2 3B", "https://ollama.com/library/llama3.2-vision"
+    )
+    assert not ResearchAgent._is_official_model_source(
+        "Qwen 3 4B", "https://ollama.com/library/qwen3-coder"
+    )
+
+
+def test_exact_model_variant_requires_size_in_returned_source_content():
+    assert ResearchAgent._is_requested_model_source(
+        "Gemma 3 4B",
+        {
+            "url": "https://ai.google.dev/gemma/docs/core/model_card_3",
+            "title": "Gemma 3 model card",
+            "page_content": "Gemma 3 4B instruction-tuned model with a 4B parameter configuration.",
+        },
+    )
+    assert not ResearchAgent._is_requested_model_source(
+        "Gemma 3 4B",
+        {
+            "url": "https://ai.google.dev/gemma/docs/core/model_card_3",
+            "title": "Gemma 3 model card",
+            "page_content": "Gemma 3 is a family of models with no parameter-size information in this extract.",
+        },
+    )
+    assert not ResearchAgent._is_requested_model_source(
+        "Gemma 3 4B",
+        {
+            "url": "https://ai.google.dev/gemma/docs/core/model_card_4",
+            "title": "Gemma 4 E4B model card",
+            "page_content": "Gemma 4 E4B model.",
+        },
+    )
+
 def test_generic_model_card_content_counts_as_substantive_but_navigation_does_not():
     assert ResearchAgent._has_substantive_page_content(_model_card_content("Qwen 3 4B"))
     assert not ResearchAgent._has_substantive_page_content(
@@ -503,7 +544,7 @@ def test_model_comparison_is_complete_only_with_three_official_model_sources_and
     docs = [
         ("Qwen 3 4B", "https://qwen.ai/models/qwen3"),
         ("Llama 3.2 3B", "https://llama.com/docs/model-cards/llama3_2"),
-        ("Gemma 3 4B", "https://ai.google.dev/gemma/docs/core"),
+        ("Gemma 3 4B", "https://ai.google.dev/gemma/docs/core/model_card_3"),
     ]
     outcomes = {
         query: {
@@ -537,6 +578,47 @@ def test_model_comparison_is_complete_only_with_three_official_model_sources_and
     assert set(result["technical_dimensions_covered"]) == set(result["technical_dimensions_required"])
     assert result["research_status"] == "retrieval_complete_with_extracted_content"
     assert result["complete"] is True
+
+
+def test_model_comparison_requires_each_model_to_cover_all_seven_dimensions():
+    agent = ResearchAgent()
+    queries = agent._build_queries(MODEL_COMPARISON_PROMPT)
+    qwen_content = _model_card_content("Qwen 3 4B")
+    llama_content = _model_card_content("Llama 3.2 3B").replace(
+        "Published inference speed is measured in tokens per second on stated hardware. ", ""
+    )
+    gemma_content = _model_card_content("Gemma 3 4B")
+    docs = [
+        ("Qwen 3 4B", "https://qwen.ai/models/qwen3-4b", qwen_content),
+        ("Llama 3.2 3B", "https://llama.com/docs/model-cards/llama3_2", llama_content),
+        ("Gemma 3 4B", "https://ai.google.dev/gemma/docs/core/model_card_3", gemma_content),
+    ]
+    outcomes = {
+        query: {
+            "provider": "Tavily Search API",
+            "retrieval_status": "complete",
+            "partial": False,
+            "results": [{
+                "title": f"{model_name} official model card",
+                "url": url,
+                "domain": url.split("/")[2],
+                "snippet": f"Official {model_name} source",
+                "page_content": page_content,
+            }],
+        }
+        for query, (model_name, url, page_content) in zip(queries, docs)
+    }
+
+    result = asyncio.run(
+        agent(SimpleNamespace(prompt=MODEL_COMPARISON_PROMPT), FakeContext(outcomes))
+    )
+
+    # The union still covers all seven dimensions, but Llama's own source does not.
+    assert result["technical_coverage_complete"] is True
+    assert result["model_target_dimension_coverage"]["Llama 3.2 3B"]["Speed"] is False
+    assert result["model_target_dimension_coverage_complete"] is False
+    assert result["research_status"] == "insufficient_model_target_dimension_coverage"
+    assert result["complete"] is False
 
 
 def test_model_comparison_requires_extracted_official_content_for_each_named_model():

@@ -17,7 +17,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          code="$(curl --silent --show-error --max-time 20 --dump-header session.headers --output session.body --write-out '%{http_code}' 'https://jarvis-multiagent-dashboard.vercel.app/api/auth/session')"
+          code="$(curl --silent --show-error --retry 4 --retry-all-errors --retry-delay 2 --retry-max-time 60 --max-time 20 --dump-header session.headers --output session.body --write-out '%{http_code}' 'https://jarvis-multiagent-dashboard.vercel.app/api/auth/session')"
           echo "Session endpoint HTTP status: $code"
           test "$code" = "200"
           grep -Eiq '^content-type: application/json([;[:space:]]|$)' session.headers
@@ -26,7 +26,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          code="$(curl --silent --show-error --max-time 20 --request POST --header 'Content-Type: application/json' --data '{}' --dump-header login.headers --output login.body --write-out '%{http_code}' 'https://jarvis-multiagent-dashboard.vercel.app/api/auth/login')"
+          code="$(curl --silent --show-error --retry 4 --retry-all-errors --retry-delay 2 --retry-max-time 60 --max-time 20 --request POST --header 'Content-Type: application/json' --data '{}' --dump-header login.headers --output login.body --write-out '%{http_code}' 'https://jarvis-multiagent-dashboard.vercel.app/api/auth/login')"
           echo "Login endpoint HTTP status for an empty-password probe: $code"
           grep -Eiq '^content-type: application/json([;[:space:]]|$)' login.headers
           python -c "import json; data=json.load(open('login.body', encoding='utf-8')); assert isinstance(data, dict); assert 'error' in data or data.get('authenticated') is True; print('Login POST returned valid JSON; response class:', 'error' if 'error' in data else 'authenticated')"
