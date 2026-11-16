@@ -175,3 +175,32 @@ def test_research_to_forge_uses_capability_discovery_not_fixed_agent_ids():
         "research.specialist_alpha", "engineering.specialist_beta"
     ]
     assert "workflow completed" in result.casefold()
+
+
+
+def test_read_only_research_request_that_explicitly_excludes_forge_never_routes_to_forge():
+    prompt = (
+        "Run a complete research mission comparing coding performance and memory requirements. "
+        "Use Planner, Athena, Scout and Scribe. Do not involve Forge, Memory & Notes or Launch. "
+        "This is a research-only mission. Do not install anything, modify files, execute commands "
+        "or change settings."
+    )
+    assert VoiceAgent._is_read_only_mission_request(prompt)
+    assert not VoiceAgent._is_code_mutation_request(prompt)
+    assert not VoiceAgent._is_research_to_forge_request(prompt)
+
+
+def test_research_report_creation_is_not_mistaken_for_code_implementation():
+    prompt = (
+        "Research three AI models, compare coding performance and produce a complete report. "
+        "Do not involve Forge. This is research-only; do not modify files."
+    )
+    assert not VoiceAgent._is_research_to_forge_request(prompt)
+
+
+def test_explicit_research_then_forge_file_creation_still_routes_to_forge():
+    prompt = (
+        "Research Flask documentation, then use Forge to create "
+        "flask_service/app.py and flask_service/test_app.py and run pytest."
+    )
+    assert VoiceAgent._is_research_to_forge_request(prompt)
