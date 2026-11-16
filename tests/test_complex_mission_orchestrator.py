@@ -320,7 +320,7 @@ def _model_sources():
     return {
         "Qwen 3 4B": ("https://qwen.ai/models/qwen3", content),
         "Llama 3.2 3B": ("https://llama.com/docs/model-cards/llama3_2", content),
-        "Gemma 3 4B": ("https://ai.google.dev/gemma/docs/core", content),
+        "Gemma 3 4B": ("https://ai.google.dev/gemma/docs/core/model_card_3", content),
     }
 
 
