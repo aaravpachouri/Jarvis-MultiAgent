@@ -640,16 +640,22 @@ class ResearchAgent:
             agent_id="search.scout",
             context={"research_query": query, "requested_by": "research.athena"},
         )
+        provenance = {
+            "delegated_agent_id": getattr(result, "agent_id", "search.scout"),
+            "delegation_task_id": getattr(result, "task_id", None),
+            "capability": "web.search",
+            "requested_by": "research.athena",
+        }
         if not getattr(result, "succeeded", False):
             error = getattr(result, "error", None) or getattr(result, "summary", None) or "Scout task failed."
-            return {"results": [], "error": str(error), "delegated_agent_id": getattr(result, "agent_id", "search.scout"), "delegation_task_id": getattr(result, "task_id", None), "requested_by": "research.athena"}
+            return {"results": [], "error": str(error), **provenance}
         output = getattr(result, "output", None)
         if not isinstance(output, dict):
-            return {"results": [], "error": "Scout returned an unexpected output format."}
+            return {"results": [], "error": "Scout returned an unexpected output format.", **provenance}
         if not output.get("results"):
             detail = output.get("error") or output.get("summary") or "Scout returned zero results."
-            return {**output, "results": [], "error": str(detail), "delegated_agent_id": getattr(result, "agent_id", "search.scout"), "delegation_task_id": getattr(result, "task_id", None), "requested_by": "research.athena"}
-        return {**output, "delegated_agent_id": getattr(result, "agent_id", "search.scout"), "delegation_task_id": getattr(result, "task_id", None), "requested_by": "research.athena"}
+            return {**output, "results": [], "error": str(detail), **provenance}
+        return {**output, **provenance}
 
     @staticmethod
     def _extract_model_targets(prompt: str) -> list[str]:
@@ -813,39 +819,88 @@ class ResearchAgent:
 
     @staticmethod
     def _is_official_model_source(target: str, url: str) -> bool:
-        """Recognize publisher-owned model pages and official Ollama catalogue hosts."""
+        """Recognize publisher-owned pages for the requested model family/version.
+
+        Nearby variants are deliberately excluded: Gemma 4 is not Gemma 3,
+        Llama vision is not the text-only 3B model, and Qwen Coder is not Qwen3 4B.
+        Exact parameter-count matching is checked separately against source content.
+        """
         parsed = urlparse(str(url or ""))
         host = parsed.netloc.casefold().removeprefix("www.")
         path = parsed.path.casefold().rstrip("/")
+        query = parsed.query.casefold()
         name = str(target or "").casefold()
         ollama_hosts = {"ollama.com", "registry.ollama.com"}
 
         if "qwen" in name:
+            if "qwen3-coder" in path or "qwen3.5" in path:
+                return False
             return (
-                host in {"qwen.ai", "qwenlm.github.io"}
-                or (host == "github.com" and path.startswith("/qwenlm/"))
-                or (host == "huggingface.co" and path.startswith("/qwen/"))
-                or (host in ollama_hosts and path.startswith("/library/qwen3"))
+                (host == "qwen.ai" and ("qwen3" in path or "qwen3" in query))
+                or (host == "qwenlm.github.io" and "qwen3" in path)
+                or (host == "github.com" and path.startswith("/qwenlm/qwen3"))
+                or (host == "huggingface.co" and path.startswith("/qwen/qwen3"))
+                or (host in ollama_hosts and bool(re.fullmatch(r"/library/qwen3(?::4b)?", path)))
             )
         if "llama" in name:
+            if "vision" in path:
+                return False
             return (
-                host in {"llama.com", "ai.meta.com"}
-                or (host == "github.com" and path.startswith("/meta-llama/"))
-                or (host == "huggingface.co" and path.startswith("/meta-llama/"))
-                or (host in ollama_hosts and path.startswith("/library/llama3.2"))
+                (host == "llama.com" and bool(re.search(r"llama3[_\-.]?2|llama-3\.2|3[_\-.]2", path)))
+                or (host == "ai.meta.com" and bool(re.search(r"llama.{0,20}3[._-]?2", path)))
+                or (host == "github.com" and path.startswith("/meta-llama/llama-models"))
+                or (host == "huggingface.co" and path.startswith("/meta-llama/llama-3.2"))
+                or (host in ollama_hosts and bool(re.fullmatch(r"/library/llama3\.2(?::3b)?", path)))
             )
         if "gemma" in name:
+            if "model_card_4" in path or "gemma-4" in path or "gemma4" in path:
+                return False
             google_publisher_hosts = {
                 "ai.google.dev", "deepmind.google", "blog.google",
                 "developers.googleblog.com", "research.google",
             }
             github_google_orgs = ("/google/", "/google-deepmind/", "/google-gemma/")
             return (
-                (host in google_publisher_hosts and "gemma" in path)
-                or (host == "github.com" and "gemma" in path and path.startswith(github_google_orgs))
-                or (host == "huggingface.co" and "gemma" in path and path.startswith(github_google_orgs))
-                or (host in ollama_hosts and path.startswith("/library/gemma3"))
+                (
+                    host == "ai.google.dev"
+                    and path.startswith("/gemma/")
+                    and ("model_card_3" in path or "gemma-3" in path)
+                )
+                or (
+                    host in google_publisher_hosts
+                    and host != "ai.google.dev"
+                    and ("gemma-3" in path or "/gemma/gemma-3" in path)
+                )
+                or (host == "github.com" and "gemma3" in path and path.startswith(github_google_orgs))
+                or (host == "huggingface.co" and "gemma-3" in path and path.startswith(github_google_orgs))
+                or (host in ollama_hosts and bool(re.fullmatch(r"/library/gemma3(?::4b)?", path)))
             )
+        return False
+
+    @classmethod
+    def _is_requested_model_source(cls, target: str, source: dict[str, Any]) -> bool:
+        """Require the source content to identify the exact requested model size."""
+        url = str(source.get("url", "") or "")
+        if not cls._is_official_model_source(target, url):
+            return False
+        identity = " ".join(
+            str(source.get(field, "") or "")
+            for field in ("title", "snippet", "page_content", "url")
+        ).casefold()
+        normalized = re.sub(r"[^a-z0-9.]+", " ", identity)
+
+        if "qwen" in target.casefold():
+            family_match = bool(re.search(r"\bqwen\s*3\b", normalized))
+            size_match = bool(re.search(r"\b4\s*b\b|\b4\s*billion\b", normalized))
+            return family_match and size_match
+        if "llama" in target.casefold():
+            family_match = bool(re.search(r"\bllama\s*3\.2\b", normalized))
+            size_match = bool(re.search(r"\b3\s*b\b|\b3\.21\s*b\b|\b3\s*billion\b", normalized))
+            return family_match and size_match
+        if "gemma" in target.casefold():
+            family_match = bool(re.search(r"\bgemma\s*3\b", normalized))
+            size_match = bool(re.search(r"\b4\s*b\b|\b4\s*billion\b", normalized))
+            return family_match and size_match
         return False
 
     @classmethod
