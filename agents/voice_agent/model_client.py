@@ -8,6 +8,8 @@ from __future__ import annotations
 import ipaddress
 import json
 import os
+import re
+import time
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
@@ -225,44 +227,57 @@ class OpenAICompatibleClient:
         errors: list[str] = []
 
         for provider in self.providers:
-            try:
-                result = self._request_provider(
-                    provider,
-                    messages,
-                    json_mode=json_mode,
-                )
-
-                if not isinstance(result, str) or not result.strip():
-                    raise ModelClientError(
-                        "Provider returned an empty response."
+            # Retry only transient transport/provider failures. Permanent 4xx,
+            # malformed JSON and schema errors fail over immediately instead
+            # of repeatedly sending the same request.
+            for attempt in range(3):
+                try:
+                    result = self._request_provider(
+                        provider,
+                        messages,
+                        json_mode=json_mode,
                     )
 
-                if json_mode:
-                    try:
-                        parsed = json.loads(result)
-                    except json.JSONDecodeError as exc:
+                    if not isinstance(result, str) or not result.strip():
                         raise ModelClientError(
-                            "Provider returned invalid JSON for a decision."
-                        ) from exc
-
-                    if not isinstance(parsed, dict):
-                        raise ModelClientError(
-                            "Provider decision response was not "
-                            "a JSON object."
+                            "Provider returned an empty response."
                         )
 
-                self.active_provider = provider.name
-                self.last_provider_errors = errors.copy()
+                    if json_mode:
+                        try:
+                            parsed = json.loads(result)
+                        except json.JSONDecodeError as exc:
+                            raise ModelClientError(
+                                "Provider returned invalid JSON for a decision."
+                            ) from exc
 
-                return result.strip()
+                        if not isinstance(parsed, dict):
+                            raise ModelClientError(
+                                "Provider decision response was not "
+                                "a JSON object."
+                            )
 
-            except ModelClientError as exc:
-                errors.append(f"{provider.name}: {exc}")
+                    self.active_provider = provider.name
+                    self.last_provider_errors = errors.copy()
+                    return result.strip()
 
-            except Exception as exc:
-                errors.append(
-                    f"{provider.name}: {type(exc).__name__}: {exc}"
-                )
+                except ModelClientError as exc:
+                    message = str(exc)
+                    transient = bool(re.fullmatch(
+                        r"HTTP (?:408|425|429|500|502|503|504)",
+                        message,
+                    )) or message == "request timed out"
+                    if transient and attempt < 2:
+                        time.sleep(0.5 * (2 ** attempt))
+                        continue
+                    errors.append(f"{provider.name}: {message}")
+                    break
+
+                except Exception as exc:
+                    errors.append(
+                        f"{provider.name}: {type(exc).__name__}: {exc}"
+                    )
+                    break
 
         self.last_provider_errors = errors.copy()
         details = " | ".join(errors[-3:])

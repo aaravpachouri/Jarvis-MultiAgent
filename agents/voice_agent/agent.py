@@ -596,15 +596,39 @@ class VoiceAgent:
 
     @staticmethod
     def _is_research_to_forge_request(prompt: str) -> bool:
-        """Recognize research-then-code tasks, excluding market-data research missions."""
-        if VoiceAgent._is_quant_market_research_request(prompt):
-            return False
+        """Recognize affirmative research-then-code tasks without routing exclusions to Forge."""
         text = str(prompt or "").casefold()
+        if (
+            VoiceAgent._is_quant_market_research_request(prompt)
+            or VoiceAgent._is_read_only_mission_request(prompt)
+            or re.search(
+                r"\b(?:do not|don't|dont|never|avoid|without)\b.{0,80}\b"
+                r"(?:involve|use|delegate|send|pass|hand\s+off)\b.{0,40}\bforge\b",
+                text,
+                re.IGNORECASE,
+            )
+        ):
+            return False
         has_research = any(term in text for term in ("research", "investigate", "find sources", "documentation"))
-        has_implementation = any(term in text for term in (
-            "forge", "create ", "implement", "write tests", "pytest", "health endpoint",
-            "app.py", "test_app.py", "test_app", "run the tests",
+        # Mentioning Forge is not authorization to run it: phrases such as
+        # "Do not involve Forge" must remain research-only. Require either a
+        # positive Forge handoff or an independently explicit code-mutation task.
+        positive_forge_handoff = bool(re.search(
+            r"\b(?:use|delegate|send|pass|hand\s+off)\b.{0,100}\bforge\b"
+            r"|\bwith\s+forge\b",
+            text,
+            re.IGNORECASE,
         ))
+        has_implementation = (
+            VoiceAgent._is_code_mutation_request(prompt)
+            or positive_forge_handoff
+            or bool(re.search(
+                r"\b(?:create|write)\b.{0,80}\b(?:[\w./-]+\.(?:py|js|ts|tsx|jsx)|"
+                r"test(?:s|_\w+)?|module|script|function|component)\b",
+                text,
+                re.IGNORECASE,
+            ))
+        )
         return has_research and has_implementation
 
     async def _run_research_to_forge(self, prompt: str, context: Any) -> str:
