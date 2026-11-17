@@ -634,6 +634,6 @@ This is strictly a research-only mission."""
     assert "research.athena" in str(result.output)
     assert "search.scout" in str(result.output)
     assert "documentation.scribe" in str(result.output)
-    assert len(scout_calls) >= 4  # Athena's three focused searches plus Scout's independent stage.
+    assert len(scout_calls) == 3  # Athena's declared nested Scout retrieval stage.
     assert len(scribe_calls) == 1
     assert forbidden_calls == []
