@@ -541,22 +541,29 @@ class ResearchAgent:
             text,
             re.IGNORECASE,
         )
-        external_research = re.search(
-            r"\b(?:research|investigate|search(?: the web| online)?|look up|current|latest|"
-            r"official sources?|primary sources?|citations?|source links?|benchmark data)\b",
-            text,
-            re.IGNORECASE,
-        ) or str(context.get("research_mode") or "").casefold() in {"external", "web"}
-        if external_research:
-            return False
         material_keys = ("source_material", "documents", "notes", "information", "content", "analysis_data")
         explicit_material = any(
             key in context and context.get(key) not in (None, "", [], {}, ())
             for key in material_keys
         )
+        requested_offline = (
+            str(context.get("analysis_scope") or "").casefold() == "offline_context_analysis_only"
+            or str(context.get("research_mode") or "").casefold() == "offline"
+        )
+        if requested_offline:
+            return bool(intent and explicit_material)
+        external_research = re.search(
+            r"\b(?:research|investigate|search(?: the web| online)?|look up)\s+(?:the web|online|for|about|current|latest|official|"
+            r"primary|benchmark|model|product|documentation)\b|\b(?:current|latest|official sources?|"
+            r"primary sources?|citations?|source links?|benchmark data)\b",
+            text,
+            re.IGNORECASE,
+        ) or str(context.get("research_mode") or "").casefold() in {"external", "web"}
+        if external_research:
+            return False
         conversation_request = re.search(
             r"\b(?:this conversation|our previous discussion|previous messages|chat history|"
-            r"what we discussed|the discussion above|above messages)\b",
+            r"what we (?:have )?discussed|the discussion above|above messages)\b",
             text,
             re.IGNORECASE,
         )
