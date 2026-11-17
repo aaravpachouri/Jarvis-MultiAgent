@@ -128,7 +128,11 @@ class PlannerAgent:
         matches = rank_agent_capabilities(title, agents)
         if not matches:
             return None
-        if len(matches) > 1 and matches[0][0] - matches[1][0] < 0.035:
+        if (
+            len(matches) > 1
+            and matches[0][1] != matches[1][1]
+            and matches[0][0] - matches[1][0] < 0.035
+        ):
             return None
         _, agent_id, capability = matches[0]
         return {"agent_id": agent_id, "capability": capability}
