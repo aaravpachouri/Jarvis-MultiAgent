@@ -9,6 +9,7 @@ import re
 from typing import Any, Mapping
 
 from core.action_scope import action_scope
+from core.capability_match import rank_agent_capabilities
 
 
 class PlannerAgent:
@@ -122,77 +123,15 @@ class PlannerAgent:
 
     @staticmethod
     def _assign_specialist(title: str, available_agents: list[Any]) -> dict[str, str] | None:
-        """Match a plan step to declared capability descriptions, not task-specific keywords."""
-        stop_words = {
-            "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "in",
-            "into", "is", "it", "of", "on", "or", "the", "this", "to", "with",
-            "user", "task", "work", "step", "result", "output",
-        }
-
-        def tokens(value: Any) -> set[str]:
-            return {
-                token for token in re.findall(r"[a-z0-9][a-z0-9_.+-]*", str(value or "").casefold())
-                if len(token) > 1 and token not in stop_words
-            }
-
-        query_tokens = tokens(title)
-        if not query_tokens:
+        """Assign only a confident match from the live capability catalog."""
+        agents = [item for item in available_agents if isinstance(item, Mapping)]
+        matches = rank_agent_capabilities(title, agents)
+        if not matches:
             return None
-
-        candidates: list[tuple[float, str, str]] = []
-        for agent in available_agents:
-            if not isinstance(agent, Mapping):
-                continue
-            agent_id = agent.get("agent_id")
-            capabilities = agent.get("capabilities", [])
-            if not isinstance(agent_id, str) or not agent_id.strip() or not isinstance(capabilities, list):
-                continue
-            functions = agent.get("functions", [])
-            if not isinstance(functions, list):
-                functions = []
-            function_by_capability = {
-                str(item.get("capability")): str(item.get("description") or "")
-                for item in functions if isinstance(item, Mapping) and item.get("capability")
-            }
-            agent_context = " ".join([
-                str(agent.get("name") or ""),
-                str(agent.get("role") or ""),
-                str(agent.get("description") or ""),
-                " ".join(str(item) for item in agent.get("routing_keywords", []) if item),
-            ])
-            for capability in capabilities:
-                capability = str(capability).strip()
-                if not capability:
-                    continue
-                description = function_by_capability.get(capability, "")
-                evidence_tokens = tokens(" ".join((capability, description, agent_context)))
-                overlap = query_tokens & evidence_tokens
-                if not overlap:
-                    continue
-                # Balance how much of the requested step is covered with how
-                # specific the capability description is. Longer, specific
-                # terms carry more weight than generic connective vocabulary.
-                weighted_overlap = sum(1.5 if len(token) >= 6 else 1.0 for token in overlap)
-                coverage = weighted_overlap / max(1.0, sum(
-                    1.5 if len(token) >= 6 else 1.0 for token in query_tokens
-                ))
-                precision = weighted_overlap / max(1.0, sum(
-                    1.5 if len(token) >= 6 else 1.0 for token in evidence_tokens
-                ))
-                score = (0.8 * coverage) + (0.2 * precision)
-                candidates.append((score, agent_id.strip(), capability))
-
-        if not candidates:
+        if len(matches) > 1 and matches[0][0] - matches[1][0] < 0.035:
             return None
-        candidates.sort(key=lambda item: (-item[0], item[1], item[2]))
-        best = candidates[0]
-        # Ambiguous ties are deliberately left unassigned. The coordinator can
-        # ask for clarification or use a stronger planner instead of guessing.
-        if best[0] < 0.18:
-            return None
-        if len(candidates) > 1 and best[0] - candidates[1][0] < 0.035:
-            return None
-        return {"agent_id": best[1], "capability": best[2]}
+        _, agent_id, capability = matches[0]
+        return {"agent_id": agent_id, "capability": capability}
 
     @staticmethod
     def _extract_requested_steps(prompt: str) -> list[str]:
