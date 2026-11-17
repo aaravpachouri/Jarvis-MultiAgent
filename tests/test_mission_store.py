@@ -77,3 +77,19 @@ def test_mission_store_retention_never_prunes_active_jobs(tmp_path):
     ids = {item["task_id"] for item in store.list_recent(10)}
     assert "active-1" in ids
     assert len(ids) == 3
+
+
+def test_recent_mission_history_returns_bounded_summaries(tmp_path):
+    store = MissionStore(tmp_path / "missions.sqlite3")
+    job = _job("history-task", "succeeded")
+    job["result"] = {"summary": "Mission completed", "output": "Long output " * 200}
+    store.upsert(job)
+
+    app = DashboardApplication.__new__(DashboardApplication)
+    app.mission_store = store
+    history = app.recent_missions(10)
+
+    assert len(history) == 1
+    assert history[0]["task_id"] == "history-task"
+    assert history[0]["summary"] == "Mission completed"
+    assert len(history[0]["output_preview"]) <= 1000
