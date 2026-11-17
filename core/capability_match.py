@@ -18,7 +18,7 @@ _STOP_WORDS = frozenset({
 
 def _tokens(value: Any) -> set[str]:
     return {
-        token for token in re.findall(r"[a-z0-9][a-z0-9_.+-]*", str(value or "").casefold())
+        token for token in re.findall(r"[a-z0-9]+", str(value or "").casefold())
         if len(token) > 1 and token not in _STOP_WORDS
     }
 
