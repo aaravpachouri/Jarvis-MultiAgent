@@ -70,6 +70,68 @@ def missing_approvals(spec: AgentSpec, request: TaskRequest) -> tuple[str, ...]:
     return tuple(sorted(required - approved))
 
 
+
+def explicitly_excluded_agent_ids(
+    prompts: str | list[str] | tuple[str, ...],
+    agents: list[AgentSpec] | tuple[AgentSpec, ...],
+    inherited: Any = None,
+) -> tuple[str, ...]:
+    """Resolve explicit natural-language agent prohibitions against the live registry.
+
+    This is registry-driven: adding an agent does not require changing a router
+    allow/deny list. Exclusions are policy metadata, not keyword-routing hints.
+    """
+    if isinstance(prompts, str):
+        prompt_values = [prompts]
+    else:
+        prompt_values = [str(value) for value in prompts or ()]
+    inherited_ids = set(_tokens(inherited))
+    excluded = set(inherited_ids)
+    for prompt in prompt_values:
+        text = str(prompt or "")
+        clauses: list[str] = []
+        # Action-based prohibitions: "do not invoke A, B or C".
+        for match in re.finditer(
+            r"\b(?:do\s+not|don't|dont|never|avoid)\b([^.!?\n]{0,280})",
+            text,
+            re.IGNORECASE,
+        ):
+            tail = match.group(1)
+            action = re.search(
+                r"\b(?:invoke|involve|use|delegate(?:\s+to)?|send(?:\s+to)?|pass(?:\s+to)?|"
+                r"hand\s+off(?:\s+to)?|route(?:\s+to)?|call)\b",
+                tail,
+                re.IGNORECASE,
+            )
+            if action:
+                clauses.append(tail[action.end():])
+        # "without A/B/C" is an explicit exclusion without an action verb.
+        for match in re.finditer(r"\bwithout\b([^.!?\n]{0,240})", text, re.IGNORECASE):
+            clauses.append(match.group(1))
+
+        for spec in agents:
+            aliases = {
+                spec.name.strip(),
+                spec.agent_id.strip(),
+                spec.agent_id.rsplit(".", 1)[-1].replace("_", " "),
+            }
+            metadata_aliases = spec.metadata.get("aliases", ())
+            if isinstance(metadata_aliases, str):
+                metadata_aliases = (metadata_aliases,)
+            if isinstance(metadata_aliases, (list, tuple, set)):
+                aliases.update(str(value).strip() for value in metadata_aliases if str(value).strip())
+            patterns = []
+            for alias in aliases:
+                if not alias:
+                    continue
+                escaped = re.escape(alias)
+                escaped = escaped.replace(r"\ ", r"\s+")
+                escaped = escaped.replace(r"\&", r"(?:&|and)")
+                patterns.append(re.compile(rf"(?<![\w]){escaped}(?![\w])", re.IGNORECASE))
+            if any(pattern.search(clause) for clause in clauses for pattern in patterns):
+                excluded.add(spec.agent_id)
+    return tuple(sorted(excluded))
+
 def manifest_policy_issues(spec: AgentSpec) -> list[str]:
     """Return policy mismatches in a manifest, without exposing secret values."""
     issues: list[str] = []
