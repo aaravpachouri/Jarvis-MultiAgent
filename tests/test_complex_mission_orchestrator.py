@@ -16,7 +16,13 @@ from core.registry import AgentRegistry
 from core.runtime import AgentRuntime
 
 
-def _spec(agent_id: str, name: str, capabilities: tuple[str, ...], keywords: tuple[str, ...] = ()) -> AgentSpec:
+def _spec(
+    agent_id: str,
+    name: str,
+    capabilities: tuple[str, ...],
+    keywords: tuple[str, ...] = (),
+    metadata: dict[str, Any] | None = None,
+) -> AgentSpec:
     return AgentSpec(
         agent_id=agent_id,
         name=name,
@@ -24,6 +30,7 @@ def _spec(agent_id: str, name: str, capabilities: tuple[str, ...], keywords: tup
         description=f"Test handler for {name}",
         capabilities=capabilities,
         routing_keywords=keywords,
+        metadata=metadata or {},
         timeout_seconds=5,
         max_concurrency=3,
     )
@@ -47,6 +54,12 @@ def test_complex_workstream_capability_prioritizes_implementation_when_code_and_
     spec = _spec(
         "coding.forge", "Forge",
         ("code.inspect", "code.write", "code.debug", "code.test"),
+        metadata={"operator_guide": {"functions": [
+            {"capability": "code.write", "description": "Implement software features, create dashboards and change application code."},
+            {"capability": "code.test", "description": "Run automated tests and verify software behavior."},
+            {"capability": "code.inspect", "description": "Inspect and review existing source code."},
+            {"capability": "code.debug", "description": "Debug and fix software errors."},
+        ]}},
     )
     assert VoiceAgent._complex_workstream_capability(
         spec, "Implement a dashboard and run the tests"
