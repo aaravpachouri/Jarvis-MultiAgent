@@ -673,7 +673,7 @@ This is strictly a research-only mission."""
                 task.context.get("workstream_results"),
             ) if value is not None
         )
-        verified_urls = [url.rstrip(".,;:)]}") for url in re.findall(r"https?://\\S+", evidence_text)]
+        verified_urls = [url.rstrip(".,;:)]}") for url in re.findall(r"https?://[^ ]+", evidence_text)]
         source_line = " ".join(dict.fromkeys(verified_urls[:3]))
         return (
             "## Executive recommendation\n" + ("Evidence-led recommendation. " * 12)
