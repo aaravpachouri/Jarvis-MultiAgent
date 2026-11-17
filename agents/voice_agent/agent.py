@@ -2245,7 +2245,7 @@ class VoiceAgent:
         metadata = spec.metadata if isinstance(spec.metadata, Mapping) else {}
         guide = metadata.get("operator_guide", {})
         functions = guide.get("functions", []) if isinstance(guide, Mapping) else []
-        return best_capability_for_agent(
+        capability = best_capability_for_agent(
             prompt,
             {
                 "agent_id": spec.agent_id,
@@ -2257,6 +2257,11 @@ class VoiceAgent:
                 "functions": functions if isinstance(functions, list) else [],
             },
         )
+        if capability.startswith("code.write") and not VoiceAgent._is_code_mutation_request(prompt):
+            return ""
+        if capability.startswith("deployment.") and not VoiceAgent._is_explicit_deployment_request(prompt):
+            return ""
+        return capability
 
     @staticmethod
     def _validate_planner_steps(raw_steps: Any) -> tuple[list[dict[str, Any]], str | None]:
