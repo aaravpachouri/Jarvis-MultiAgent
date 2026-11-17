@@ -563,3 +563,77 @@ def test_compound_routing_does_not_treat_code_comparison_as_forge_intent():
     ]
     assert VoiceAgent._build_compound_tasks(prompt, matches) == []
 
+
+
+@pytest.mark.asyncio
+async def test_explicit_registry_workflow_runs_planner_athena_scout_scribe_and_honors_exclusions():
+    prompt = """Run a controlled, research-only multi-model evaluation.
+
+Compare these models for Windows 11, Python development and local Ollama use:
+
+1. Qwen 3 4B
+2. Llama 3.2 3B
+3. Gemma 3 4B
+
+Required workflow: Planner → Athena → Scout → Scribe
+
+STRICT AGENT RESTRICTIONS:
+- Do NOT invoke Forge, Memory & Notes or Launch.
+- Do not generate or modify code.
+- Do not create, edit or delete files.
+- Do not execute commands or install anything.
+- Do not modify settings.
+
+Athena must research current model specifications and official sources.
+Scout must independently verify the findings.
+Scribe must produce a complete comparison report.
+This is strictly a research-only mission."""
+
+    scout_calls: list[str] = []
+    scribe_calls: list[dict[str, Any]] = []
+    forbidden_calls: list[str] = []
+
+    async def complete_scribe(task, context):
+        scribe_calls.append(dict(task.context))
+        return (
+            "## Executive recommendation\n" + ("Evidence-led recommendation. " * 12)
+            + "\n## Specialist execution summary\nPlanner, Athena and Scout returned actual results. "
+            + "\n## Sources and provenance\nOfficial source URLs are included in the research results. "
+            + "\n### Scout delegation trace\nScout performed an independent verification handoff. "
+            + "\n## Model-by-model comparison\nQwen 3 4B; Llama 3.2 3B; Gemma 3 4B. "
+            + ("Comparison evidence and limitations. " * 12)
+            + "\n## Limitations and unresolved gaps\nFixture evidence is used for this automated orchestration test."
+        )
+
+    runtime = _register_model_research_runtime(
+        ResearchAgent(), scout_calls=scout_calls, scribe_calls=scribe_calls,
+        scribe_handler=complete_scribe,
+    )
+
+    async def forbidden(task, context):
+        forbidden_calls.append(context.agent.agent_id)
+        return "must not execute"
+
+    runtime.register_agent(
+        _spec("coding.forge", "Forge", ("code.inspect", "code.write", "code.test"), ("coding", "code")),
+        forbidden,
+    )
+    runtime.register_agent(
+        _spec("memory.notes", "Memory & Notes", ("memory.search",), ("memory", "notes")),
+        forbidden,
+    )
+    runtime.register_agent(
+        _spec("deployment.launch", "Launch", ("deployment.plan",), ("launch", "deployment")),
+        forbidden,
+    )
+
+    result = await runtime.run_task(TaskRequest(prompt=prompt, target_agent_id="voice.jarvis"))
+
+    assert result.status is TaskStatus.SUCCEEDED, result.error or result.output
+    assert "Planner: planning.planner" in str(result.output)
+    assert "research.athena" in str(result.output)
+    assert "search.scout" in str(result.output)
+    assert "documentation.scribe" in str(result.output)
+    assert len(scout_calls) >= 4  # Athena's three focused searches plus Scout's independent stage.
+    assert len(scribe_calls) == 1
+    assert forbidden_calls == []
