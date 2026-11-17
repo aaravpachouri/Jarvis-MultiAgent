@@ -100,7 +100,7 @@ def best_capability_for_agent(
     task_description: str,
     agent: Mapping[str, Any],
     *,
-    minimum_score: float = 0.18,
+    minimum_score: float = 0.12,
     ambiguity_margin: float = 0.035,
 ) -> str:
     """Return one confident capability for an agent, or an empty string if ambiguous."""
