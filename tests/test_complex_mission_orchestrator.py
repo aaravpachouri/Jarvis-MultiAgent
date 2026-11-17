@@ -598,7 +598,7 @@ This is strictly a research-only mission."""
         return (
             "## Executive recommendation\n" + ("Evidence-led recommendation. " * 12)
             + "\n## Specialist execution summary\nPlanner, Athena and Scout returned actual results. "
-            + "\n## Sources and provenance\nOfficial source URLs are included in the research results. "
+            + "\n## Sources and provenance\nhttps://qwen.ai/models/qwen3 https://llama.com/docs/model-cards/llama3_2 https://ai.google.dev/gemma/docs/core/model_card_3 "
             + "\n### Scout delegation trace\nScout performed an independent verification handoff. "
             + "\n## Model-by-model comparison\nQwen 3 4B; Llama 3.2 3B; Gemma 3 4B. "
             + ("Comparison evidence and limitations. " * 12)
