@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from core import AgentMessage, TaskEvent, TaskResult, TaskStatus
+from core.mission_store import MissionStore
 from dashboard_server import DashboardApplication
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -92,7 +93,7 @@ class _SuccessfulRuntime:
         )
 
 
-def test_async_mission_records_queued_running_and_terminal_lifecycle() -> None:
+def test_async_mission_records_queued_running_and_terminal_lifecycle(tmp_path) -> None:
     app = DashboardApplication.__new__(DashboardApplication)
     app.runtime = _SuccessfulRuntime()
     app.loop = asyncio.new_event_loop()
@@ -102,6 +103,7 @@ def test_async_mission_records_queued_running_and_terminal_lifecycle() -> None:
     app.event_lock = threading.Lock()
     app.recent_results = []
     app.jobs = {}
+    app.mission_store = MissionStore(tmp_path / "missions.sqlite3")
     app.job_futures = {}
     app.live_events = deque(maxlen=32)
     app.live_event_sequence = 0
