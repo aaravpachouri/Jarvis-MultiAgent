@@ -665,7 +665,6 @@ This is strictly a research-only mission."""
     forbidden_calls: list[str] = []
 
     async def complete_scribe(task, context):
-        scribe_calls.append(dict(task.context))
         evidence_text = " ".join(
             str(value) for value in (
                 task.context.get("source_material"),
