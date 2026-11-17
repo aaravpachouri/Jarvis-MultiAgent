@@ -404,6 +404,12 @@ def _register_model_research_runtime(athena_handler, *, scout_calls=None, scribe
             "research.athena", "Athena",
             ("research.deep", "research.compare", "research.synthesize", "research.verify"),
             ("research", "compare options", "evidence"),
+            {"delegates_to": "search.scout", "operator_guide": {"functions": [
+                {"capability": "research.deep", "description": "Research a topic and gather source-linked evidence."},
+                {"capability": "research.compare", "description": "Compare options and evaluate trade-offs."},
+                {"capability": "research.synthesize", "description": "Synthesize evidence into structured findings."},
+                {"capability": "research.verify", "description": "Verify claims against retrieved evidence."},
+            ]}},
         ),
         athena_handler,
     )
