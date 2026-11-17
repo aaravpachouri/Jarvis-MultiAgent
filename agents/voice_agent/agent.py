@@ -2157,6 +2157,10 @@ class VoiceAgent:
         # Athena owns research decomposition and delegates retrieval to Scout.
         # Do not promote Scout into a parallel top-level workstream when Athena
         # is available, or the same research objective will be searched twice.
+        explicit_sequence = VoiceAgent._explicit_workflow_agent_ids(
+            prompt, runtime.registry.list(enabled_only=True)
+        )
+        explicit_ids = set(explicit_sequence)
         athena_available = any(
             getattr(match, "agent_id", "") == "research.athena"
             and getattr(match, "agent_id", "") in executable_ids
@@ -2166,7 +2170,7 @@ class VoiceAgent:
             agent_id = str(getattr(match, "agent_id", "") or "")
             if not agent_id or agent_id in seen or agent_id not in executable_ids:
                 continue
-            if agent_id == "search.scout" and athena_available:
+            if agent_id == "search.scout" and athena_available and agent_id not in explicit_ids:
                 continue
             if VoiceAgent._is_agent_explicitly_excluded(prompt, agent_id):
                 continue
@@ -2193,8 +2197,11 @@ class VoiceAgent:
                 continue
             selected.append({"match": match, "spec": spec, "agent_id": agent_id})
             seen.add(agent_id)
-            if len(selected) >= 4:
+            if len(selected) >= 6:
                 break
+        if explicit_sequence:
+            order = {agent_id: index for index, agent_id in enumerate(explicit_sequence)}
+            selected.sort(key=lambda item: (order.get(item["agent_id"], len(order)), item["agent_id"]))
         return selected
 
     @staticmethod
@@ -2346,6 +2353,34 @@ class VoiceAgent:
         requests pass the real upstream outputs to their downstream task context.
         """
         runtime = context.runtime
+        explicit_sequence = self._explicit_workflow_agent_ids(
+            prompt, runtime.registry.list(enabled_only=True)
+        )
+        if explicit_sequence:
+            sequence_specs = [runtime.registry.get(agent_id) for agent_id in explicit_sequence]
+            planning_positions = [
+                index for index, spec in enumerate(sequence_specs)
+                if any(cap.startswith("planning.") for cap in spec.capabilities)
+            ]
+            writing_positions = [
+                index for index, spec in enumerate(sequence_specs)
+                if "writing.report" in spec.capabilities
+            ]
+            if (planning_positions and planning_positions[0] != 0) or (
+                writing_positions and writing_positions[-1] != len(sequence_specs) - 1
+            ):
+                return TaskResult(
+                    task_id=context.task.task_id, agent_id=context.agent.agent_id,
+                    status=TaskStatus.FAILED,
+                    summary="Explicit workflow order conflicts with coordinator-managed planning/report stages.",
+                    error="Planner-capability stages must precede execution and the writing.report stage must be last.",
+                    output={"requested_sequence": explicit_sequence},
+                )
+            order = {agent_id: index for index, agent_id in enumerate(explicit_sequence)}
+            workstreams = sorted(
+                workstreams,
+                key=lambda item: (order.get(item["agent_id"], len(order)), item["agent_id"]),
+            )
         planner_candidates = runtime.discover_executable(("planning.breakdown",), match_all=True, limit=1)
         if not planner_candidates:
             return TaskResult(
@@ -2458,6 +2493,9 @@ class VoiceAgent:
                 continue
             step_id = f"workstream_{index}"
             dependencies = ["plan"]
+            if explicit_sequence and index > 1:
+                # Explicit user sequence is a hard dependency, not a display hint.
+                dependencies.append(f"workstream_{index - 1}")
             # Translate the Planner's declared edges into executable workstream
             # edges. Multiple plan steps assigned to one specialist are grouped
             # into that specialist's single bounded child task.
