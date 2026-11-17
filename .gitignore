@@ -19,3 +19,9 @@ data/reports/
 # Large local speech model; keep on this computer, not in Git
 JARVIS_Agent_Network/models/kokoro-v1.0.int8.onnx
 **/kokoro-v1.0.int8.onnx
+
+# Local durable mission state (never commit task history or outputs)
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
