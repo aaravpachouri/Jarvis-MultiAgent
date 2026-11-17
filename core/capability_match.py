@@ -17,10 +17,19 @@ _STOP_WORDS = frozenset({
 
 
 def _tokens(value: Any) -> set[str]:
-    return {
-        token for token in re.findall(r"[a-z0-9]+", str(value or "").casefold())
-        if len(token) > 1 and token not in _STOP_WORDS
-    }
+    normalized: set[str] = set()
+    for token in re.findall(r"[a-z0-9]+", str(value or "").casefold()):
+        if token.endswith("ies") and len(token) > 5:
+            token = token[:-3] + "y"
+        elif token.endswith("ing") and len(token) > 6:
+            token = token[:-3]
+        elif token.endswith("ed") and len(token) > 5:
+            token = token[:-2]
+        elif token.endswith("s") and len(token) > 4:
+            token = token[:-1]
+        if len(token) > 1 and token not in _STOP_WORDS:
+            normalized.add(token)
+    return normalized
 
 
 def _capability_descriptions(agent: Mapping[str, Any]) -> dict[str, str]:
