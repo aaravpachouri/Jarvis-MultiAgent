@@ -38,7 +38,7 @@ def rank_agent_capabilities(
     task_description: str,
     agents: list[Mapping[str, Any]],
     *,
-    minimum_score: float = 0.18,
+    minimum_score: float = 0.12,
 ) -> list[tuple[float, str, str]]:
     """Return scored (score, agent_id, capability) matches from manifest metadata."""
     query_tokens = _tokens(task_description)
