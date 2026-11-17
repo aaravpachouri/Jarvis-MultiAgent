@@ -2183,7 +2183,7 @@ class VoiceAgent:
             # If a selected specialist explicitly delegates to another
             # requested specialist, the real nested handoff satisfies that
             # workflow stage. Do not run the same stage a second time in parallel.
-            if agent_id in delegated_targets:
+            if agent_id in delegated_targets and agent_id not in explicit_ids:
                 continue
             if VoiceAgent._is_agent_explicitly_excluded(prompt, agent_id):
                 continue
@@ -2557,14 +2557,32 @@ class VoiceAgent:
                 else:
                     scope += " Code modifications are authorized only to the extent explicitly requested by the mission; do not deploy or perform external financial actions."
                 upstream_summary = str(upstream_records)[:10000]
+                research_query = prompt[:1200]
+                specialist_prompt = (
+                    f"{scope}\n\nMISSION OBJECTIVE:\n{prompt[:7000]}\n\n"
+                    f"UPSTREAM RESULTS (actual workflow outputs):\n{upstream_summary}"
+                )
+                if _capability.startswith("web.search"):
+                    # Search is a distinct verification workstream only when
+                    # explicitly selected by the user; its query is grounded in
+                    # the complete objective and actual upstream evidence.
+                    specialist_prompt = (
+                        f"Search for: {research_query}. "
+                        "Independently verify the relevant claims in the upstream results using primary sources. "
+                        "Return source titles, URLs, retrieval status and any contradictions. "
+                        "Do not treat upstream summaries or snippets as verified facts.\n\n"
+                        f"UPSTREAM RESULTS:\n{upstream_summary}"
+                    )
                 child = await context.delegate(
-                    prompt=(f"{scope}\n\nMISSION OBJECTIVE:\n{prompt[:7000]}\n\nUPSTREAM RESULTS (actual workflow outputs):\n{upstream_summary}"),
+                    prompt=specialist_prompt,
                     agent_id=_agent_id,
                     capabilities=(_capability,),
                     context={
                         "workflow": "complex_mission",
                         "workstream_step_id": _id,
                         "original_request": prompt[:8000],
+                        "research_query": research_query if _capability.startswith("web.search") else None,
+                        "verification_material": upstream_records if _capability.startswith("web.search") else None,
                         "planning_result": plan_view,
                         "plan_checkpoint_task_id": plan_dependency.get("task_id"),
                         "dependency_results": upstream_records,
