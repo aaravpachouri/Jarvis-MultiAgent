@@ -2758,7 +2758,7 @@ class VoiceAgent:
                     "context": {"workstream": "engineering", "original_request": prompt},
                 })
             elif any(cap.startswith("documentation.") for cap in capabilities) and any(
-                term in text for term in ("document", "readme", "documentation", "changelog")
+                term in text for term in ("document", "readme", "documentation", "changelog", "report", "write-up")
             ):
                 tasks.append({
                     "prompt": f"Handle the documentation portion of this user request, based on verified implementation details.\n\nUser request: {prompt}",
