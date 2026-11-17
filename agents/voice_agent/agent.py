@@ -2096,6 +2096,8 @@ class VoiceAgent:
                 continue
             if agent_id == "search.scout" and athena_available:
                 continue
+            if VoiceAgent._is_agent_explicitly_excluded(prompt, agent_id):
+                continue
             try:
                 spec = runtime.registry.get(agent_id)
             except Exception:
@@ -2695,6 +2697,35 @@ class VoiceAgent:
         return any(joiner in text for joiner in (" and then ", " and ", " then ", " as well as ", " plus "))
 
     @staticmethod
+    def _is_agent_explicitly_excluded(prompt: str, agent_id: str) -> bool:
+        """Honor explicit agent prohibitions across every routing path."""
+        aliases = {
+            "coding.forge": r"(?:forge|coding\s+agent)",
+            "memory.notes": r"(?:memory\s*(?:&|and)\s*notes|memory\s+agent)",
+            "deployment.launch": r"(?:launch|deployment\s+agent)",
+        }
+        target = aliases.get(str(agent_id or "").casefold())
+        if not target:
+            return False
+        text = str(prompt or "")
+        return bool(
+            re.search(
+                rf"\b(?:do\s+not|don't|dont|never|avoid|without)\b"
+                rf"[^.!?\n]{{0,120}}\b(?:invoke|involve|use|delegate|send|pass|"
+                rf"hand\s+off|route|call)\b[^.!?\n]{{0,60}}\b{target}\b",
+                text,
+                re.IGNORECASE,
+            )
+            or re.search(
+                rf"\b{target}\b[^.!?\n]{{0,60}}\b(?:must\s+not|should\s+not|"
+                rf"cannot|can't|is\s+not\s+to)\b[^.!?\n]{{0,30}}"
+                rf"(?:invoke|involve|use|delegate|run|call)",
+                text,
+                re.IGNORECASE,
+            )
+        )
+
+    @staticmethod
     def _build_compound_tasks(prompt: str, matches: list[Any]) -> list[dict[str, Any]]:
         """Produce bounded specialist briefs for clearly relevant agent domains."""
         text = prompt.casefold()
@@ -2709,8 +2740,17 @@ class VoiceAgent:
                     "agent_id": match.agent_id,
                     "context": {"workstream": "discovery", "original_request": prompt},
                 })
-            elif any(cap.startswith(("code.", "repository.")) for cap in capabilities) and any(
-                term in text for term in ("code", "repo", "repository", "implement", "debug", "bug", "build", "app", "saas")
+            elif (
+                any(cap.startswith(("code.", "repository.")) for cap in capabilities)
+                and not VoiceAgent._is_agent_explicitly_excluded(prompt, match.agent_id)
+                and (
+                    VoiceAgent._is_code_mutation_request(prompt)
+                    or bool(re.search(
+                        r"\b(?:inspect|review|audit|analy[sz]e)\b.{0,50}\b(?:code|repo|repository|codebase)\b",
+                        prompt,
+                        re.IGNORECASE,
+                    ))
+                )
             ):
                 tasks.append({
                     "prompt": f"Handle the coding/repository portion of this user request. Inspect before modifying and report verification evidence.\n\nUser request: {prompt}",
@@ -2718,7 +2758,7 @@ class VoiceAgent:
                     "context": {"workstream": "engineering", "original_request": prompt},
                 })
             elif any(cap.startswith("documentation.") for cap in capabilities) and any(
-                term in text for term in ("document", "readme", "documentation", "changelog")
+                term in text for term in ("document", "readme", "documentation", "changelog", "report", "write-up")
             ):
                 tasks.append({
                     "prompt": f"Handle the documentation portion of this user request, based on verified implementation details.\n\nUser request: {prompt}",
