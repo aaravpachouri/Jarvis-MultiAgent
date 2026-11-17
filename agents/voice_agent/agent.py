@@ -2052,6 +2052,28 @@ class VoiceAgent:
         return ordered if len(ordered) >= 2 else []
 
     @staticmethod
+    def _workflow_stage_objective(prompt: str, spec: Any) -> str:
+        """Extract the user's own stage description for a registry-resolved agent."""
+        aliases = {
+            str(getattr(spec, "name", "") or "").strip(),
+            str(getattr(spec, "agent_id", "") or "").strip(),
+            str(getattr(spec, "agent_id", "") or "").rsplit(".", 1)[-1].replace("_", " "),
+        }
+        candidates = []
+        for line in str(prompt or "").splitlines():
+            for alias in aliases:
+                if not alias:
+                    continue
+                escaped = re.escape(alias).replace(r"\ ", r"\s+")
+                escaped = escaped.replace(r"\&", r"(?:&|and)")
+                if re.search(rf"(?<![\w]){escaped}(?![\w])", line, re.IGNORECASE):
+                    if not re.search(r"^\s*(?:required\s+workflow|workflow\s+order|execution\s+order)\s*:", line, re.I):
+                        candidates.append(line.strip())
+                    break
+        # Prefer a descriptive assignment over a bare mention in the sequence.
+        return max(candidates, key=lambda value: len(value.split()), default=str(prompt or ""))
+
+    @staticmethod
     def _is_complex_mission_request(prompt: str) -> bool:
         """Recognize substantial multi-stage work without relying on mission titles."""
         text = str(prompt or "").casefold()
@@ -2205,10 +2227,17 @@ class VoiceAgent:
                 continue
             # Do not promote a specialist merely because a term such as "coding"
             # or "memory" appeared as a comparison dimension/resource constraint.
-            capability = VoiceAgent._complex_workstream_capability(spec, prompt)
+            stage_objective = (
+                VoiceAgent._workflow_stage_objective(prompt, spec)
+                if agent_id in explicit_ids else prompt
+            )
+            capability = VoiceAgent._complex_workstream_capability(spec, stage_objective)
             if not capability:
                 continue
-            selected.append({"match": match, "spec": spec, "agent_id": agent_id})
+            selected.append({
+                "match": match, "spec": spec, "agent_id": agent_id,
+                "capability": capability, "stage_objective": stage_objective,
+            })
             seen.add(agent_id)
             if len(selected) >= 6:
                 break
@@ -2525,7 +2554,7 @@ class VoiceAgent:
         for index, item in enumerate(workstreams, start=1):
             match, spec = item["match"], item["spec"]
             agent_id = item["agent_id"]
-            capability = self._complex_workstream_capability(spec, prompt)
+            capability = str(item.get("capability") or self._complex_workstream_capability(spec, prompt))
             if not capability:
                 continue
             step_id = f"workstream_{index}"
