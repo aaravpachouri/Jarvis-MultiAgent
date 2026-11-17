@@ -98,6 +98,6 @@ def best_capability_for_agent(
     ]
     if not matches:
         return ""
-    if len(matches) > 1 and matches[0][0] - matches[1][0] < ambiguity_margin:
-        return ""
+    # Multiple capabilities on one agent are not an agent-selection ambiguity;
+    # use the strongest stable declaration when their semantic scores are close.
     return matches[0][2]
