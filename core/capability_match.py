@@ -41,6 +41,9 @@ def rank_agent_capabilities(
     minimum_score: float = 0.12,
 ) -> list[tuple[float, str, str]]:
     """Return scored (score, agent_id, capability) matches from manifest metadata."""
+    query_text = str(task_description or "").casefold()
+    query_sequence = re.findall(r"[a-z0-9]+", query_text)
+    query_positions = {token: index for index, token in enumerate(query_sequence)}
     query_tokens = _tokens(task_description)
     if not query_tokens:
         return []
@@ -52,6 +55,11 @@ def rank_agent_capabilities(
         if not agent_id or not isinstance(capabilities, (list, tuple)):
             continue
         descriptions = _capability_descriptions(agent)
+        declared_action_positions = {
+            capability: query_positions.get(next(iter(re.findall(r"[a-z0-9]+", description.casefold())), ""), 10**9)
+            for capability, description in descriptions.items()
+        }
+        earliest_declared_action = min(declared_action_positions.values(), default=10**9)
         agent_context = " ".join([
             str(agent.get("name") or ""),
             str(agent.get("role") or ""),
@@ -80,6 +88,9 @@ def rank_agent_capabilities(
             first_action = next(iter(re.findall(r"[a-z0-9]+", str(task_description or "").casefold())), "")
             if first_action and first_action in evidence_tokens:
                 score += 0.2
+            action_position = declared_action_positions.get(capability, 10**9)
+            if action_position == earliest_declared_action and action_position < 10**9:
+                score += 0.1
             if score >= minimum_score:
                 ranked.append((score, agent_id, capability))
     return sorted(ranked, key=lambda item: (-item[0], item[1], item[2]))
