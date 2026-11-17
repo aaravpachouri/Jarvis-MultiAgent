@@ -205,8 +205,18 @@ def test_planner_dependency_graph_validator_rejects_non_list_and_empty_steps() -
 def test_planner_assigns_specialists_only_from_available_capabilities() -> None:
     planner = PlannerAgent()
     assignments = [
-        {"agent_id": "research.athena", "capabilities": ["research.deep", "research.synthesize"]},
-        {"agent_id": "coding.forge", "capabilities": ["code.write", "code.test"]},
+        {
+            "agent_id": "research.athena",
+            "role": "Deep research specialist",
+            "capabilities": ["research.deep", "research.synthesize"],
+            "functions": [{"capability": "research.deep", "description": "Research a topic, gather evidence and evaluate sources."}],
+        },
+        {
+            "agent_id": "coding.forge",
+            "role": "Software engineering specialist",
+            "capabilities": ["code.write", "code.test"],
+            "functions": [{"capability": "code.write", "description": "Implement code changes and requested software features."}],
+        },
     ]
     assert planner._assign_specialist("Research the evidence", assignments) == {
         "agent_id": "research.athena", "capability": "research.deep"
