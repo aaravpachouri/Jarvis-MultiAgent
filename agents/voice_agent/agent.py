@@ -16,6 +16,7 @@ from core.contracts import TaskRequest, TaskResult, TaskStatus
 from core.action_scope import action_scope
 from core.workflow import DependencyWorkflow, WorkflowStep, WorkflowStepStatus
 from core.router import CapabilityRouter
+from core.capability_match import best_capability_for_agent
 from .model_client import ModelClientError, OpenAICompatibleClient
 
 
@@ -2240,33 +2241,22 @@ class VoiceAgent:
 
     @staticmethod
     def _complex_workstream_capability(spec: Any, prompt: str) -> str:
-        """Choose a declared capability only when the request explicitly needs it."""
-        caps = tuple(getattr(spec, "capabilities", ()) or ())
-        text = str(prompt or "").casefold()
-        preferred: list[str] = []
-        implementation_intent = VoiceAgent._is_code_mutation_request(text)
-        test_intent = bool(re.search(
-            r"\b(?:run|execute|write|add|create|fix|verify|check)\s+"
-            r"(?:(?:the|full|all|some|new|unit|integration|regression)\s+){0,2}"
-            r"(?:tests?|pytest|test suite)\b",
-            text,
-            re.IGNORECASE,
-        ))
-        if implementation_intent:
-            preferred.extend(("code.write", "code.debug", "repository.analyze", "code.test"))
-        elif test_intent:
-            preferred.extend(("code.test", "research.verify", "deployment.verify", "code.inspect"))
-        if re.search(r"\b(?:stock|stocks|market|trading|quant|nifty|sensex|equity)\b", text):
-            preferred.extend(("trading.market_analysis", "trading.strategy.evaluate", "trading.risk"))
-        if re.search(r"\b(?:research|investigate|evidence|compare|sources)\b", text):
-            preferred.extend(("research.deep", "research.verify", "research.synthesize", "web.search", "documentation.lookup"))
-        if VoiceAgent._is_explicit_deployment_request(prompt):
-            preferred.extend(("deployment.plan", "deployment.verify", "deployment.build"))
-        for capability in preferred:
-            if capability in caps:
-                return capability
-        # Do not guess caps[0]: an unrelated routing match must not become an action.
-        return ""
+        """Select a capability from the agent's declared semantic capability catalog."""
+        metadata = spec.metadata if isinstance(spec.metadata, Mapping) else {}
+        guide = metadata.get("operator_guide", {})
+        functions = guide.get("functions", []) if isinstance(guide, Mapping) else []
+        return best_capability_for_agent(
+            prompt,
+            {
+                "agent_id": spec.agent_id,
+                "name": spec.name,
+                "role": spec.role,
+                "description": spec.description,
+                "capabilities": list(spec.capabilities),
+                "routing_keywords": list(spec.routing_keywords),
+                "functions": functions if isinstance(functions, list) else [],
+            },
+        )
 
     @staticmethod
     def _validate_planner_steps(raw_steps: Any) -> tuple[list[dict[str, Any]], str | None]:
