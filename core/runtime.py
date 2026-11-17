@@ -610,7 +610,6 @@ class AgentRuntime:
                 request, spec.agent_id,
                 "Agent is explicitly excluded by the user's request.",
                 policy_denied=True,
-                exclusion_source="user_request",
             )
 
         # Reject capability mismatches for explicit-target tasks. A target ID must
