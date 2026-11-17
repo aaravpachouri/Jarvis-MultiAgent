@@ -26,6 +26,7 @@ from urllib.parse import urlparse
 from core import AgentMessage, TaskEvent, TaskRequest, create_runtime
 from core.env import load_project_env
 from core.observability import build_diagnostics
+from core.mission_store import MissionStore
 from agents.trading_agent.quant_dashboard import read_quant_dashboard_data
 from agents.trading_agent.stock_lookup import YahooStockLookup, StockLookupError, StockLookupRateLimit
 
@@ -164,10 +165,17 @@ class DashboardApplication:
     MAX_RETAINED_MISSION_JOBS = 200
     MAX_ACTIVE_QUANT_REFRESH_JOBS = 4
     MAX_RETAINED_QUANT_REFRESH_JOBS = 50
-    TERMINAL_JOB_STATES = frozenset({"succeeded", "failed", "partial", "timed_out", "cancelled"})
+    TERMINAL_JOB_STATES = frozenset({"succeeded", "failed", "partial", "timed_out", "cancelled", "interrupted"})
 
     def __init__(self) -> None:
         load_project_env(ROOT)
+        configured_state_db = os.environ.get("JARVIS_STATE_DB_PATH", "").strip()
+        state_db_path = Path(configured_state_db).expanduser() if configured_state_db else ROOT / "data" / "jarvis_missions.sqlite3"
+        self.mission_store = MissionStore(
+            state_db_path,
+            max_retained=self.MAX_RETAINED_MISSION_JOBS,
+        )
+        recovered_jobs = self.mission_store.recover_interrupted()
         self.runtime = create_runtime(project_root=ROOT)
         self.stock_lookup = YahooStockLookup()
         self.loop = asyncio.new_event_loop()
@@ -178,7 +186,9 @@ class DashboardApplication:
         self.job_lock = threading.Lock()
         self.event_lock = threading.Lock()
         self.recent_results: list[dict] = []
-        self.jobs: dict[str, dict] = {}
+        self.jobs: dict[str, dict] = {
+            item["task_id"]: item for item in recovered_jobs if item.get("task_id")
+        }
         self.job_futures: dict[str, object] = {}
         self.quant_refresh_jobs: dict[str, dict] = {}
         self.quant_refresh_futures: dict[str, object] = {}
@@ -323,7 +333,29 @@ class DashboardApplication:
     def mission_status(self, task_id: str) -> dict | None:
         with self.job_lock:
             job = self.jobs.get(task_id)
-            return dict(job) if job else None
+            if job:
+                return dict(job)
+        return self.mission_store.get(task_id)
+
+    def recent_missions(self, limit: int = 20) -> list[dict]:
+        """Return bounded mission history summaries from durable storage."""
+        records = self.mission_store.list_recent(max(1, min(int(limit), 100)))
+        summaries = []
+        for item in records:
+            result = item.get("result") if isinstance(item.get("result"), dict) else {}
+            summaries.append({
+                "task_id": item.get("task_id"),
+                "agent_id": item.get("agent_id"),
+                "status": item.get("status"),
+                "prompt": item.get("prompt", ""),
+                "accepted_at": item.get("accepted_at"),
+                "started_at": item.get("started_at"),
+                "finished_at": item.get("finished_at"),
+                "error": item.get("error"),
+                "summary": result.get("summary"),
+                "output_preview": str(result.get("output") or "")[:1000],
+            })
+        return summaries
 
     def overview(self) -> dict:
         diagnostics = build_diagnostics(self.runtime, history_path=HISTORY, history_limit=20)
@@ -419,6 +451,7 @@ class DashboardApplication:
                 self.jobs, self.job_futures, max_retained=self.MAX_RETAINED_MISSION_JOBS
             )
             self.jobs[request.task_id] = job
+            self.mission_store.upsert(job)
         self.record_dashboard_event("dashboard.mission.queued", request.task_id, agent_id, status="queued")
         future = asyncio.run_coroutine_threadsafe(self._run_mission_job(request), self.loop)
         with self.job_lock:
@@ -434,6 +467,7 @@ class DashboardApplication:
                 return
             job["status"] = "running"
             job["started_at"] = datetime.now(timezone.utc).isoformat()
+            self.mission_store.upsert(job)
         self.record_dashboard_event("dashboard.mission.running", task_id, agent_id, status="running")
         try:
             result = await self._execute_task_request(request)
@@ -444,6 +478,7 @@ class DashboardApplication:
                 job["finished_at"] = result.get("finished_at") or datetime.now(timezone.utc).isoformat()
                 job["result"] = result
                 job["error"] = result.get("error")
+                self.mission_store.upsert(job)
             self.record_dashboard_event("dashboard.mission.result", task_id, result.get("agent_id") or agent_id, status=status)
         except asyncio.CancelledError:
             with self.job_lock:
@@ -451,6 +486,7 @@ class DashboardApplication:
                 job["status"] = "cancelled"
                 job["finished_at"] = datetime.now(timezone.utc).isoformat()
                 job["error"] = "Mission cancelled."
+                self.mission_store.upsert(job)
             self.record_dashboard_event("dashboard.mission.cancelled", task_id, agent_id, status="cancelled")
             raise
         except Exception as exc:
@@ -459,6 +495,7 @@ class DashboardApplication:
                 job["status"] = "failed"
                 job["finished_at"] = datetime.now(timezone.utc).isoformat()
                 job["error"] = f"{type(exc).__name__}: {exc}"
+                self.mission_store.upsert(job)
             self.record_dashboard_event("dashboard.mission.failed", task_id, agent_id, status="failed")
 
     @staticmethod
@@ -787,6 +824,13 @@ class Handler(BaseHTTPRequestHandler):
             except (ValueError, TypeError):
                 return self._send(400, {"error": "The after cursor must be an integer."})
             return self._send(200, {**APP.events_since(after), "active_missions": APP.active_missions()})
+        if path == "/api/missions/history":
+            query = parse_qs(urlparse(self.path).query)
+            try:
+                limit = max(1, min(int(query.get("limit", ["20"])[0]), 100))
+            except (ValueError, TypeError):
+                return self._send(400, {"error": "The history limit must be an integer."})
+            return self._send(200, {"missions": APP.recent_missions(limit)})
         if path.startswith("/api/missions/"):
             task_id = path.rsplit("/", 1)[-1]
             if not task_id or len(task_id) > 100 or "/" in task_id:

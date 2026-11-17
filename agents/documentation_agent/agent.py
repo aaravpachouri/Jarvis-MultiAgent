@@ -412,6 +412,20 @@ class DocumentationAgent:
                             lines.append(f"- **{dimension}:** {excerpt}")
                 lines.append("")
 
+        verification_records = [
+            dict(record) for record in records.values()
+            if isinstance(record, Mapping)
+            and str(record.get("capability") or "").startswith("web.search")
+        ]
+        if verification_records:
+            lines.extend(["", "## Independent verification", ""])
+            for record in verification_records:
+                lines.extend([
+                    f"### {record.get('agent_id', 'Search specialist')} — {record.get('status', 'unknown')}",
+                    "",
+                    str(record.get("output") or "No verification output was returned.")[:6000],
+                ])
+
         lines.extend(["## Sources and provenance", ""])
         if isinstance(sources, list) and sources:
             seen_urls: set[str] = set()

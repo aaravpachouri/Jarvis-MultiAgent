@@ -529,15 +529,46 @@ class ResearchAgent:
 
     @staticmethod
     def _is_context_analysis_request(prompt: str, context: dict[str, Any]) -> bool:
+        """Use supplied context only when it is the requested evidence source.
+
+        Conversation history is ambient context, not a substitute for requested
+        external research. Explicit research/current-source language takes
+        precedence even when documents or chat history are also present.
+        """
+        text = str(prompt or "")
         intent = re.search(
             r"\b(?:analy[sz]e|summari[sz]e|explain|compare|evaluate|review|break down|synthesize|synthesise|reason about)\b",
-            prompt,
+            text,
             re.IGNORECASE,
         )
+        material_keys = ("source_material", "documents", "notes", "information", "content", "analysis_data")
         explicit_material = any(
-            key in context for key in ("source_material", "documents", "notes", "information", "content", "analysis_data")
+            key in context and context.get(key) not in (None, "", [], {}, ())
+            for key in material_keys
         )
-        return bool(intent and (explicit_material or context.get("conversation_history")))
+        requested_offline = (
+            str(context.get("analysis_scope") or "").casefold() == "offline_context_analysis_only"
+            or str(context.get("research_mode") or "").casefold() == "offline"
+        )
+        if requested_offline:
+            return bool(explicit_material)
+        external_research = re.search(
+            r"\b(?:research|investigate|search(?: the web| online)?|look up)\s+(?:the web|online|for|about|current|latest|official|"
+            r"primary|benchmark|model|product|documentation)\b|\b(?:current|latest|official sources?|"
+            r"primary sources?|citations?|source links?|benchmark data)\b",
+            text,
+            re.IGNORECASE,
+        ) or str(context.get("research_mode") or "").casefold() in {"external", "web"}
+        if external_research:
+            return False
+        conversation_request = re.search(
+            r"\b(?:this conversation|our previous discussion|previous messages|chat history|"
+            r"what we (?:have )?discussed|the discussion above|above messages)\b",
+            text,
+            re.IGNORECASE,
+        )
+        history_requested = bool(conversation_request and context.get("conversation_history"))
+        return bool(intent and (explicit_material or history_requested))
 
     @staticmethod
     def _provided_material(context: dict[str, Any]) -> list[str]:
@@ -666,7 +697,7 @@ class ResearchAgent:
         for raw_line in lines:
             line = raw_line.strip()
             if not inside_compare:
-                if re.match(r"^compare\s*:\s*$", line, re.IGNORECASE):
+                if re.match(r"^compare\b[^:\n]{0,140}:\s*$", line, re.IGNORECASE):
                     inside_compare = True
                 continue
             if re.match(r"^(?:REQUIREMENTS|COORDINATION|OUTPUT|IMPORTANT|CONSTRAINTS)\s*:", line, re.IGNORECASE):

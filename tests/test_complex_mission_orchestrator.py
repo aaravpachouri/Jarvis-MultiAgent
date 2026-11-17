@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import Any
 from types import SimpleNamespace
 
@@ -16,7 +17,13 @@ from core.registry import AgentRegistry
 from core.runtime import AgentRuntime
 
 
-def _spec(agent_id: str, name: str, capabilities: tuple[str, ...], keywords: tuple[str, ...] = ()) -> AgentSpec:
+def _spec(
+    agent_id: str,
+    name: str,
+    capabilities: tuple[str, ...],
+    keywords: tuple[str, ...] = (),
+    metadata: dict[str, Any] | None = None,
+) -> AgentSpec:
     return AgentSpec(
         agent_id=agent_id,
         name=name,
@@ -24,6 +31,7 @@ def _spec(agent_id: str, name: str, capabilities: tuple[str, ...], keywords: tup
         description=f"Test handler for {name}",
         capabilities=capabilities,
         routing_keywords=keywords,
+        metadata=metadata or {},
         timeout_seconds=5,
         max_concurrency=3,
     )
@@ -47,6 +55,12 @@ def test_complex_workstream_capability_prioritizes_implementation_when_code_and_
     spec = _spec(
         "coding.forge", "Forge",
         ("code.inspect", "code.write", "code.debug", "code.test"),
+        metadata={"operator_guide": {"functions": [
+            {"capability": "code.write", "description": "Implement software features, create dashboards and change application code."},
+            {"capability": "code.test", "description": "Run automated tests and verify software behavior."},
+            {"capability": "code.inspect", "description": "Inspect and review existing source code."},
+            {"capability": "code.debug", "description": "Debug and fix software errors."},
+        ]}},
     )
     assert VoiceAgent._complex_workstream_capability(
         spec, "Implement a dashboard and run the tests"
@@ -60,6 +74,11 @@ def test_deployment_workstream_requires_affirmative_intent_and_ignores_prohibiti
     spec = _spec(
         "deployment.launch", "Launch",
         ("deployment.plan", "deployment.verify", "deployment.build"),
+        metadata={"operator_guide": {"functions": [
+            {"capability": "deployment.plan", "description": "Prepare a read-only deployment preflight plan and identify release prerequisites."},
+            {"capability": "deployment.verify", "description": "Verify deployment health checks and release readiness."},
+            {"capability": "deployment.build", "description": "Build and publish an application deployment."},
+        ]}},
     )
     assert VoiceAgent._complex_workstream_capability(
         spec, "Do not deploy anything or perform external actions."
@@ -102,10 +121,24 @@ async def test_complex_mission_uses_real_planner_dag_workstreams_and_final_scrib
                       "deps": task.context.get("dependency_results"), "prompt": task.prompt})
         return "Report draft: Forge implementation and Athena evidence review results included."
 
-    runtime.register_agent(_spec("coding.forge", "Forge", ("code.inspect", "code.write", "code.test", "repository.analyze"),
-                                  ("implement", "build", "code", "pytest", "tests")), forge)
-    runtime.register_agent(_spec("research.athena", "Athena", ("research.deep", "research.synthesize"),
-                                  ("research", "evidence", "investigate")), athena)
+    runtime.register_agent(_spec(
+        "coding.forge", "Forge", ("code.inspect", "code.write", "code.test", "repository.analyze"),
+        ("implement", "build", "code", "pytest", "tests"),
+        {"operator_guide": {"functions": [
+            {"capability": "code.write", "description": "Implement code changes and requested software features."},
+            {"capability": "code.test", "description": "Run automated tests and verify software behavior."},
+            {"capability": "code.inspect", "description": "Inspect source code and review a repository."},
+            {"capability": "repository.analyze", "description": "Analyze repository structure and dependencies."},
+        ]}},
+    ), forge)
+    runtime.register_agent(_spec(
+        "research.athena", "Athena", ("research.deep", "research.synthesize"),
+        ("research", "evidence", "investigate"),
+        {"operator_guide": {"functions": [
+            {"capability": "research.deep", "description": "Research a topic and gather evidence from reliable sources."},
+            {"capability": "research.synthesize", "description": "Synthesize evidence and summarize findings."},
+        ]}},
+    ), athena)
     runtime.register_agent(_spec("documentation.scribe", "Scribe", ("writing.report", "documentation.write"),
                                   ("write a report", "report", "documentation")), scribe)
 
@@ -160,8 +193,19 @@ async def test_complex_mission_reports_failed_specialist_as_parent_failure() -> 
     async def athena(task, context):
         return {"summary": "Independent research returned."}
 
-    runtime.register_agent(_spec("coding.forge", "Forge", ("code.write", "code.test"), ("implement", "build", "code", "tests")), failing_forge)
-    runtime.register_agent(_spec("research.athena", "Athena", ("research.deep",), ("research", "evidence")), athena)
+    runtime.register_agent(_spec(
+        "coding.forge", "Forge", ("code.write", "code.test"), ("implement", "build", "code", "tests"),
+        {"operator_guide": {"functions": [
+            {"capability": "code.write", "description": "Implement code changes and requested software features."},
+            {"capability": "code.test", "description": "Run automated tests and verify software behavior."},
+        ]}},
+    ), failing_forge)
+    runtime.register_agent(_spec(
+        "research.athena", "Athena", ("research.deep",), ("research", "evidence"),
+        {"operator_guide": {"functions": [
+            {"capability": "research.deep", "description": "Research a topic and gather evidence from reliable sources."},
+        ]}},
+    ), athena)
     prompt = "Orchestrate this complex end-to-end mission: research the evidence, then implement the feature and run tests across workstreams."
     result = await runtime.run_task(TaskRequest(prompt=prompt, target_agent_id="voice.jarvis"))
     assert result.status is TaskStatus.FAILED
@@ -205,8 +249,18 @@ def test_planner_dependency_graph_validator_rejects_non_list_and_empty_steps() -
 def test_planner_assigns_specialists_only_from_available_capabilities() -> None:
     planner = PlannerAgent()
     assignments = [
-        {"agent_id": "research.athena", "capabilities": ["research.deep", "research.synthesize"]},
-        {"agent_id": "coding.forge", "capabilities": ["code.write", "code.test"]},
+        {
+            "agent_id": "research.athena",
+            "role": "Deep research specialist",
+            "capabilities": ["research.deep", "research.synthesize"],
+            "functions": [{"capability": "research.deep", "description": "Research a topic, gather evidence and evaluate sources."}],
+        },
+        {
+            "agent_id": "coding.forge",
+            "role": "Software engineering specialist",
+            "capabilities": ["code.write", "code.test"],
+            "functions": [{"capability": "code.write", "description": "Implement code changes and requested software features."}],
+        },
     ]
     assert planner._assign_specialist("Research the evidence", assignments) == {
         "agent_id": "research.athena", "capability": "research.deep"
@@ -258,8 +312,19 @@ async def test_complex_mission_translates_planner_edges_into_workstream_dependen
         assert any("verified research output" in str(value) for value in deps.values())
         return {"summary": "implemented from research"}
 
-    runtime.register_agent(_spec("research.athena", "Athena", ("research.deep",), ("research", "evidence")), athena)
-    runtime.register_agent(_spec("coding.forge", "Forge", ("code.write", "code.test"), ("implement", "build", "code")), forge)
+    runtime.register_agent(_spec(
+        "research.athena", "Athena", ("research.deep",), ("research", "evidence"),
+        {"operator_guide": {"functions": [
+            {"capability": "research.deep", "description": "Research a topic and gather evidence."},
+        ]}},
+    ), athena)
+    runtime.register_agent(_spec(
+        "coding.forge", "Forge", ("code.write", "code.test"), ("implement", "build", "code"),
+        {"operator_guide": {"functions": [
+            {"capability": "code.write", "description": "Implement code changes and requested software features."},
+            {"capability": "code.test", "description": "Run automated tests and verify software behavior."},
+        ]}},
+    ), forge)
     result = await runtime.run_task(TaskRequest(
         prompt="Orchestrate this complex end-to-end mission: research the evidence, then implement the feature.",
         target_agent_id="voice.jarvis",
@@ -340,6 +405,12 @@ def _register_model_research_runtime(athena_handler, *, scout_calls=None, scribe
             "research.athena", "Athena",
             ("research.deep", "research.compare", "research.synthesize", "research.verify"),
             ("research", "compare options", "evidence"),
+            {"delegates_to": "search.scout", "operator_guide": {"functions": [
+                {"capability": "research.deep", "description": "Research a topic and gather source-linked evidence."},
+                {"capability": "research.compare", "description": "Compare options and evaluate trade-offs."},
+                {"capability": "research.synthesize", "description": "Synthesize evidence into structured findings."},
+                {"capability": "research.verify", "description": "Verify claims against retrieved evidence."},
+            ]}},
         ),
         athena_handler,
     )
@@ -408,7 +479,7 @@ async def test_complete_multi_agent_research_runs_planner_athena_nested_scout_an
     assert any("Qwen 3 4B" in query for query in scout_calls)
     assert any("Llama 3.2 3B" in query for query in scout_calls)
     assert any("Gemma 3 4B" in query for query in scout_calls)
-    assert len(scribe_calls) == 1
+    assert 1 <= len(scribe_calls) <= 2  # At most one bounded report-repair attempt.
     assert "Planner: planning.planner" in str(result.output)
     assert "research.athena" in str(result.output)
     assert "documentation.scribe" in str(result.output)
@@ -469,7 +540,7 @@ async def test_read_only_research_mission_excludes_forge_and_memory_and_scribe_g
     assert result.metadata["workstream_count"] == 1
     assert forbidden_calls == []
     assert len(scout_calls) == 3
-    assert len(scribe_calls) == 1
+    assert 1 <= len(scribe_calls) <= 2  # At most one bounded report-repair attempt.
     assert "Qwen 3 4B" in str(scribe_calls[0].get("body", ""))
     assert "Llama 3.2 3B" in str(scribe_calls[0].get("body", ""))
     assert "Gemma 3 4B" in str(scribe_calls[0].get("body", ""))
@@ -563,3 +634,85 @@ def test_compound_routing_does_not_treat_code_comparison_as_forge_intent():
     ]
     assert VoiceAgent._build_compound_tasks(prompt, matches) == []
 
+
+
+@pytest.mark.asyncio
+async def test_explicit_registry_workflow_runs_planner_athena_scout_scribe_and_honors_exclusions():
+    prompt = """Run a controlled, research-only multi-model evaluation.
+
+Compare these models for Windows 11, Python development and local Ollama use:
+
+1. Qwen 3 4B
+2. Llama 3.2 3B
+3. Gemma 3 4B
+
+Required workflow: Planner → Athena → Scout → Scribe
+
+STRICT AGENT RESTRICTIONS:
+- Do NOT invoke Forge, Memory & Notes or Launch.
+- Do not generate or modify code.
+- Do not create, edit or delete files.
+- Do not execute commands or install anything.
+- Do not modify settings.
+
+Athena must research current model specifications and official sources.
+Scout must independently verify the findings.
+Scribe must produce a complete comparison report.
+This is strictly a research-only mission."""
+
+    scout_calls: list[str] = []
+    scribe_calls: list[dict[str, Any]] = []
+    forbidden_calls: list[str] = []
+
+    async def complete_scribe(task, context):
+        evidence_text = " ".join(
+            str(value) for value in (
+                task.context.get("source_material"),
+                task.context.get("body"),
+                task.context.get("workstream_results"),
+            ) if value is not None
+        )
+        verified_urls = [url.rstrip(".,;:)]}") for url in re.findall(r"https?://[^ ]+", evidence_text)]
+        source_line = " ".join(dict.fromkeys(verified_urls[:3]))
+        return (
+            "## Executive recommendation\n" + ("Evidence-led recommendation. " * 12)
+            + "\n## Specialist execution summary\nPlanner, Athena and Scout returned actual results. "
+            + "\n## Sources and provenance\nhttps://qwen.ai/models/qwen3 https://llama.com/docs/model-cards/llama3_2 https://ai.google.dev/gemma/docs/core/model_card_3 "
+            + "\n### Scout delegation trace\nScout performed an independent verification handoff. "
+            + "\n## Model-by-model comparison\nQwen 3 4B; Llama 3.2 3B; Gemma 3 4B. "
+            + ("Comparison evidence and limitations. " * 12)
+            + "\n## Limitations and unresolved gaps\nFixture evidence is used for this automated orchestration test."
+        )
+
+    runtime = _register_model_research_runtime(
+        ResearchAgent(), scout_calls=scout_calls, scribe_calls=scribe_calls,
+        scribe_handler=complete_scribe,
+    )
+
+    async def forbidden(task, context):
+        forbidden_calls.append(context.agent.agent_id)
+        return "must not execute"
+
+    runtime.register_agent(
+        _spec("coding.forge", "Forge", ("code.inspect", "code.write", "code.test"), ("coding", "code")),
+        forbidden,
+    )
+    runtime.register_agent(
+        _spec("memory.notes", "Memory & Notes", ("memory.search",), ("memory", "notes")),
+        forbidden,
+    )
+    runtime.register_agent(
+        _spec("deployment.launch", "Launch", ("deployment.plan",), ("launch", "deployment")),
+        forbidden,
+    )
+
+    result = await runtime.run_task(TaskRequest(prompt=prompt, target_agent_id="voice.jarvis"))
+
+    assert result.status is TaskStatus.SUCCEEDED, result.error or result.output
+    assert "Planner: planning.planner" in str(result.output)
+    assert "research.athena" in str(result.output)
+    assert "search.scout" in str(result.output)
+    assert "documentation.scribe" in str(result.output)
+    assert len(scout_calls) == 4  # Three nested retrievals plus one independent verification stage.
+    assert len(scribe_calls) == 1
+    assert forbidden_calls == []

@@ -16,6 +16,7 @@ from core.contracts import TaskRequest, TaskResult, TaskStatus
 from core.action_scope import action_scope
 from core.workflow import DependencyWorkflow, WorkflowStep, WorkflowStepStatus
 from core.router import CapabilityRouter
+from core.capability_match import best_capability_for_agent
 from .model_client import ModelClientError, OpenAICompatibleClient
 
 
@@ -104,6 +105,26 @@ class VoiceAgent:
             exclude=(context.agent.agent_id,),
             executable_ids=context.runtime.executable_agent_ids(),
         )
+        explicit_sequence = self._explicit_workflow_agent_ids(
+            prompt, context.runtime.registry.list(enabled_only=True)
+        )
+        if explicit_sequence:
+            # Explicitly named workflow stages are authoritative user intent.
+            # Resolve them against live registry identities rather than a fixed
+            # list of built-in agent names.
+            by_id = {match.agent_id: match for match in matches}
+            for agent_id in explicit_sequence:
+                spec = context.runtime.registry.get(agent_id)
+                if agent_id not in by_id:
+                    by_id[agent_id] = SimpleNamespace(
+                        agent_id=agent_id,
+                        name=spec.name,
+                        score=10.0,
+                        matched_terms=("explicit_workflow_stage",),
+                        capabilities=spec.capabilities,
+                        executable=context.runtime.has_handler(agent_id),
+                    )
+            matches = list(by_id.values())
         executable = [match for match in matches if match.executable]
 
         # Explicit research -> planning -> report requests are dependency-driven.
@@ -117,7 +138,7 @@ class VoiceAgent:
         # Explicitly complex missions use the dependency-aware scheduler rather
         # than the older flat compound-request fan-out. This is capability-driven:
         # the registry determines which executable specialists are available.
-        if self._is_complex_mission_request(prompt):
+        if self._is_complex_mission_request(prompt) or explicit_sequence:
             complex_workstreams = self._select_complex_workstreams(prompt, matches, context)
             # The mission workflow itself supplies Planner and (when requested)
             # Scribe. It only needs one primary specialist workstream; nested
@@ -1801,9 +1822,23 @@ class VoiceAgent:
 
     @staticmethod
     def _is_local_agent_network_analysis(prompt: str) -> bool:
+        """Use local manifests only when the object of analysis is JARVIS itself.
+
+        Mentioning an agent as a required workflow stage must never convert an
+        unrelated research request into an offline agent-roster analysis.
+        """
         return bool(
-            re.search(r"\b(?:analy[sz]e|compare|evaluate|review|benefits|risks|pros and cons)\b", prompt, re.I)
-            and re.search(r"\b(?:scribe|athena|planner|forge|agent network|jarvis)\b", prompt, re.I)
+            re.search(
+                r"\b(?:analy[sz]e|evaluate|review|audit|inspect|compare)\b",
+                prompt,
+                re.IGNORECASE,
+            )
+            and re.search(
+                r"\b(?:agent\s+network|agent\s+system|specialist\s+roster|"
+                r"multi[- ]agent\s+architecture|jarvis\s+architecture|agent\s+architecture)\b",
+                prompt,
+                re.IGNORECASE,
+            )
         )
 
     @staticmethod
@@ -1979,6 +2014,66 @@ class VoiceAgent:
         )
 
     @staticmethod
+    def _explicit_workflow_agent_ids(prompt: str, agents: list[Any]) -> list[str]:
+        """Resolve an explicitly declared agent sequence from the live registry."""
+        text = str(prompt or "")
+        match = re.search(
+            r"(?im)^\s*(?:required\s+workflow|workflow\s+order|execution\s+order)\s*:\s*([^\n]+)",
+            text,
+        )
+        if not match:
+            return []
+        sequence_text = match.group(1)
+        if not re.search(r"(?:→|->|\bthen\b|\bafter\b)", sequence_text, re.IGNORECASE):
+            return []
+        found: list[tuple[int, str]] = []
+        for spec in agents:
+            aliases = {
+                str(getattr(spec, "name", "") or "").strip(),
+                str(getattr(spec, "agent_id", "") or "").strip(),
+                str(getattr(spec, "agent_id", "") or "").rsplit(".", 1)[-1].replace("_", " "),
+            }
+            positions = []
+            for alias in aliases:
+                if not alias:
+                    continue
+                escaped = re.escape(alias).replace(r"\ ", r"\s+")
+                escaped = escaped.replace(r"\&", r"(?:&|and)")
+                hit = re.search(rf"(?<![\w]){escaped}(?![\w])", sequence_text, re.IGNORECASE)
+                if hit:
+                    positions.append(hit.start())
+            if positions:
+                found.append((min(positions), str(spec.agent_id)))
+        found.sort(key=lambda item: item[0])
+        ordered: list[str] = []
+        for _, agent_id in found:
+            if agent_id not in ordered:
+                ordered.append(agent_id)
+        return ordered if len(ordered) >= 2 else []
+
+    @staticmethod
+    def _workflow_stage_objective(prompt: str, spec: Any) -> str:
+        """Extract the user's own stage description for a registry-resolved agent."""
+        aliases = {
+            str(getattr(spec, "name", "") or "").strip(),
+            str(getattr(spec, "agent_id", "") or "").strip(),
+            str(getattr(spec, "agent_id", "") or "").rsplit(".", 1)[-1].replace("_", " "),
+        }
+        candidates = []
+        for line in str(prompt or "").splitlines():
+            for alias in aliases:
+                if not alias:
+                    continue
+                escaped = re.escape(alias).replace(r"\ ", r"\s+")
+                escaped = escaped.replace(r"\&", r"(?:&|and)")
+                if re.search(rf"(?<![\w]){escaped}(?![\w])", line, re.IGNORECASE):
+                    if not re.search(r"^\s*(?:required\s+workflow|workflow\s+order|execution\s+order)\s*:", line, re.I):
+                        candidates.append(line.strip())
+                    break
+        # Prefer a descriptive assignment over a bare mention in the sequence.
+        return max(candidates, key=lambda value: len(value.split()), default=str(prompt or ""))
+
+    @staticmethod
     def _is_complex_mission_request(prompt: str) -> bool:
         """Recognize substantial multi-stage work without relying on mission titles."""
         text = str(prompt or "").casefold()
@@ -2085,16 +2180,32 @@ class VoiceAgent:
         # Athena owns research decomposition and delegates retrieval to Scout.
         # Do not promote Scout into a parallel top-level workstream when Athena
         # is available, or the same research objective will be searched twice.
-        athena_available = any(
-            getattr(match, "agent_id", "") == "research.athena"
-            and getattr(match, "agent_id", "") in executable_ids
-            for match in matches
+        explicit_sequence = VoiceAgent._explicit_workflow_agent_ids(
+            prompt, runtime.registry.list(enabled_only=True)
         )
+        explicit_ids = set(explicit_sequence)
+        delegated_targets: set[str] = set()
+        for candidate in matches:
+            candidate_id = str(getattr(candidate, "agent_id", "") or "")
+            if candidate_id not in executable_ids:
+                continue
+            try:
+                candidate_spec = runtime.registry.get(candidate_id)
+            except Exception:
+                continue
+            declared_targets = candidate_spec.metadata.get("delegates_to", ())
+            if isinstance(declared_targets, str):
+                declared_targets = (declared_targets,)
+            if isinstance(declared_targets, (list, tuple, set)):
+                delegated_targets.update(str(value).strip().lower() for value in declared_targets if str(value).strip())
         for match in matches:
             agent_id = str(getattr(match, "agent_id", "") or "")
             if not agent_id or agent_id in seen or agent_id not in executable_ids:
                 continue
-            if agent_id == "search.scout" and athena_available:
+            # If a selected specialist explicitly delegates to another
+            # requested specialist, the real nested handoff satisfies that
+            # workflow stage. Do not run the same stage a second time in parallel.
+            if agent_id in delegated_targets and agent_id not in explicit_ids:
                 continue
             if VoiceAgent._is_agent_explicitly_excluded(prompt, agent_id):
                 continue
@@ -2116,13 +2227,23 @@ class VoiceAgent:
                 continue
             # Do not promote a specialist merely because a term such as "coding"
             # or "memory" appeared as a comparison dimension/resource constraint.
-            capability = VoiceAgent._complex_workstream_capability(spec, prompt)
+            stage_objective = (
+                VoiceAgent._workflow_stage_objective(prompt, spec)
+                if agent_id in explicit_ids else prompt
+            )
+            capability = VoiceAgent._complex_workstream_capability(spec, stage_objective)
             if not capability:
                 continue
-            selected.append({"match": match, "spec": spec, "agent_id": agent_id})
+            selected.append({
+                "match": match, "spec": spec, "agent_id": agent_id,
+                "capability": capability, "stage_objective": stage_objective,
+            })
             seen.add(agent_id)
-            if len(selected) >= 4:
+            if len(selected) >= 6:
                 break
+        if explicit_sequence:
+            order = {agent_id: index for index, agent_id in enumerate(explicit_sequence)}
+            selected.sort(key=lambda item: (order.get(item["agent_id"], len(order)), item["agent_id"]))
         return selected
 
     @staticmethod
@@ -2149,33 +2270,27 @@ class VoiceAgent:
 
     @staticmethod
     def _complex_workstream_capability(spec: Any, prompt: str) -> str:
-        """Choose a declared capability only when the request explicitly needs it."""
-        caps = tuple(getattr(spec, "capabilities", ()) or ())
-        text = str(prompt or "").casefold()
-        preferred: list[str] = []
-        implementation_intent = VoiceAgent._is_code_mutation_request(text)
-        test_intent = bool(re.search(
-            r"\b(?:run|execute|write|add|create|fix|verify|check)\s+"
-            r"(?:(?:the|full|all|some|new|unit|integration|regression)\s+){0,2}"
-            r"(?:tests?|pytest|test suite)\b",
-            text,
-            re.IGNORECASE,
-        ))
-        if implementation_intent:
-            preferred.extend(("code.write", "code.debug", "repository.analyze", "code.test"))
-        elif test_intent:
-            preferred.extend(("code.test", "research.verify", "deployment.verify", "code.inspect"))
-        if re.search(r"\b(?:stock|stocks|market|trading|quant|nifty|sensex|equity)\b", text):
-            preferred.extend(("trading.market_analysis", "trading.strategy.evaluate", "trading.risk"))
-        if re.search(r"\b(?:research|investigate|evidence|compare|sources)\b", text):
-            preferred.extend(("research.deep", "research.verify", "research.synthesize", "web.search", "documentation.lookup"))
-        if VoiceAgent._is_explicit_deployment_request(prompt):
-            preferred.extend(("deployment.plan", "deployment.verify", "deployment.build"))
-        for capability in preferred:
-            if capability in caps:
-                return capability
-        # Do not guess caps[0]: an unrelated routing match must not become an action.
-        return ""
+        """Select a capability from the agent's declared semantic capability catalog."""
+        metadata = spec.metadata if isinstance(spec.metadata, Mapping) else {}
+        guide = metadata.get("operator_guide", {})
+        functions = guide.get("functions", []) if isinstance(guide, Mapping) else []
+        capability = best_capability_for_agent(
+            prompt,
+            {
+                "agent_id": spec.agent_id,
+                "name": spec.name,
+                "role": spec.role,
+                "description": spec.description,
+                "capabilities": list(spec.capabilities),
+                "routing_keywords": list(spec.routing_keywords),
+                "functions": functions if isinstance(functions, list) else [],
+            },
+        )
+        if capability.startswith("code.write") and not VoiceAgent._is_code_mutation_request(prompt):
+            return ""
+        if capability.startswith("deployment.") and not VoiceAgent._is_explicit_deployment_request(prompt):
+            return ""
+        return capability
 
     @staticmethod
     def _validate_planner_steps(raw_steps: Any) -> tuple[list[dict[str, Any]], str | None]:
@@ -2274,6 +2389,52 @@ class VoiceAgent:
         requests pass the real upstream outputs to their downstream task context.
         """
         runtime = context.runtime
+        explicit_sequence = self._explicit_workflow_agent_ids(
+            prompt, runtime.registry.list(enabled_only=True)
+        )
+        explicit_scribe_required = False
+        if explicit_sequence:
+            sequence_specs = [runtime.registry.get(agent_id) for agent_id in explicit_sequence]
+            planning_positions = [
+                index for index, spec in enumerate(sequence_specs)
+                if any(cap.startswith("planning.") for cap in spec.capabilities)
+            ]
+            writing_positions = [
+                index for index, spec in enumerate(sequence_specs)
+                if "writing.report" in spec.capabilities
+            ]
+            explicit_scribe_required = bool(writing_positions)
+            if (planning_positions and planning_positions[0] != 0) or (
+                writing_positions and writing_positions[-1] != len(sequence_specs) - 1
+            ):
+                return TaskResult(
+                    task_id=context.task.task_id, agent_id=context.agent.agent_id,
+                    status=TaskStatus.FAILED,
+                    summary="Explicit workflow order conflicts with coordinator-managed planning/report stages.",
+                    error="Planner-capability stages must precede execution and the writing.report stage must be last.",
+                    output={"requested_sequence": explicit_sequence},
+                )
+            order = {agent_id: index for index, agent_id in enumerate(explicit_sequence)}
+            workstreams = sorted(
+                workstreams,
+                key=lambda item: (order.get(item["agent_id"], len(order)), item["agent_id"]),
+            )
+            selected_ids = {item["agent_id"] for item in workstreams}
+            required_ids = {
+                spec.agent_id for spec in sequence_specs
+                if not any(cap.startswith("planning.") for cap in spec.capabilities)
+                and "writing.report" not in spec.capabilities
+            }
+            missing_ids = sorted(required_ids - selected_ids)
+            if missing_ids:
+                return TaskResult(
+                    task_id=context.task.task_id, agent_id=context.agent.agent_id,
+                    status=TaskStatus.FAILED,
+                    summary="Explicit workflow could not satisfy every required specialist stage.",
+                    error="Required executable workflow stages were not resolved to a supported capability: "
+                    + ", ".join(missing_ids),
+                    output={"requested_sequence": explicit_sequence, "selected_workstreams": sorted(selected_ids)},
+                )
         planner_candidates = runtime.discover_executable(("planning.breakdown",), match_all=True, limit=1)
         if not planner_candidates:
             return TaskResult(
@@ -2283,6 +2444,21 @@ class VoiceAgent:
                 error="Missing executable planning.breakdown capability.", output=None,
             )
         planner_spec = planner_candidates[0]
+        available_agent_catalog = []
+        for item in workstreams:
+            spec = item["spec"]
+            metadata = spec.metadata if isinstance(spec.metadata, Mapping) else {}
+            operator_guide = metadata.get("operator_guide", {})
+            functions = operator_guide.get("functions", []) if isinstance(operator_guide, Mapping) else []
+            available_agent_catalog.append({
+                "agent_id": item["agent_id"],
+                "name": spec.name,
+                "role": spec.role,
+                "description": spec.description,
+                "capabilities": list(spec.capabilities),
+                "routing_keywords": list(spec.routing_keywords),
+                "functions": functions if isinstance(functions, list) else [],
+            })
         async with action_scope(context, "jarvis.complex_mission.plan", action_type="workflow", metadata={"operation": "complex_mission"}):
             plan_result = await context.delegate(
                 prompt=(
@@ -2297,11 +2473,7 @@ class VoiceAgent:
                     "workflow": "complex_mission",
                     "workstream": "plan",
                     "original_request": prompt[:10000],
-                    "available_executable_agents": [
-                        {"agent_id": item["agent_id"], "role": item["spec"].role,
-                         "capabilities": list(item["spec"].capabilities)}
-                        for item in workstreams
-                    ],
+                    "available_executable_agents": available_agent_catalog,
                 },
                 requested_by=context.agent.agent_id,
             )
@@ -2359,7 +2531,8 @@ class VoiceAgent:
         code_steps = [item["agent_id"] for item in workstreams
                       if any(cap.startswith("code.") or cap == "repository.analyze" for cap in item["spec"].capabilities)]
         report_requested = bool(
-            re.search(
+            explicit_scribe_required
+            or re.search(
                 r"\b(?:write|create|prepare|generate|produce|draft|deliver)\b.{0,55}\b(?:final\s+)?(?:report|write[- ]?up|documentation|proposal)\b",
                 prompt,
                 re.IGNORECASE,
@@ -2381,11 +2554,14 @@ class VoiceAgent:
         for index, item in enumerate(workstreams, start=1):
             match, spec = item["match"], item["spec"]
             agent_id = item["agent_id"]
-            capability = self._complex_workstream_capability(spec, prompt)
+            capability = str(item.get("capability") or self._complex_workstream_capability(spec, prompt))
             if not capability:
                 continue
             step_id = f"workstream_{index}"
             dependencies = ["plan"]
+            if explicit_sequence and index > 1:
+                # Explicit user sequence is a hard dependency, not a display hint.
+                dependencies.append(f"workstream_{index - 1}")
             # Translate the Planner's declared edges into executable workstream
             # edges. Multiple plan steps assigned to one specialist are grouped
             # into that specialist's single bounded child task.
@@ -2429,14 +2605,32 @@ class VoiceAgent:
                 else:
                     scope += " Code modifications are authorized only to the extent explicitly requested by the mission; do not deploy or perform external financial actions."
                 upstream_summary = str(upstream_records)[:10000]
+                research_query = prompt[:1200]
+                specialist_prompt = (
+                    f"{scope}\n\nMISSION OBJECTIVE:\n{prompt[:7000]}\n\n"
+                    f"UPSTREAM RESULTS (actual workflow outputs):\n{upstream_summary}"
+                )
+                if _capability.startswith("web.search"):
+                    # Search is a distinct verification workstream only when
+                    # explicitly selected by the user; its query is grounded in
+                    # the complete objective and actual upstream evidence.
+                    specialist_prompt = (
+                        f"Search for: {research_query}. "
+                        "Independently verify the relevant claims in the upstream results using primary sources. "
+                        "Return source titles, URLs, retrieval status and any contradictions. "
+                        "Do not treat upstream summaries or snippets as verified facts.\n\n"
+                        f"UPSTREAM RESULTS:\n{upstream_summary}"
+                    )
                 child = await context.delegate(
-                    prompt=(f"{scope}\n\nMISSION OBJECTIVE:\n{prompt[:7000]}\n\nUPSTREAM RESULTS (actual workflow outputs):\n{upstream_summary}"),
+                    prompt=specialist_prompt,
                     agent_id=_agent_id,
                     capabilities=(_capability,),
                     context={
                         "workflow": "complex_mission",
                         "workstream_step_id": _id,
                         "original_request": prompt[:8000],
+                        "research_query": research_query if _capability.startswith("web.search") else None,
+                        "verification_material": upstream_records if _capability.startswith("web.search") else None,
                         "planning_result": plan_view,
                         "plan_checkpoint_task_id": plan_dependency.get("task_id"),
                         "dependency_results": upstream_records,
@@ -2584,7 +2778,8 @@ class VoiceAgent:
             report_status = writer_result.status.value if report_text else "invalid_output"
             report_error = None
             strict_report_contract = bool(
-                re.search(
+                explicit_scribe_required
+                or re.search(
                     r"\b(?:complete|comprehensive|detailed|full)\b.{0,40}\b(?:final\s+)?report\b",
                     prompt,
                     re.IGNORECASE,
@@ -2595,23 +2790,40 @@ class VoiceAgent:
                 )
             )
             if writer_result.succeeded and report_text and strict_report_contract:
-                required_headings = [
-                    "## Executive recommendation",
-                    "## Specialist execution summary",
-                    "## Sources and provenance",
-                    "### Scout delegation trace",
-                    "## Limitations and unresolved gaps",
-                ]
-                if re.search(r"\b(?:compare|comparison|model-by-model)\b", prompt, re.IGNORECASE):
-                    required_headings.append("## Model-by-model comparison")
-                missing_headings = [heading for heading in required_headings if heading.casefold() not in report_text.casefold()]
-                if len(report_text) < 500 or missing_headings:
+                # Validate report completeness against actual execution evidence,
+                # not a fixed set of headings that only fits one report template.
+                report_folded = report_text.casefold()
+                missing_agents = []
+                source_urls: list[str] = []
+                for record in records.values():
+                    agent_id = str(record.get("agent_id") or "").strip()
+                    if agent_id and agent_id.casefold() not in report_folded:
+                        try:
+                            agent_name = runtime.registry.get(agent_id).name
+                        except Exception:
+                            agent_name = agent_id
+                        if agent_name.casefold() not in report_folded:
+                            missing_agents.append(agent_name)
+                    evidence = record.get("research_evidence")
+                    if isinstance(evidence, Mapping):
+                        for source in evidence.get("sources", []) or []:
+                            if isinstance(source, Mapping):
+                                url = str(source.get("url") or "").strip()
+                                if url.startswith(("https://", "http://")) and url not in source_urls:
+                                    source_urls.append(url)
+                source_evidence_missing = bool(source_urls) and not any(
+                    url in report_text for url in source_urls[:min(3, len(source_urls))]
+                )
+                if len(report_text) < 500 or missing_agents or source_evidence_missing:
                     report_status = "invalid_report"
-                    report_error = (
-                        "Scribe output did not satisfy the complete-report contract"
-                        + (f"; missing sections: {', '.join(missing_headings)}" if missing_headings else "")
-                        + ("; report was too short" if len(report_text) < 500 else ".")
-                    )
+                    reasons = []
+                    if len(report_text) < 500:
+                        reasons.append("report was too short")
+                    if missing_agents:
+                        reasons.append("report omitted actual specialist outputs: " + ", ".join(missing_agents))
+                    if source_evidence_missing:
+                        reasons.append("report omitted source URLs returned by research")
+                    report_error = "Scribe output did not satisfy the complete-report contract; " + "; ".join(reasons) + "."
             records["final_report_draft"] = {
                 "agent_id": writer_result.agent_id, "task_id": writer_result.task_id,
                 "status": report_status, "output": report_text[:24000],

@@ -27,7 +27,7 @@ from .contracts import (
     utc_now,
 )
 from .registry import AgentRegistry
-from .policy import missing_approvals
+from .policy import missing_approvals, explicitly_excluded_agent_ids
 
 
 class AgentHandler(Protocol):
@@ -169,8 +169,35 @@ class AgentContext:
         combined_context = dict(self.task.context)
         if context:
             combined_context.update(context)
+        inherited_policy = combined_context.get("agent_policy", {})
+        if not isinstance(inherited_policy, Mapping):
+            inherited_policy = {}
+        excluded_ids = set(explicitly_excluded_agent_ids(
+            [self.task.prompt, str(combined_context.get("original_request") or "")],
+            self.runtime.registry.list(),
+            inherited_policy.get("excluded_agent_ids"),
+        ))
+        combined_context["agent_policy"] = {
+            **dict(inherited_policy),
+            "excluded_agent_ids": sorted(excluded_ids),
+        }
         normalized_capabilities = tuple(capabilities)
         base_agent_id = agent_id.strip().lower() if agent_id else None
+        if base_agent_id and base_agent_id in excluded_ids:
+            return TaskResult(
+                task_id=str(uuid4()),
+                agent_id=base_agent_id,
+                status=TaskStatus.FAILED,
+                summary="Delegation blocked by the user's explicit agent exclusion.",
+                error=f"Policy denied delegation to explicitly excluded agent: {base_agent_id}.",
+                metadata={
+                    "policy_denied": True,
+                    "exclusion_source": "user_request",
+                    "parent_task_id": self.task.task_id,
+                    "correlation_id": self.task.correlation_id,
+                    "delegation_depth": self.task.delegation_depth + 1,
+                },
+            )
 
         async def execute(target_agent_id: str | None, attempt: int) -> TaskResult:
             request_context = dict(combined_context)
@@ -256,18 +283,20 @@ class AgentContext:
             candidates.extend(
                 spec.agent_id for spec in self.runtime.discover_executable(
                     normalized_capabilities, match_all=True,
-                    exclude=(base_agent_id,) if base_agent_id else (),
+                    exclude=tuple(excluded_ids | ({base_agent_id} if base_agent_id else set())),
                 )
             )
         elif base_agent_id is None and normalized_capabilities:
             candidates = [spec.agent_id for spec in self.runtime.discover_executable(
-                normalized_capabilities, match_all=True
+                normalized_capabilities, match_all=True, exclude=tuple(excluded_ids)
             )]
 
         # Preserve order while removing duplicate IDs/None entries.
         ordered: list[str | None] = []
         seen: set[str] = set()
         for candidate in candidates:
+            if candidate and candidate in excluded_ids:
+                continue
             key = candidate or ""
             if key not in seen:
                 ordered.append(candidate)
@@ -567,6 +596,21 @@ class AgentRuntime:
             )
         if not spec.enabled:
             raise AgentNotFoundError(f"Agent {spec.agent_id} is disabled.")
+
+        policy_context = request.context.get("agent_policy", {})
+        if not isinstance(policy_context, Mapping):
+            policy_context = {}
+        excluded_ids = explicitly_excluded_agent_ids(
+            [request.prompt, str(request.context.get("original_request") or "")],
+            self.registry.list(),
+            policy_context.get("excluded_agent_ids"),
+        )
+        if spec.agent_id in excluded_ids:
+            return self._policy_failure(
+                request, spec.agent_id,
+                "Agent is explicitly excluded by the user's request.",
+                policy_denied=True,
+            )
 
         # Reject capability mismatches for explicit-target tasks. A target ID must
         # not bypass the declared capability contract.

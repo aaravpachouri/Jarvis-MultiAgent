@@ -44,13 +44,15 @@ Athena's web-research mode delegates to Scout; context-only analysis does not. J
 
 ### Deployed persistence and tenancy limits
 
-The deployed dashboard/API is live, but this is not yet a distributed, multi-tenant production architecture:
-- Agent definitions are loaded from per-agent `manifest.json` files and seeded into `data/agent_registry.json`.
-- Task lifecycle audit metadata is appended to `data/task_history.jsonl`; prompts and full result payloads are not stored in that audit log.
-- Dashboard mission jobs, Quant refresh jobs, runtime task results, and live events are currently held in process memory and are lost on a backend restart or redeploy.
-- Memory & Notes uses `data/memory_notes.json`; it is local to the server process/filesystem and is not synced to a remote per-user store.
-- No dedicated JARVIS SQL database or distributed task queue is currently configured. The existing InboxMind database is a separate application and must not be reused.
-- Dashboard sign-in currently uses one shared access-key credential and signed sessions, not individual user accounts or per-user data isolation. Do not expose it as a multi-customer SaaS until identity, tenant scoping, and persistent storage are implemented.
+The dashboard now persists accepted mission records and final results in a local SQLite mission store:
+- The default database is `data/jarvis_missions.sqlite3`; set `JARVIS_STATE_DB_PATH` to choose another path.
+- On startup, queued/running jobs from the previous process are marked `interrupted`; they are never replayed automatically because their previous side effects may be unknown.
+- For hosted persistence across Render deploys/restarts, `JARVIS_STATE_DB_PATH` must point to an attached persistent volume (for example `/var/data/jarvis_missions.sqlite3`). Without that volume, the database is still ephemeral.
+- Task lifecycle audit metadata is also appended to `data/task_history.jsonl`; prompts and full result payloads are not stored in that audit log.
+- Quant refresh jobs, transient runtime event buffers and the recent-result cache remain in process memory.
+- Memory & Notes uses `data/memory_notes.json`; it is local to the server filesystem and is not synced to a remote per-user store.
+- There is still no distributed task queue or shared multi-instance coordination. SQLite is appropriate for a single backend instance; a multi-instance deployment needs a dedicated JARVIS database and queue. The existing InboxMind database is a separate application and must not be reused.
+- Dashboard sign-in still uses one shared access-key credential and signed sessions, not individual user accounts or per-user data isolation. Do not expose it as a multi-customer SaaS until identity and tenant scoping are implemented.
 
 The dashboard is deployed separately from the Python API. Production mission execution still depends on the Render backend process and its configured provider credentials. Local voice mode requires the local machine and microphone to be available.
 

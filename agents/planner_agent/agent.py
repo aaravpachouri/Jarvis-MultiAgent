@@ -9,6 +9,7 @@ import re
 from typing import Any, Mapping
 
 from core.action_scope import action_scope
+from core.capability_match import rank_agent_capabilities
 
 
 class PlannerAgent:
@@ -122,46 +123,19 @@ class PlannerAgent:
 
     @staticmethod
     def _assign_specialist(title: str, available_agents: list[Any]) -> dict[str, str] | None:
-        """Assign only when the step clearly matches a declared executable capability."""
-        text = title.casefold()
-        categories: list[tuple[tuple[str, ...], tuple[str, ...]]] = [
-            (("test", "pytest", "verify", "validation", "regression", "compile"),
-             ("code.test", "research.verify", "deployment.verify")),
-            (("implement", "build", "develop", "write code", "fix", "refactor", "feature"),
-             ("code.write", "code.debug")),
-            (("research", "investigate", "evidence", "compare", "sources"),
-             ("research.deep", "research.synthesize", "web.search", "documentation.lookup")),
-            (("document", "report", "write-up", "proposal", "release notes"),
-             ("writing.report", "documentation.write")),
-            (("deploy", "release", "publish", "hosting"),
-             ("deployment.plan", "deployment.build", "deployment.verify")),
-        ]
-        preferred: list[str] = []
-        for terms, capabilities in categories:
-            if any(term in text for term in terms):
-                preferred.extend(capabilities)
-        if not preferred:
+        """Assign only a confident match from the live capability catalog."""
+        agents = [item for item in available_agents if isinstance(item, Mapping)]
+        matches = rank_agent_capabilities(title, agents)
+        if not matches:
             return None
-        candidates: list[tuple[int, str, str]] = []
-        for agent in available_agents:
-            if not isinstance(agent, Mapping):
-                continue
-            agent_id = agent.get("agent_id")
-            capabilities = agent.get("capabilities", [])
-            if not isinstance(agent_id, str) or not agent_id.strip() or not isinstance(capabilities, list):
-                continue
-            for rank, capability in enumerate(preferred):
-                if capability in capabilities:
-                    candidates.append((rank, agent_id.strip(), capability))
-                    break
-        if not candidates:
+        if (
+            len(matches) > 1
+            and matches[0][1] != matches[1][1]
+            and matches[0][0] - matches[1][0] < 0.035
+        ):
             return None
-        candidates.sort(key=lambda item: (item[0], item[1]))
-        best_rank = candidates[0][0]
-        best = [item for item in candidates if item[0] == best_rank]
-        if len(best) != 1:
-            return None
-        return {"agent_id": best[0][1], "capability": best[0][2]}
+        _, agent_id, capability = matches[0]
+        return {"agent_id": agent_id, "capability": capability}
 
     @staticmethod
     def _extract_requested_steps(prompt: str) -> list[str]:
