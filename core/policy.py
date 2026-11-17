@@ -11,6 +11,7 @@ or server-side authorization layer, never directly from user-supplied JSON.
 from __future__ import annotations
 
 from typing import Any, Mapping
+import re
 
 from .contracts import AgentSpec, TaskRequest
 
