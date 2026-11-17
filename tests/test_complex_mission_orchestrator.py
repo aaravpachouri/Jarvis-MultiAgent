@@ -120,10 +120,24 @@ async def test_complex_mission_uses_real_planner_dag_workstreams_and_final_scrib
                       "deps": task.context.get("dependency_results"), "prompt": task.prompt})
         return "Report draft: Forge implementation and Athena evidence review results included."
 
-    runtime.register_agent(_spec("coding.forge", "Forge", ("code.inspect", "code.write", "code.test", "repository.analyze"),
-                                  ("implement", "build", "code", "pytest", "tests")), forge)
-    runtime.register_agent(_spec("research.athena", "Athena", ("research.deep", "research.synthesize"),
-                                  ("research", "evidence", "investigate")), athena)
+    runtime.register_agent(_spec(
+        "coding.forge", "Forge", ("code.inspect", "code.write", "code.test", "repository.analyze"),
+        ("implement", "build", "code", "pytest", "tests"),
+        {"operator_guide": {"functions": [
+            {"capability": "code.write", "description": "Implement code changes and requested software features."},
+            {"capability": "code.test", "description": "Run automated tests and verify software behavior."},
+            {"capability": "code.inspect", "description": "Inspect source code and review a repository."},
+            {"capability": "repository.analyze", "description": "Analyze repository structure and dependencies."},
+        ]}},
+    ), forge)
+    runtime.register_agent(_spec(
+        "research.athena", "Athena", ("research.deep", "research.synthesize"),
+        ("research", "evidence", "investigate"),
+        {"operator_guide": {"functions": [
+            {"capability": "research.deep", "description": "Research a topic and gather evidence from reliable sources."},
+            {"capability": "research.synthesize", "description": "Synthesize evidence and summarize findings."},
+        ]}},
+    ), athena)
     runtime.register_agent(_spec("documentation.scribe", "Scribe", ("writing.report", "documentation.write"),
                                   ("write a report", "report", "documentation")), scribe)
 
@@ -178,8 +192,19 @@ async def test_complex_mission_reports_failed_specialist_as_parent_failure() -> 
     async def athena(task, context):
         return {"summary": "Independent research returned."}
 
-    runtime.register_agent(_spec("coding.forge", "Forge", ("code.write", "code.test"), ("implement", "build", "code", "tests")), failing_forge)
-    runtime.register_agent(_spec("research.athena", "Athena", ("research.deep",), ("research", "evidence")), athena)
+    runtime.register_agent(_spec(
+        "coding.forge", "Forge", ("code.write", "code.test"), ("implement", "build", "code", "tests"),
+        {"operator_guide": {"functions": [
+            {"capability": "code.write", "description": "Implement code changes and requested software features."},
+            {"capability": "code.test", "description": "Run automated tests and verify software behavior."},
+        ]}},
+    ), failing_forge)
+    runtime.register_agent(_spec(
+        "research.athena", "Athena", ("research.deep",), ("research", "evidence"),
+        {"operator_guide": {"functions": [
+            {"capability": "research.deep", "description": "Research a topic and gather evidence from reliable sources."},
+        ]}},
+    ), athena)
     prompt = "Orchestrate this complex end-to-end mission: research the evidence, then implement the feature and run tests across workstreams."
     result = await runtime.run_task(TaskRequest(prompt=prompt, target_agent_id="voice.jarvis"))
     assert result.status is TaskStatus.FAILED
@@ -286,8 +311,19 @@ async def test_complex_mission_translates_planner_edges_into_workstream_dependen
         assert any("verified research output" in str(value) for value in deps.values())
         return {"summary": "implemented from research"}
 
-    runtime.register_agent(_spec("research.athena", "Athena", ("research.deep",), ("research", "evidence")), athena)
-    runtime.register_agent(_spec("coding.forge", "Forge", ("code.write", "code.test"), ("implement", "build", "code")), forge)
+    runtime.register_agent(_spec(
+        "research.athena", "Athena", ("research.deep",), ("research", "evidence"),
+        {"operator_guide": {"functions": [
+            {"capability": "research.deep", "description": "Research a topic and gather evidence."},
+        ]}},
+    ), athena)
+    runtime.register_agent(_spec(
+        "coding.forge", "Forge", ("code.write", "code.test"), ("implement", "build", "code"),
+        {"operator_guide": {"functions": [
+            {"capability": "code.write", "description": "Implement code changes and requested software features."},
+            {"capability": "code.test", "description": "Run automated tests and verify software behavior."},
+        ]}},
+    ), forge)
     result = await runtime.run_task(TaskRequest(
         prompt="Orchestrate this complex end-to-end mission: research the evidence, then implement the feature.",
         target_agent_id="voice.jarvis",
