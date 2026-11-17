@@ -1,0 +1,98 @@
+"""Registry-driven lexical matching between task steps and declared capabilities.
+
+The matcher intentionally has no domain-specific task categories. Agent manifests
+supply capability descriptions, roles, descriptions and routing keywords; ambiguous
+matches remain unassigned rather than being guessed.
+"""
+from __future__ import annotations
+
+import re
+from typing import Any, Mapping
+
+_STOP_WORDS = frozenset({
+    "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "in",
+    "into", "is", "it", "of", "on", "or", "the", "this", "to", "with",
+    "user", "task", "work", "step", "result", "output",
+})
+
+
+def _tokens(value: Any) -> set[str]:
+    return {
+        token for token in re.findall(r"[a-z0-9][a-z0-9_.+-]*", str(value or "").casefold())
+        if len(token) > 1 and token not in _STOP_WORDS
+    }
+
+
+def _capability_descriptions(agent: Mapping[str, Any]) -> dict[str, str]:
+    functions = agent.get("functions", [])
+    if not isinstance(functions, list):
+        return {}
+    return {
+        str(item.get("capability")): str(item.get("description") or "")
+        for item in functions
+        if isinstance(item, Mapping) and item.get("capability")
+    }
+
+
+def rank_agent_capabilities(
+    task_description: str,
+    agents: list[Mapping[str, Any]],
+    *,
+    minimum_score: float = 0.18,
+) -> list[tuple[float, str, str]]:
+    """Return scored (score, agent_id, capability) matches from manifest metadata."""
+    query_tokens = _tokens(task_description)
+    if not query_tokens:
+        return []
+    query_weight = sum(1.5 if len(token) >= 6 else 1.0 for token in query_tokens)
+    ranked: list[tuple[float, str, str]] = []
+    for agent in agents:
+        agent_id = str(agent.get("agent_id") or "").strip()
+        capabilities = agent.get("capabilities", [])
+        if not agent_id or not isinstance(capabilities, (list, tuple)):
+            continue
+        descriptions = _capability_descriptions(agent)
+        agent_context = " ".join([
+            str(agent.get("name") or ""),
+            str(agent.get("role") or ""),
+            str(agent.get("description") or ""),
+            " ".join(str(item) for item in agent.get("routing_keywords", []) if item),
+        ])
+        for raw_capability in capabilities:
+            capability = str(raw_capability).strip()
+            if not capability:
+                continue
+            evidence_tokens = _tokens(" ".join((
+                capability,
+                descriptions.get(capability, ""),
+                agent_context,
+            )))
+            overlap = query_tokens & evidence_tokens
+            if not overlap:
+                continue
+            weighted_overlap = sum(1.5 if len(token) >= 6 else 1.0 for token in overlap)
+            evidence_weight = sum(1.5 if len(token) >= 6 else 1.0 for token in evidence_tokens)
+            coverage = weighted_overlap / max(1.0, query_weight)
+            precision = weighted_overlap / max(1.0, evidence_weight)
+            score = (0.8 * coverage) + (0.2 * precision)
+            if score >= minimum_score:
+                ranked.append((score, agent_id, capability))
+    return sorted(ranked, key=lambda item: (-item[0], item[1], item[2]))
+
+
+def best_capability_for_agent(
+    task_description: str,
+    agent: Mapping[str, Any],
+    *,
+    minimum_score: float = 0.18,
+    ambiguity_margin: float = 0.035,
+) -> str:
+    """Return one confident capability for an agent, or an empty string if ambiguous."""
+    matches = [
+        item for item in rank_agent_capabilities(task_description, [agent], minimum_score=minimum_score)
+    ]
+    if not matches:
+        return ""
+    if len(matches) > 1 and matches[0][0] - matches[1][0] < ambiguity_margin:
+        return ""
+    return matches[0][2]
