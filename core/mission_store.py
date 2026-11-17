@@ -119,7 +119,8 @@ class MissionStore:
         return self._decode(row)
 
     def list_recent(self, limit: int | None = None) -> list[dict[str, Any]]:
-        count = self.max_retained if limit is None else max(0, min(int(limit), self.max_retained))
+        retention_window = self.max_retained + 64  # Active jobs are never pruned.
+        count = retention_window if limit is None else max(0, min(int(limit), retention_window))
         with self._lock, self._connect() as connection:
             rows = connection.execute(
                 "SELECT * FROM mission_jobs ORDER BY accepted_at DESC, rowid DESC LIMIT ?",
@@ -139,7 +140,7 @@ class MissionStore:
             """)
             rows = connection.execute(
                 "SELECT * FROM mission_jobs ORDER BY accepted_at DESC, rowid DESC LIMIT ?",
-                (self.max_retained,),
+                (self.max_retained + 64,),
             ).fetchall()
             self._prune_locked(connection)
         return [item for row in rows if (item := self._decode(row)) is not None]
