@@ -85,7 +85,7 @@ class MissionStore:
             raise ValueError("Mission records require task_id, agent_id and status.")
         result = job.get("result")
         result_json = (
-            json.dumps(result, ensure_ascii=False, allow_nan=False, default=str)
+            json.dumps(result, ensure_ascii=False, default=str)
             if result is not None else None
         )
         with self._lock, self._connect() as connection:
