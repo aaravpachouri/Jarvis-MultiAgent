@@ -551,7 +551,7 @@ class ResearchAgent:
             or str(context.get("research_mode") or "").casefold() == "offline"
         )
         if requested_offline:
-            return bool(intent and explicit_material)
+            return bool(explicit_material)
         external_research = re.search(
             r"\b(?:research|investigate|search(?: the web| online)?|look up)\s+(?:the web|online|for|about|current|latest|official|"
             r"primary|benchmark|model|product|documentation)\b|\b(?:current|latest|official sources?|"
