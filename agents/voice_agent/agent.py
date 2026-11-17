@@ -2183,7 +2183,7 @@ class VoiceAgent:
             # If a selected specialist explicitly delegates to another
             # requested specialist, the real nested handoff satisfies that
             # workflow stage. Do not run the same stage a second time in parallel.
-            if agent_id in delegated_targets and agent_id in explicit_ids:
+            if agent_id in delegated_targets:
                 continue
             if VoiceAgent._is_agent_explicitly_excluded(prompt, agent_id):
                 continue
