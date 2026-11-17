@@ -75,6 +75,11 @@ def rank_agent_capabilities(
             coverage = weighted_overlap / max(1.0, query_weight)
             precision = weighted_overlap / max(1.0, evidence_weight)
             score = (0.8 * coverage) + (0.2 * precision)
+            # The step's leading action verb is a useful, domain-neutral signal
+            # for the primary capability (e.g. "implement" vs "test").
+            first_action = next(iter(re.findall(r"[a-z0-9]+", str(task_description or "").casefold())), "")
+            if first_action and first_action in evidence_tokens:
+                score += 0.2
             if score >= minimum_score:
                 ranked.append((score, agent_id, capability))
     return sorted(ranked, key=lambda item: (-item[0], item[1], item[2]))
