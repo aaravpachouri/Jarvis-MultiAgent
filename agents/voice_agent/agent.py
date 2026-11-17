@@ -2161,16 +2161,28 @@ class VoiceAgent:
             prompt, runtime.registry.list(enabled_only=True)
         )
         explicit_ids = set(explicit_sequence)
-        athena_available = any(
-            getattr(match, "agent_id", "") == "research.athena"
-            and getattr(match, "agent_id", "") in executable_ids
-            for match in matches
-        )
+        delegated_targets: set[str] = set()
+        for candidate in matches:
+            candidate_id = str(getattr(candidate, "agent_id", "") or "")
+            if candidate_id not in executable_ids:
+                continue
+            try:
+                candidate_spec = runtime.registry.get(candidate_id)
+            except Exception:
+                continue
+            declared_targets = candidate_spec.metadata.get("delegates_to", ())
+            if isinstance(declared_targets, str):
+                declared_targets = (declared_targets,)
+            if isinstance(declared_targets, (list, tuple, set)):
+                delegated_targets.update(str(value).strip().lower() for value in declared_targets if str(value).strip())
         for match in matches:
             agent_id = str(getattr(match, "agent_id", "") or "")
             if not agent_id or agent_id in seen or agent_id not in executable_ids:
                 continue
-            if agent_id == "search.scout" and athena_available and agent_id not in explicit_ids:
+            # If a selected specialist explicitly delegates to another
+            # requested specialist, the real nested handoff satisfies that
+            # workflow stage. Do not run the same stage a second time in parallel.
+            if agent_id in delegated_targets and agent_id in explicit_ids:
                 continue
             if VoiceAgent._is_agent_explicitly_excluded(prompt, agent_id):
                 continue
