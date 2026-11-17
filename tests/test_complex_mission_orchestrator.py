@@ -73,6 +73,11 @@ def test_deployment_workstream_requires_affirmative_intent_and_ignores_prohibiti
     spec = _spec(
         "deployment.launch", "Launch",
         ("deployment.plan", "deployment.verify", "deployment.build"),
+        metadata={"operator_guide": {"functions": [
+            {"capability": "deployment.plan", "description": "Prepare a read-only deployment preflight plan and identify release prerequisites."},
+            {"capability": "deployment.verify", "description": "Verify deployment health checks and release readiness."},
+            {"capability": "deployment.build", "description": "Build and publish an application deployment."},
+        ]}},
     )
     assert VoiceAgent._complex_workstream_capability(
         spec, "Do not deploy anything or perform external actions."
