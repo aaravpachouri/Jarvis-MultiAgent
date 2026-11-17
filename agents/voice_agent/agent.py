@@ -2402,6 +2402,21 @@ class VoiceAgent:
                 error="Missing executable planning.breakdown capability.", output=None,
             )
         planner_spec = planner_candidates[0]
+        available_agent_catalog = []
+        for item in workstreams:
+            spec = item["spec"]
+            metadata = spec.metadata if isinstance(spec.metadata, Mapping) else {}
+            operator_guide = metadata.get("operator_guide", {})
+            functions = operator_guide.get("functions", []) if isinstance(operator_guide, Mapping) else []
+            available_agent_catalog.append({
+                "agent_id": item["agent_id"],
+                "name": spec.name,
+                "role": spec.role,
+                "description": spec.description,
+                "capabilities": list(spec.capabilities),
+                "routing_keywords": list(spec.routing_keywords),
+                "functions": functions if isinstance(functions, list) else [],
+            })
         async with action_scope(context, "jarvis.complex_mission.plan", action_type="workflow", metadata={"operation": "complex_mission"}):
             plan_result = await context.delegate(
                 prompt=(
@@ -2416,11 +2431,7 @@ class VoiceAgent:
                     "workflow": "complex_mission",
                     "workstream": "plan",
                     "original_request": prompt[:10000],
-                    "available_executable_agents": [
-                        {"agent_id": item["agent_id"], "role": item["spec"].role,
-                         "capabilities": list(item["spec"].capabilities)}
-                        for item in workstreams
-                    ],
+                    "available_executable_agents": available_agent_catalog,
                 },
                 requested_by=context.agent.agent_id,
             )
