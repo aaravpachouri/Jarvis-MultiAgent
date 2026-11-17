@@ -665,6 +665,15 @@ This is strictly a research-only mission."""
 
     async def complete_scribe(task, context):
         scribe_calls.append(dict(task.context))
+        evidence_text = " ".join(
+            str(value) for value in (
+                task.context.get("source_material"),
+                task.context.get("body"),
+                task.context.get("workstream_results"),
+            ) if value is not None
+        )
+        verified_urls = re.findall(r"https?://[^\\s)\\]\\\"']+", evidence_text)
+        source_line = " ".join(dict.fromkeys(verified_urls[:3]))
         return (
             "## Executive recommendation\n" + ("Evidence-led recommendation. " * 12)
             + "\n## Specialist execution summary\nPlanner, Athena and Scout returned actual results. "
