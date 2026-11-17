@@ -540,7 +540,7 @@ async def test_read_only_research_mission_excludes_forge_and_memory_and_scribe_g
     assert result.metadata["workstream_count"] == 1
     assert forbidden_calls == []
     assert len(scout_calls) == 3
-    assert len(scribe_calls) == 1
+    assert 1 <= len(scribe_calls) <= 2  # At most one bounded report-repair attempt.
     assert "Qwen 3 4B" in str(scribe_calls[0].get("body", ""))
     assert "Llama 3.2 3B" in str(scribe_calls[0].get("body", ""))
     assert "Gemma 3 4B" in str(scribe_calls[0].get("body", ""))
