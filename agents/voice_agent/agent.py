@@ -2740,8 +2740,17 @@ class VoiceAgent:
                     "agent_id": match.agent_id,
                     "context": {"workstream": "discovery", "original_request": prompt},
                 })
-            elif any(cap.startswith(("code.", "repository.")) for cap in capabilities) and any(
-                term in text for term in ("code", "repo", "repository", "implement", "debug", "bug", "build", "app", "saas")
+            elif (
+                any(cap.startswith(("code.", "repository.")) for cap in capabilities)
+                and not VoiceAgent._is_agent_explicitly_excluded(prompt, match.agent_id)
+                and (
+                    VoiceAgent._is_code_mutation_request(prompt)
+                    or bool(re.search(
+                        r"\b(?:inspect|review|audit|analy[sz]e)\b.{0,50}\b(?:code|repo|repository|codebase)\b",
+                        prompt,
+                        re.IGNORECASE,
+                    ))
+                )
             ):
                 tasks.append({
                     "prompt": f"Handle the coding/repository portion of this user request. Inspect before modifying and report verification evidence.\n\nUser request: {prompt}",
