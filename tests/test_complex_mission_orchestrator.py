@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
+from types import SimpleNamespace
 
 import pytest
 
@@ -531,3 +532,34 @@ async def test_incomplete_athena_output_fails_mission_quality_gate_but_still_get
     assert "documentation.scribe" in str(result.output)
     assert len(scribe_calls) == 1
     assert "Research quality gate failed" in str(scribe_calls[0].get("limitations"))
+
+
+def test_compound_routing_never_dispatches_explicitly_excluded_forge():
+    prompt = (
+        "Run a controlled, research-only multi-model evaluation. Compare reasoning, coding "
+        "performance and memory requirements. Do NOT invoke Forge, Memory & Notes or Launch. "
+        "No code generation or modification, no files, commands, installations or settings changes. "
+        "Produce a final report."
+    )
+    matches = [
+        SimpleNamespace(agent_id="coding.forge", capabilities=("code.inspect", "code.write", "code.test")),
+        SimpleNamespace(agent_id="documentation.scribe", capabilities=("documentation.write", "writing.report")),
+    ]
+    tasks = VoiceAgent._build_compound_tasks(prompt, matches)
+    assert "coding.forge" not in [item["agent_id"] for item in tasks]
+    assert "documentation.scribe" in [item["agent_id"] for item in tasks]
+    assert VoiceAgent._is_agent_explicitly_excluded(prompt, "coding.forge")
+    assert VoiceAgent._is_agent_explicitly_excluded(prompt, "memory.notes")
+    assert VoiceAgent._is_agent_explicitly_excluded(prompt, "deployment.launch")
+
+
+def test_compound_routing_does_not_treat_code_comparison_as_forge_intent():
+    prompt = (
+        "Research and compare coding performance, debugging quality and memory requirements. "
+        "This is research-only. Do not generate code or modify files. Produce a report."
+    )
+    matches = [
+        SimpleNamespace(agent_id="coding.forge", capabilities=("code.inspect", "code.write", "code.test")),
+    ]
+    assert VoiceAgent._build_compound_tasks(prompt, matches) == []
+
