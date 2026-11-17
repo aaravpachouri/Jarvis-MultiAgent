@@ -104,6 +104,26 @@ class VoiceAgent:
             exclude=(context.agent.agent_id,),
             executable_ids=context.runtime.executable_agent_ids(),
         )
+        explicit_sequence = self._explicit_workflow_agent_ids(
+            prompt, context.runtime.registry.list(enabled_only=True)
+        )
+        if explicit_sequence:
+            # Explicitly named workflow stages are authoritative user intent.
+            # Resolve them against live registry identities rather than a fixed
+            # list of built-in agent names.
+            by_id = {match.agent_id: match for match in matches}
+            for agent_id in explicit_sequence:
+                spec = context.runtime.registry.get(agent_id)
+                if agent_id not in by_id:
+                    by_id[agent_id] = SimpleNamespace(
+                        agent_id=agent_id,
+                        name=spec.name,
+                        score=10.0,
+                        matched_terms=("explicit_workflow_stage",),
+                        capabilities=spec.capabilities,
+                        executable=context.runtime.has_handler(agent_id),
+                    )
+            matches = list(by_id.values())
         executable = [match for match in matches if match.executable]
 
         # Explicit research -> planning -> report requests are dependency-driven.
@@ -117,7 +137,7 @@ class VoiceAgent:
         # Explicitly complex missions use the dependency-aware scheduler rather
         # than the older flat compound-request fan-out. This is capability-driven:
         # the registry determines which executable specialists are available.
-        if self._is_complex_mission_request(prompt):
+        if self._is_complex_mission_request(prompt) or explicit_sequence:
             complex_workstreams = self._select_complex_workstreams(prompt, matches, context)
             # The mission workflow itself supplies Planner and (when requested)
             # Scribe. It only needs one primary specialist workstream; nested
@@ -1801,9 +1821,23 @@ class VoiceAgent:
 
     @staticmethod
     def _is_local_agent_network_analysis(prompt: str) -> bool:
+        """Use local manifests only when the object of analysis is JARVIS itself.
+
+        Mentioning an agent as a required workflow stage must never convert an
+        unrelated research request into an offline agent-roster analysis.
+        """
         return bool(
-            re.search(r"\b(?:analy[sz]e|compare|evaluate|review|benefits|risks|pros and cons)\b", prompt, re.I)
-            and re.search(r"\b(?:scribe|athena|planner|forge|agent network|jarvis)\b", prompt, re.I)
+            re.search(
+                r"\b(?:analy[sz]e|evaluate|review|audit|inspect|compare)\b",
+                prompt,
+                re.IGNORECASE,
+            )
+            and re.search(
+                r"\b(?:agent\s+network|agent\s+system|specialist\s+roster|"
+                r"multi[- ]agent\s+architecture|jarvis\s+architecture|agent\s+architecture)\b",
+                prompt,
+                re.IGNORECASE,
+            )
         )
 
     @staticmethod
@@ -1977,6 +2011,44 @@ class VoiceAgent:
             f"Sequential workflow stopped at {stage}. Status: {result.status.value}. "
             f"Details: {detail}. Later stages were not run."
         )
+
+    @staticmethod
+    def _explicit_workflow_agent_ids(prompt: str, agents: list[Any]) -> list[str]:
+        """Resolve an explicitly declared agent sequence from the live registry."""
+        text = str(prompt or "")
+        match = re.search(
+            r"(?im)^\s*(?:required\s+workflow|workflow\s+order|execution\s+order)\s*:\s*([^\n]+)",
+            text,
+        )
+        if not match:
+            return []
+        sequence_text = match.group(1)
+        if not re.search(r"(?:→|->|\bthen\b|\bafter\b)", sequence_text, re.IGNORECASE):
+            return []
+        found: list[tuple[int, str]] = []
+        for spec in agents:
+            aliases = {
+                str(getattr(spec, "name", "") or "").strip(),
+                str(getattr(spec, "agent_id", "") or "").strip(),
+                str(getattr(spec, "agent_id", "") or "").rsplit(".", 1)[-1].replace("_", " "),
+            }
+            positions = []
+            for alias in aliases:
+                if not alias:
+                    continue
+                escaped = re.escape(alias).replace(r"\ ", r"\s+")
+                escaped = escaped.replace(r"\&", r"(?:&|and)")
+                hit = re.search(rf"(?<![\w]){escaped}(?![\w])", sequence_text, re.IGNORECASE)
+                if hit:
+                    positions.append(hit.start())
+            if positions:
+                found.append((min(positions), str(spec.agent_id)))
+        found.sort(key=lambda item: item[0])
+        ordered: list[str] = []
+        for _, agent_id in found:
+            if agent_id not in ordered:
+                ordered.append(agent_id)
+        return ordered if len(ordered) >= 2 else []
 
     @staticmethod
     def _is_complex_mission_request(prompt: str) -> bool:
