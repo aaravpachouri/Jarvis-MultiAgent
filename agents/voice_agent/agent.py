@@ -2363,6 +2363,7 @@ class VoiceAgent:
         explicit_sequence = self._explicit_workflow_agent_ids(
             prompt, runtime.registry.list(enabled_only=True)
         )
+        explicit_scribe_required = False
         if explicit_sequence:
             sequence_specs = [runtime.registry.get(agent_id) for agent_id in explicit_sequence]
             planning_positions = [
@@ -2373,6 +2374,7 @@ class VoiceAgent:
                 index for index, spec in enumerate(sequence_specs)
                 if "writing.report" in spec.capabilities
             ]
+            explicit_scribe_required = bool(writing_positions)
             if (planning_positions and planning_positions[0] != 0) or (
                 writing_positions and writing_positions[-1] != len(sequence_specs) - 1
             ):
@@ -2388,6 +2390,22 @@ class VoiceAgent:
                 workstreams,
                 key=lambda item: (order.get(item["agent_id"], len(order)), item["agent_id"]),
             )
+            selected_ids = {item["agent_id"] for item in workstreams}
+            required_ids = {
+                spec.agent_id for spec in sequence_specs
+                if not any(cap.startswith("planning.") for cap in spec.capabilities)
+                and "writing.report" not in spec.capabilities
+            }
+            missing_ids = sorted(required_ids - selected_ids)
+            if missing_ids:
+                return TaskResult(
+                    task_id=context.task.task_id, agent_id=context.agent.agent_id,
+                    status=TaskStatus.FAILED,
+                    summary="Explicit workflow could not satisfy every required specialist stage.",
+                    error="Required executable workflow stages were not resolved to a supported capability: "
+                    + ", ".join(missing_ids),
+                    output={"requested_sequence": explicit_sequence, "selected_workstreams": sorted(selected_ids)},
+                )
         planner_candidates = runtime.discover_executable(("planning.breakdown",), match_all=True, limit=1)
         if not planner_candidates:
             return TaskResult(
@@ -2484,7 +2502,8 @@ class VoiceAgent:
         code_steps = [item["agent_id"] for item in workstreams
                       if any(cap.startswith("code.") or cap == "repository.analyze" for cap in item["spec"].capabilities)]
         report_requested = bool(
-            re.search(
+            explicit_scribe_required
+            or re.search(
                 r"\b(?:write|create|prepare|generate|produce|draft|deliver)\b.{0,55}\b(?:final\s+)?(?:report|write[- ]?up|documentation|proposal)\b",
                 prompt,
                 re.IGNORECASE,
@@ -2730,7 +2749,8 @@ class VoiceAgent:
             report_status = writer_result.status.value if report_text else "invalid_output"
             report_error = None
             strict_report_contract = bool(
-                re.search(
+                explicit_scribe_required
+                or re.search(
                     r"\b(?:complete|comprehensive|detailed|full)\b.{0,40}\b(?:final\s+)?report\b",
                     prompt,
                     re.IGNORECASE,
