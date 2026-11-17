@@ -337,6 +337,26 @@ class DashboardApplication:
                 return dict(job)
         return self.mission_store.get(task_id)
 
+    def recent_missions(self, limit: int = 20) -> list[dict]:
+        """Return bounded mission history summaries from durable storage."""
+        records = self.mission_store.list_recent(max(1, min(int(limit), 100)))
+        summaries = []
+        for item in records:
+            result = item.get("result") if isinstance(item.get("result"), dict) else {}
+            summaries.append({
+                "task_id": item.get("task_id"),
+                "agent_id": item.get("agent_id"),
+                "status": item.get("status"),
+                "prompt": item.get("prompt", ""),
+                "accepted_at": item.get("accepted_at"),
+                "started_at": item.get("started_at"),
+                "finished_at": item.get("finished_at"),
+                "error": item.get("error"),
+                "summary": result.get("summary"),
+                "output_preview": str(result.get("output") or "")[:1000],
+            })
+        return summaries
+
     def overview(self) -> dict:
         diagnostics = build_diagnostics(self.runtime, history_path=HISTORY, history_limit=20)
         agents = self.runtime.list_agents()
@@ -804,6 +824,13 @@ class Handler(BaseHTTPRequestHandler):
             except (ValueError, TypeError):
                 return self._send(400, {"error": "The after cursor must be an integer."})
             return self._send(200, {**APP.events_since(after), "active_missions": APP.active_missions()})
+        if path == "/api/missions/history":
+            query = parse_qs(urlparse(self.path).query)
+            try:
+                limit = max(1, min(int(query.get("limit", ["20"])[0]), 100))
+            except (ValueError, TypeError):
+                return self._send(400, {"error": "The history limit must be an integer."})
+            return self._send(200, {"missions": APP.recent_missions(limit)})
         if path.startswith("/api/missions/"):
             task_id = path.rsplit("/", 1)[-1]
             if not task_id or len(task_id) > 100 or "/" in task_id:
