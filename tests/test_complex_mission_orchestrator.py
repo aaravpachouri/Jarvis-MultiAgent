@@ -479,7 +479,7 @@ async def test_complete_multi_agent_research_runs_planner_athena_nested_scout_an
     assert any("Qwen 3 4B" in query for query in scout_calls)
     assert any("Llama 3.2 3B" in query for query in scout_calls)
     assert any("Gemma 3 4B" in query for query in scout_calls)
-    assert len(scribe_calls) == 1
+    assert 1 <= len(scribe_calls) <= 2  # At most one bounded report-repair attempt.
     assert "Planner: planning.planner" in str(result.output)
     assert "research.athena" in str(result.output)
     assert "documentation.scribe" in str(result.output)
