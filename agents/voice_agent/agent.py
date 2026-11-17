@@ -2705,23 +2705,40 @@ class VoiceAgent:
                 )
             )
             if writer_result.succeeded and report_text and strict_report_contract:
-                required_headings = [
-                    "## Executive recommendation",
-                    "## Specialist execution summary",
-                    "## Sources and provenance",
-                    "### Scout delegation trace",
-                    "## Limitations and unresolved gaps",
-                ]
-                if re.search(r"\b(?:compare|comparison|model-by-model)\b", prompt, re.IGNORECASE):
-                    required_headings.append("## Model-by-model comparison")
-                missing_headings = [heading for heading in required_headings if heading.casefold() not in report_text.casefold()]
-                if len(report_text) < 500 or missing_headings:
+                # Validate report completeness against actual execution evidence,
+                # not a fixed set of headings that only fits one report template.
+                report_folded = report_text.casefold()
+                missing_agents = []
+                source_urls: list[str] = []
+                for record in records.values():
+                    agent_id = str(record.get("agent_id") or "").strip()
+                    if agent_id and agent_id.casefold() not in report_folded:
+                        try:
+                            agent_name = runtime.registry.get(agent_id).name
+                        except Exception:
+                            agent_name = agent_id
+                        if agent_name.casefold() not in report_folded:
+                            missing_agents.append(agent_name)
+                    evidence = record.get("research_evidence")
+                    if isinstance(evidence, Mapping):
+                        for source in evidence.get("sources", []) or []:
+                            if isinstance(source, Mapping):
+                                url = str(source.get("url") or "").strip()
+                                if url.startswith(("https://", "http://")) and url not in source_urls:
+                                    source_urls.append(url)
+                source_evidence_missing = bool(source_urls) and not any(
+                    url in report_text for url in source_urls[:min(3, len(source_urls))]
+                )
+                if len(report_text) < 500 or missing_agents or source_evidence_missing:
                     report_status = "invalid_report"
-                    report_error = (
-                        "Scribe output did not satisfy the complete-report contract"
-                        + (f"; missing sections: {', '.join(missing_headings)}" if missing_headings else "")
-                        + ("; report was too short" if len(report_text) < 500 else ".")
-                    )
+                    reasons = []
+                    if len(report_text) < 500:
+                        reasons.append("report was too short")
+                    if missing_agents:
+                        reasons.append("report omitted actual specialist outputs: " + ", ".join(missing_agents))
+                    if source_evidence_missing:
+                        reasons.append("report omitted source URLs returned by research")
+                    report_error = "Scribe output did not satisfy the complete-report contract; " + "; ".join(reasons) + "."
             records["final_report_draft"] = {
                 "agent_id": writer_result.agent_id, "task_id": writer_result.task_id,
                 "status": report_status, "output": report_text[:24000],
