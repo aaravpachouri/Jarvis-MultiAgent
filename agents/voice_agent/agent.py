@@ -2096,6 +2096,8 @@ class VoiceAgent:
                 continue
             if agent_id == "search.scout" and athena_available:
                 continue
+            if VoiceAgent._is_agent_explicitly_excluded(prompt, agent_id):
+                continue
             try:
                 spec = runtime.registry.get(agent_id)
             except Exception:
@@ -2693,6 +2695,35 @@ class VoiceAgent:
     def _is_compound_request(prompt: str) -> bool:
         text = prompt.casefold()
         return any(joiner in text for joiner in (" and then ", " and ", " then ", " as well as ", " plus "))
+
+    @staticmethod
+    def _is_agent_explicitly_excluded(prompt: str, agent_id: str) -> bool:
+        """Honor explicit agent prohibitions across every routing path."""
+        aliases = {
+            "coding.forge": r"(?:forge|coding\\s+agent)",
+            "memory.notes": r"(?:memory\\s*(?:&|and)\\s*notes|memory\\s+agent)",
+            "deployment.launch": r"(?:launch|deployment\\s+agent)",
+        }
+        target = aliases.get(str(agent_id or "").casefold())
+        if not target:
+            return False
+        text = str(prompt or "")
+        return bool(
+            re.search(
+                rf"\\b(?:do\\s+not|don't|dont|never|avoid|without)\\b"
+                rf"[^.!?\\n]{{0,120}}\\b(?:invoke|involve|use|delegate|send|pass|"
+                rf"hand\\s+off|route|call)\\b[^.!?\\n]{{0,60}}\\b{target}\\b",
+                text,
+                re.IGNORECASE,
+            )
+            or re.search(
+                rf"\\b{target}\\b[^.!?\\n]{{0,60}}\\b(?:must\\s+not|should\\s+not|"
+                rf"cannot|can't|is\\s+not\\s+to)\\b[^.!?\\n]{{0,30}}"
+                rf"(?:invoke|involve|use|delegate|run|call)",
+                text,
+                re.IGNORECASE,
+            )
+        )
 
     @staticmethod
     def _build_compound_tasks(prompt: str, matches: list[Any]) -> list[dict[str, Any]]:
