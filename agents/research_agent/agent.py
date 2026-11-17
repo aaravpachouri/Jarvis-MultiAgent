@@ -690,7 +690,7 @@ class ResearchAgent:
         for raw_line in lines:
             line = raw_line.strip()
             if not inside_compare:
-                if re.match(r"^compare\s*:\s*$", line, re.IGNORECASE):
+                if re.match(r"^compare\b[^:\n]{0,140}:\s*$", line, re.IGNORECASE):
                     inside_compare = True
                 continue
             if re.match(r"^(?:REQUIREMENTS|COORDINATION|OUTPUT|IMPORTANT|CONSTRAINTS)\s*:", line, re.IGNORECASE):
