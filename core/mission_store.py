@@ -173,7 +173,7 @@ class MissionStore:
             else:
                 with self._connect_sqlite() as connection:
                     connection.execute("""
-                        INSERT INTO jarvis_missions (
+                        INSERT INTO mission_jobs (
                             task_id, agent_id, status, prompt, accepted_at, started_at,
                             finished_at, result_json, error, updated_at
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
@@ -248,7 +248,7 @@ class MissionStore:
                         WHERE status IN ('queued', 'running')
                     """, (RESTART_ERROR,))
                     rows = connection.execute(
-                        "SELECT * FROM jarvis_missions ORDER BY accepted_at DESC, rowid DESC LIMIT ?",
+                        "SELECT * FROM mission_jobs ORDER BY accepted_at DESC, rowid DESC LIMIT ?",
                         (self.max_retained + 64,),
                     ).fetchall()
                     self._prune_sqlite_locked(connection)
@@ -266,9 +266,9 @@ class MissionStore:
     def _prune_sqlite_locked(self, connection: sqlite3.Connection) -> None:
         placeholders = ",".join("?" for _ in self.TERMINAL_STATES)
         connection.execute(f"""
-            DELETE FROM jarvis_missions
+            DELETE FROM mission_jobs
             WHERE task_id IN (
-                SELECT task_id FROM jarvis_missions
+                SELECT task_id FROM mission_jobs
                 WHERE status IN ({placeholders})
                 ORDER BY updated_at DESC, rowid DESC
                 LIMIT -1 OFFSET ?
