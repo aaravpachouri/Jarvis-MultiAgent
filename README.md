@@ -541,13 +541,23 @@ Run it with `python -m evaluation.athena_benchmark`. See [the research protocol]
 
 ### Hosted mission persistence (Supabase Free)
 
-JARVIS uses SQLite by default for local installations. For hosted deployments, configure
-`JARVIS_DATABASE_URL` with the private PostgreSQL connection string from the dedicated
-JARVIS Supabase project. Install the pinned driver using `pip install -e ".[hosted]"`.
-The backend writes only to the `jarvis_private.jarvis_missions` schema; do not use a
-publishable/anon key. Keep the database URL in Render's private environment variables,
-never in the frontend or source control. The `/api/health` endpoint reports storage
-backend health without exposing connection details.
+JARVIS uses SQLite by default for local installations. The hosted Render service uses a
+dedicated Supabase Edge Function as its mission-storage gateway. Configure
+`JARVIS_SUPABASE_FUNCTION_URL` and `JARVIS_SUPABASE_FUNCTION_TOKEN` in Render's private
+environment variables. The URL is non-secret; the token is a JARVIS-only random credential.
+Only its SHA-256 hash is stored in `jarvis_private.api_credentials`; Supabase's own
+service-role credential never leaves the Edge Function runtime.
 
-The Supabase Free project may pause after inactivity and has usage limits. JARVIS remains
-on the Render Free and Supabase Free plans; do not enable paid upgrades or add-ons.
+The gateway provides health, upsert, lookup, bounded history, restart recovery and delete
+operations against `jarvis_private.jarvis_missions`. Both database tables have RLS enabled;
+`anon` and `authenticated` roles have no schema usage or table privileges. The Edge
+Function has custom token verification enabled in its handler; platform JWT verification
+is disabled only because JARVIS uses this separate high-entropy service token.
+
+The canonical function source and the applied database migrations are under
+`supabase/functions` and `supabase/migrations`. The `/api/health` endpoint reports
+storage backend health without disclosing the token or any database credentials.
+
+SQLite remains the no-configuration local fallback. The Supabase Free project may pause
+after inactivity and has usage limits; Render and Supabase remain on their Free plans.
+Do not enable paid upgrades or add-ons.

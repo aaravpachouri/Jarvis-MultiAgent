@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+
+import requests
 from pathlib import Path
 from threading import RLock
 from typing import Any, Mapping
@@ -34,14 +36,35 @@ class MissionStore:
         *,
         max_retained: int = 200,
         database_url: str | None = None,
+        supabase_function_url: str | None = None,
+        supabase_function_token: str | None = None,
     ) -> None:
         self.max_retained = max(1, int(max_retained))
         self._lock = RLock()
         self.database_url = (
             database_url or os.environ.get("JARVIS_DATABASE_URL", "")
         ).strip()
-        self.backend = "postgres" if self.database_url else "sqlite"
-        if self.backend == "postgres":
+        self.supabase_function_url = (
+            supabase_function_url
+            or os.environ.get("JARVIS_SUPABASE_FUNCTION_URL", "")
+        ).strip().rstrip("/")
+        self.supabase_function_token = (
+            supabase_function_token
+            or os.environ.get("JARVIS_SUPABASE_FUNCTION_TOKEN", "")
+        ).strip()
+        if bool(self.supabase_function_url) != bool(self.supabase_function_token):
+            raise RuntimeError(
+                "Both JARVIS_SUPABASE_FUNCTION_URL and "
+                "JARVIS_SUPABASE_FUNCTION_TOKEN must be configured together."
+            )
+        self.backend = (
+            "supabase-edge" if self.supabase_function_url
+            else "postgres" if self.database_url
+            else "sqlite"
+        )
+        if self.backend == "supabase-edge":
+            self.path = None
+        elif self.backend == "postgres":
             self.path = None
             try:
                 import psycopg
@@ -80,6 +103,34 @@ class MissionStore:
                 os.chmod(self.path, 0o600)
             except OSError:
                 pass
+
+    def _edge_request(self, operation: str, **payload: Any) -> dict[str, Any]:
+        """Call the private Supabase mission gateway using the JARVIS-only token."""
+        try:
+            response = requests.post(
+                self.supabase_function_url,
+                json={"operation": operation, **payload},
+                headers={
+                    "Authorization": f"Bearer {self.supabase_function_token}",
+                    "Content-Type": "application/json",
+                },
+                timeout=(5, 20),
+            )
+            response.raise_for_status()
+            data = response.json()
+        except requests.RequestException as exc:
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+            suffix = f" (HTTP {status})" if status else ""
+            raise RuntimeError(
+                f"Supabase mission storage request failed{suffix}."
+            ) from exc
+        except ValueError as exc:
+            raise RuntimeError(
+                "Supabase mission storage returned an invalid response."
+            ) from exc
+        if not isinstance(data, dict) or data.get("ok") is not True:
+            raise RuntimeError("Supabase mission storage rejected the operation.")
+        return data
 
     def _connect_sqlite(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path, timeout=15)
@@ -125,9 +176,9 @@ class MissionStore:
 
     def _prune_postgres_locked(self, connection) -> None:
         connection.execute("""
-            DELETE FROM mission_jobs
+            DELETE FROM jarvis_missions
             WHERE task_id IN (
-                SELECT task_id FROM mission_jobs
+                SELECT task_id FROM jarvis_missions
                 WHERE status = ANY(%s)
                 ORDER BY updated_at DESC, task_id DESC
                 OFFSET %s
@@ -151,7 +202,10 @@ class MissionStore:
             result_json, str(job.get("error") or "") or None,
         )
         with self._lock:
-            if self.backend == "postgres":
+            if self.backend == "supabase-edge":
+                edge_job = json.loads(json.dumps(dict(job), ensure_ascii=False, default=str))
+                self._edge_request("upsert", job=edge_job)
+            elif self.backend == "postgres":
                 with self._connect_postgres() as connection:
                     connection.execute("""
                         INSERT INTO mission_jobs (
@@ -192,7 +246,10 @@ class MissionStore:
 
     def get(self, task_id: str) -> dict[str, Any] | None:
         with self._lock:
-            if self.backend == "postgres":
+            if self.backend == "supabase-edge":
+                result = self._edge_request("get", task_id=str(task_id))
+                row = result.get("record")
+            elif self.backend == "postgres":
                 with self._connect_postgres() as connection:
                     row = connection.execute(
                         "SELECT * FROM jarvis_missions WHERE task_id = %s",
@@ -204,12 +261,17 @@ class MissionStore:
                         "SELECT * FROM mission_jobs WHERE task_id = ?",
                         (str(task_id),),
                     ).fetchone()
+        if self.backend == "supabase-edge":
+            return row
         return self._decode(row)
 
     def list_recent(self, limit: int | None = None) -> list[dict[str, Any]]:
         retention_window = self.max_retained + 64
         count = retention_window if limit is None else max(0, min(int(limit), retention_window))
         with self._lock:
+            if self.backend == "supabase-edge":
+                result = self._edge_request("list", limit=count)
+                return result.get("records", [])
             if self.backend == "postgres":
                 with self._connect_postgres() as connection:
                     rows = connection.execute(
@@ -228,6 +290,9 @@ class MissionStore:
     def recover_interrupted(self) -> list[dict[str, Any]]:
         """Mark unfinished jobs interrupted and return the recovered records."""
         with self._lock:
+            if self.backend == "supabase-edge":
+                result = self._edge_request("recover")
+                return result.get("records", [])
             if self.backend == "postgres":
                 with self._connect_postgres() as connection:
                     connection.execute("""
@@ -256,7 +321,9 @@ class MissionStore:
 
     def delete(self, task_id: str) -> None:
         with self._lock:
-            if self.backend == "postgres":
+            if self.backend == "supabase-edge":
+                self._edge_request("delete", task_id=str(task_id))
+            elif self.backend == "postgres":
                 with self._connect_postgres() as connection:
                     connection.execute("DELETE FROM jarvis_missions WHERE task_id = %s", (str(task_id),))
             else:
@@ -279,7 +346,9 @@ class MissionStore:
         """Return backend identity and a live read-only connection check."""
         try:
             with self._lock:
-                if self.backend == "postgres":
+                if self.backend == "supabase-edge":
+                    self._edge_request("health")
+                elif self.backend == "postgres":
                     with self._connect_postgres() as connection:
                         connection.execute("SELECT 1").fetchone()
                 else:

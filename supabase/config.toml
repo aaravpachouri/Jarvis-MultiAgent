@@ -1,0 +1,2 @@
+[functions.jarvis-mission-store]
+verify_jwt = false
