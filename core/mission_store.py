@@ -125,9 +125,9 @@ class MissionStore:
 
     def _prune_postgres_locked(self, connection) -> None:
         connection.execute("""
-            DELETE FROM jarvis_missions
+            DELETE FROM mission_jobs
             WHERE task_id IN (
-                SELECT task_id FROM jarvis_missions
+                SELECT task_id FROM mission_jobs
                 WHERE status = ANY(%s)
                 ORDER BY updated_at DESC, task_id DESC
                 OFFSET %s
@@ -154,7 +154,7 @@ class MissionStore:
             if self.backend == "postgres":
                 with self._connect_postgres() as connection:
                     connection.execute("""
-                        INSERT INTO jarvis_missions (
+                        INSERT INTO mission_jobs (
                             task_id, agent_id, status, prompt, accepted_at, started_at,
                             finished_at, result_json, error, updated_at
                         ) VALUES (%s, %s, %s, %s, %s::timestamptz, %s::timestamptz, %s::timestamptz, %s::jsonb, %s, now())
@@ -201,7 +201,7 @@ class MissionStore:
             else:
                 with self._connect_sqlite() as connection:
                     row = connection.execute(
-                        "SELECT * FROM jarvis_missions WHERE task_id = ?",
+                        "SELECT * FROM mission_jobs WHERE task_id = ?",
                         (str(task_id),),
                     ).fetchone()
         return self._decode(row)
@@ -220,7 +220,7 @@ class MissionStore:
             else:
                 with self._connect_sqlite() as connection:
                     rows = connection.execute(
-                        "SELECT * FROM jarvis_missions ORDER BY accepted_at DESC, rowid DESC LIMIT ?",
+                        "SELECT * FROM mission_jobs ORDER BY accepted_at DESC, rowid DESC LIMIT ?",
                         (count,),
                     ).fetchall()
         return [item for row in rows if (item := self._decode(row)) is not None]
@@ -243,7 +243,7 @@ class MissionStore:
             else:
                 with self._connect_sqlite() as connection:
                     connection.execute("""
-                        UPDATE jarvis_missions
+                        UPDATE mission_jobs
                         SET status='interrupted', error=?, updated_at=CURRENT_TIMESTAMP
                         WHERE status IN ('queued', 'running')
                     """, (RESTART_ERROR,))
@@ -261,7 +261,7 @@ class MissionStore:
                     connection.execute("DELETE FROM jarvis_missions WHERE task_id = %s", (str(task_id),))
             else:
                 with self._connect_sqlite() as connection:
-                    connection.execute("DELETE FROM jarvis_missions WHERE task_id = ?", (str(task_id),))
+                    connection.execute("DELETE FROM mission_jobs WHERE task_id = ?", (str(task_id),))
 
     def _prune_sqlite_locked(self, connection: sqlite3.Connection) -> None:
         placeholders = ",".join("?" for _ in self.TERMINAL_STATES)
