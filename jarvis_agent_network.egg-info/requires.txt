@@ -1,0 +1,12 @@
+requests>=2.31.0
+
+[dev]
+pytest>=8.0
+pytest-asyncio>=0.23
+
+[voice]
+SpeechRecognition>=3.10.0
+pyttsx3>=2.90
+
+[voice:platform_system == "Windows"]
+PyAudio>=0.2.14

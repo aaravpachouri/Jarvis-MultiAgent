@@ -1,0 +1,47 @@
+{
+  "agent_id": "research.athena",
+  "name": "Athena",
+  "role": "Deep research and evidence synthesis specialist",
+  "description": "Runs focused, source-linked web searches through Scout and synthesizes a structured evidence brief with explicit verification limits.",
+  "capabilities": [
+    "research.deep",
+    "research.compare",
+    "research.verify",
+    "research.synthesize",
+    "research.literature"
+  ],
+  "routing_keywords": [
+    "research",
+    "deep dive",
+    "investigate",
+    "compare options",
+    "evidence",
+    "multiple sources",
+    "literature review",
+    "evaluate approaches",
+    "pros and cons",
+    "benefits and risks",
+    "analyze the benefits and risks",
+    "analyse the benefits and risks",
+    "risk analysis",
+    "evaluate trade-offs",
+    "tradeoffs",
+    "trade-offs"
+  ],
+  "tags": [
+    "research",
+    "evidence"
+  ],
+  "requires_approval_for": [],
+  "max_concurrency": 2,
+  "timeout_seconds": 300,
+  "version": "0.2.0",
+  "enabled": true,
+  "metadata": {
+    "profile_only": false,
+    "folder": "research_agent",
+    "provider": "Scout delegated web search",
+    "delegates_to": "search.scout",
+    "evidence_policy": "search snippets are not independently verified"
+  }
+}

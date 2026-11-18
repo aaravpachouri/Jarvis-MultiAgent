@@ -1,0 +1,84 @@
+{
+  "agent_id": "search.scout",
+  "name": "Scout",
+  "role": "Reliable web search, scholarly discovery, and source-retrieval specialist",
+  "description": "Searches configured web and scholarly providers with bounded failover, retains valid unique source links and per-provider diagnostics, and reports partial retrieval honestly. Search snippets are discovery evidence, not independent page verification.",
+  "capabilities": [
+    "web.search",
+    "github.discover",
+    "documentation.lookup",
+    "api.discover",
+    "package.discover"
+  ],
+  "routing_keywords": [
+    "search the web",
+    "web search",
+    "search online",
+    "search for",
+    "google",
+    "github",
+    "github profile",
+    "repository url",
+    "find online",
+    "look up",
+    "package",
+    "third-party service",
+    "api docs",
+    "latest documentation"
+  ],
+  "tags": [
+    "retrieval",
+    "web",
+    "fast-path"
+  ],
+  "requires_approval_for": [],
+  "max_concurrency": 4,
+  "timeout_seconds": 20,
+  "version": "0.2.0",
+  "enabled": true,
+  "metadata": {
+    "profile_only": false,
+    "folder": "search_agent",
+    "provider": "Brave and Tavily APIs when configured; DuckDuckGo broad-web fallback; Crossref scholarly metadata for explicit academic queries",
+    "endpoint_env": "JARVIS_SEARCH_ENDPOINT",
+    "timeout_env": "JARVIS_SEARCH_TIMEOUT",
+    "result_count_env": "JARVIS_SEARCH_RESULTS",
+    "provider_env": "JARVIS_SEARCH_PROVIDER",
+    "api_key_env": "BRAVE_SEARCH_API_KEY, TAVILY_API_KEY",
+    "scholarly_provider": "Crossref (no API key; explicit scholarly searches only)",
+    "operator_guide": {
+      "best_for": [
+        "Finding current web pages and sources",
+        "Discovering GitHub repositories and documentation",
+        "Finding APIs, packages, and scholarly references"
+      ],
+      "functions": [
+        {
+          "capability": "web.search",
+          "description": "Search configured broad-web providers and return source links."
+        },
+        {
+          "capability": "github.discover",
+          "description": "Discover GitHub repositories and related project resources."
+        },
+        {
+          "capability": "documentation.lookup",
+          "description": "Find relevant technical documentation."
+        },
+        {
+          "capability": "api.discover",
+          "description": "Discover API documentation and provider endpoints."
+        },
+        {
+          "capability": "package.discover",
+          "description": "Find software packages and package documentation."
+        }
+      ],
+      "boundaries": [
+        "Provider availability depends on configuration; the manifest lists Brave/Tavily when configured, DuckDuckGo fallback, and Crossref for explicit scholarly searches.",
+        "A returned search snippet or link is not proof that the full page was independently verified.",
+        "Partial provider failures and retrieval gaps must remain visible."
+      ]
+    }
+  }
+}

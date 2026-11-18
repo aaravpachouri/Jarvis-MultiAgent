@@ -1,0 +1,25 @@
+name: Dashboard authentication tests
+
+on:
+  pull_request:
+    branches:
+      - publish/jarvis-multiagent
+  push:
+    branches:
+      - fix/secure-dashboard-login
+
+jobs:
+  dashboard-auth:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install project and test dependencies
+        run: python -m pip install -e ".[dev]"
+      - name: Run dashboard authentication tests
+        run: python -m pytest tests/test_dashboard_server.py -q

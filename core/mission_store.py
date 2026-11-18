@@ -125,9 +125,9 @@ class MissionStore:
 
     def _prune_postgres_locked(self, connection) -> None:
         connection.execute("""
-            DELETE FROM mission_jobs
+            DELETE FROM jarvis_missions
             WHERE task_id IN (
-                SELECT task_id FROM mission_jobs
+                SELECT task_id FROM jarvis_missions
                 WHERE status = ANY(%s)
                 ORDER BY updated_at DESC, task_id DESC
                 OFFSET %s
@@ -154,10 +154,10 @@ class MissionStore:
             if self.backend == "postgres":
                 with self._connect_postgres() as connection:
                     connection.execute("""
-                        INSERT INTO mission_jobs (
+                        INSERT INTO jarvis_missions (
                             task_id, agent_id, status, prompt, accepted_at, started_at,
                             finished_at, result_json, error, updated_at
-                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, now())
+                        ) VALUES (%s, %s, %s, %s, %s::timestamptz, %s::timestamptz, %s::timestamptz, %s::jsonb, %s, now())
                         ON CONFLICT(task_id) DO UPDATE SET
                             agent_id=excluded.agent_id,
                             status=excluded.status,
@@ -173,7 +173,7 @@ class MissionStore:
             else:
                 with self._connect_sqlite() as connection:
                     connection.execute("""
-                        INSERT INTO mission_jobs (
+                        INSERT INTO jarvis_missions (
                             task_id, agent_id, status, prompt, accepted_at, started_at,
                             finished_at, result_json, error, updated_at
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
@@ -195,13 +195,13 @@ class MissionStore:
             if self.backend == "postgres":
                 with self._connect_postgres() as connection:
                     row = connection.execute(
-                        "SELECT * FROM mission_jobs WHERE task_id = %s",
+                        "SELECT * FROM jarvis_missions WHERE task_id = %s",
                         (str(task_id),),
                     ).fetchone()
             else:
                 with self._connect_sqlite() as connection:
                     row = connection.execute(
-                        "SELECT * FROM mission_jobs WHERE task_id = ?",
+                        "SELECT * FROM jarvis_missions WHERE task_id = ?",
                         (str(task_id),),
                     ).fetchone()
         return self._decode(row)
@@ -213,14 +213,14 @@ class MissionStore:
             if self.backend == "postgres":
                 with self._connect_postgres() as connection:
                     rows = connection.execute(
-                        "SELECT * FROM mission_jobs ORDER BY accepted_at DESC NULLS LAST, "
+                        "SELECT * FROM jarvis_missions ORDER BY accepted_at DESC NULLS LAST, "
                         "updated_at DESC, task_id DESC LIMIT %s",
                         (count,),
                     ).fetchall()
             else:
                 with self._connect_sqlite() as connection:
                     rows = connection.execute(
-                        "SELECT * FROM mission_jobs ORDER BY accepted_at DESC, rowid DESC LIMIT ?",
+                        "SELECT * FROM jarvis_missions ORDER BY accepted_at DESC, rowid DESC LIMIT ?",
                         (count,),
                     ).fetchall()
         return [item for row in rows if (item := self._decode(row)) is not None]
@@ -231,11 +231,11 @@ class MissionStore:
             if self.backend == "postgres":
                 with self._connect_postgres() as connection:
                     connection.execute("""
-                        UPDATE mission_jobs SET status='interrupted', error=%s, updated_at=now()
+                        UPDATE jarvis_missions SET status='interrupted', error=%s, updated_at=now()
                         WHERE status IN ('queued', 'running')
                     """, (RESTART_ERROR,))
                     rows = connection.execute(
-                        "SELECT * FROM mission_jobs ORDER BY accepted_at DESC NULLS LAST, "
+                        "SELECT * FROM jarvis_missions ORDER BY accepted_at DESC NULLS LAST, "
                         "updated_at DESC LIMIT %s",
                         (self.max_retained + 64,),
                     ).fetchall()
@@ -243,12 +243,12 @@ class MissionStore:
             else:
                 with self._connect_sqlite() as connection:
                     connection.execute("""
-                        UPDATE mission_jobs
+                        UPDATE jarvis_missions
                         SET status='interrupted', error=?, updated_at=CURRENT_TIMESTAMP
                         WHERE status IN ('queued', 'running')
                     """, (RESTART_ERROR,))
                     rows = connection.execute(
-                        "SELECT * FROM mission_jobs ORDER BY accepted_at DESC, rowid DESC LIMIT ?",
+                        "SELECT * FROM jarvis_missions ORDER BY accepted_at DESC, rowid DESC LIMIT ?",
                         (self.max_retained + 64,),
                     ).fetchall()
                     self._prune_sqlite_locked(connection)
@@ -258,17 +258,17 @@ class MissionStore:
         with self._lock:
             if self.backend == "postgres":
                 with self._connect_postgres() as connection:
-                    connection.execute("DELETE FROM mission_jobs WHERE task_id = %s", (str(task_id),))
+                    connection.execute("DELETE FROM jarvis_missions WHERE task_id = %s", (str(task_id),))
             else:
                 with self._connect_sqlite() as connection:
-                    connection.execute("DELETE FROM mission_jobs WHERE task_id = ?", (str(task_id),))
+                    connection.execute("DELETE FROM jarvis_missions WHERE task_id = ?", (str(task_id),))
 
     def _prune_sqlite_locked(self, connection: sqlite3.Connection) -> None:
         placeholders = ",".join("?" for _ in self.TERMINAL_STATES)
         connection.execute(f"""
-            DELETE FROM mission_jobs
+            DELETE FROM jarvis_missions
             WHERE task_id IN (
-                SELECT task_id FROM mission_jobs
+                SELECT task_id FROM jarvis_missions
                 WHERE status IN ({placeholders})
                 ORDER BY updated_at DESC, rowid DESC
                 LIMIT -1 OFFSET ?

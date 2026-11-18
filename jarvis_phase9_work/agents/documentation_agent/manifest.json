@@ -1,0 +1,62 @@
+{
+  "agent_id": "documentation.scribe",
+  "name": "Scribe",
+  "role": "Writing, documentation and structured document drafting specialist",
+  "description": "Creates evidence-grounded emails, reports, meeting notes, proposals, installation guides, READMEs and technical documentation drafts from supplied context; does not write files or claim independent verification.",
+  "capabilities": [
+    "documentation.write",
+    "documentation.update",
+    "documentation.api",
+    "documentation.release_notes",
+    "documentation.architecture",
+    "writing.email",
+    "writing.report",
+    "writing.notes",
+    "writing.proposal"
+  ],
+  "routing_keywords": [
+    "documentation",
+    "document",
+    "readme",
+    "api reference",
+    "changelog",
+    "installation guide",
+    "release notes",
+    "architecture docs",
+    "write docs",
+    "draft an email",
+    "write an email",
+    "email draft",
+    "write a report",
+    "status report",
+    "meeting notes",
+    "meeting minutes",
+    "organize these notes",
+    "project proposal",
+    "email",
+    "professional email",
+    "draft email",
+    "draft a professional email",
+    "write email"
+  ],
+  "tags": [
+    "writing",
+    "engineering-support",
+    "draft-only"
+  ],
+  "requires_approval_for": [
+    "filesystem.write",
+    "external_publish"
+  ],
+  "max_concurrency": 2,
+  "timeout_seconds": 120,
+  "version": "0.2.0",
+  "enabled": true,
+  "metadata": {
+    "profile_only": false,
+    "folder": "documentation_agent",
+    "execution_mode": "draft_only",
+    "writes_files": false,
+    "independent_verification": false
+  }
+}
