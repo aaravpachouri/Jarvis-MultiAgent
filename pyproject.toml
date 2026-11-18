@@ -13,6 +13,7 @@ authors = [{ name = "JARVIS X Project" }]
 dependencies = ["requests>=2.31.0"]
 
 [project.optional-dependencies]
+hosted = ["psycopg[binary]==3.2.9"]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
 voice = [
     "SpeechRecognition>=3.10.0",

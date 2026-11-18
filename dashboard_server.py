@@ -765,6 +765,13 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"authenticated": authenticated, "auth_required": configured})
         if path.startswith("/api/") and not self._authorize_api():
             return
+        if path == "/api/health":
+            storage = APP.mission_store.health()
+            return self._send(200 if storage.get("ok") else 503, {
+                "ok": bool(storage.get("ok")),
+                "service": "jarvis-multiagent-api",
+                "storage": storage,
+            })
         if path == "/api/overview":
             return self._send(200, APP.overview())
         if path == "/api/agents":

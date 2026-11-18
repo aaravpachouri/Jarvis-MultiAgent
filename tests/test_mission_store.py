@@ -93,3 +93,133 @@ def test_recent_mission_history_returns_bounded_summaries(tmp_path):
     assert history[0]["task_id"] == "history-task"
     assert history[0]["summary"] == "Mission completed"
     assert len(history[0]["output_preview"]) <= 1000
+
+
+def test_mission_store_health_reports_sqlite_backend(tmp_path):
+    store = MissionStore(tmp_path / "health.sqlite3")
+    assert store.health() == {"ok": True, "backend": "sqlite"}
+
+
+def test_mission_store_rejects_malformed_records(tmp_path):
+    store = MissionStore(tmp_path / "validation.sqlite3")
+    try:
+        store.upsert({"task_id": "missing-agent", "status": "queued"})
+    except ValueError as exc:
+        assert "task_id, agent_id and status" in str(exc)
+    else:
+        raise AssertionError("Expected invalid mission record to be rejected")
+
+
+def test_mission_store_postgres_configuration_requires_driver(monkeypatch, tmp_path):
+    import builtins
+    original_import = builtins.__import__
+
+    def blocked_import(name, *args, **kwargs):
+        if name == "psycopg" or name.startswith("psycopg."):
+            raise ImportError("test driver unavailable")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", blocked_import)
+    try:
+        MissionStore(tmp_path / "unused.sqlite3", database_url="postgresql://invalid")
+    except RuntimeError as exc:
+        assert "hosted extra" in str(exc)
+    else:
+        raise AssertionError("Expected clear missing-driver error")
+
+
+def test_supabase_edge_mission_store_uses_authenticated_gateway(tmp_path, monkeypatch):
+    import json
+
+    calls = []
+    job = _job("edge-task", "succeeded")
+    job["result"] = {"summary": "Stored remotely"}
+
+    class FakeResponse:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self.payload
+
+    def fake_post(url, *, json, headers, timeout):
+        payload = json
+        calls.append((url, payload, headers, timeout))
+        operation = payload["operation"]
+        if operation == "get":
+            return FakeResponse({"ok": True, "record": {
+                **{key: value for key, value in job.items() if key != "result"},
+                "result": job["result"],
+            }})
+        if operation == "list":
+            return FakeResponse({"ok": True, "records": [{
+                **{key: value for key, value in job.items() if key != "result"},
+                "result": job["result"],
+            }]})
+        if operation == "recover":
+            return FakeResponse({"ok": True, "records": []})
+        return FakeResponse({"ok": True})
+
+    monkeypatch.setattr("core.mission_store.requests.post", fake_post)
+    store = MissionStore(
+        tmp_path / "unused.sqlite3",
+        supabase_function_url="https://example.supabase.co/functions/v1/jarvis-mission-store",
+        supabase_function_token="a" * 64,
+    )
+
+    store.upsert(job)
+    assert store.backend == "supabase-edge"
+    assert store.path is None
+    assert store.get("edge-task")["result"] == {"summary": "Stored remotely"}
+    assert store.list_recent(5)[0]["task_id"] == "edge-task"
+    assert store.recover_interrupted() == []
+    store.delete("edge-task")
+    assert store.health() == {"ok": True, "backend": "supabase-edge"}
+
+    assert [call[1]["operation"] for call in calls] == [
+        "upsert", "get", "list", "recover", "delete", "health",
+    ]
+    assert calls[0][1]["job"]["result"] == {"summary": "Stored remotely"}
+    assert calls[0][2]["Authorization"] == f"Bearer {'a' * 64}"
+    assert calls[0][3] == (5, 20)
+
+
+def test_supabase_edge_mission_store_requires_both_credentials(tmp_path):
+    try:
+        MissionStore(
+            tmp_path / "unused.sqlite3",
+            supabase_function_url="https://example.supabase.co/functions/v1/jarvis-mission-store",
+        )
+    except RuntimeError as exc:
+        assert "must be configured together" in str(exc)
+    else:
+        raise AssertionError("Expected incomplete Supabase configuration to fail")
+
+
+def test_supabase_edge_mission_store_surfaces_gateway_failures_safely(tmp_path, monkeypatch):
+    import requests
+
+    class FakeResponse:
+        status_code = 503
+
+        def raise_for_status(self):
+            raise requests.HTTPError("private provider response", response=self)
+
+    def fake_post(*args, **kwargs):
+        return FakeResponse()
+
+    monkeypatch.setattr("core.mission_store.requests.post", fake_post)
+    store = MissionStore(
+        tmp_path / "unused.sqlite3",
+        supabase_function_url="https://example.supabase.co/functions/v1/jarvis-mission-store",
+        supabase_function_token="b" * 64,
+    )
+    health = store.health()
+    assert health == {
+        "ok": False,
+        "backend": "supabase-edge",
+        "error_type": "RuntimeError",
+    }
