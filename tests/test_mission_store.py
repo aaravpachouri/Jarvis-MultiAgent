@@ -93,3 +93,36 @@ def test_recent_mission_history_returns_bounded_summaries(tmp_path):
     assert history[0]["task_id"] == "history-task"
     assert history[0]["summary"] == "Mission completed"
     assert len(history[0]["output_preview"]) <= 1000
+
+
+def test_mission_store_health_reports_sqlite_backend(tmp_path):
+    store = MissionStore(tmp_path / "health.sqlite3")
+    assert store.health() == {"ok": True, "backend": "sqlite"}
+
+
+def test_mission_store_rejects_malformed_records(tmp_path):
+    store = MissionStore(tmp_path / "validation.sqlite3")
+    try:
+        store.upsert({"task_id": "missing-agent", "status": "queued"})
+    except ValueError as exc:
+        assert "task_id, agent_id and status" in str(exc)
+    else:
+        raise AssertionError("Expected invalid mission record to be rejected")
+
+
+def test_mission_store_postgres_configuration_requires_driver(monkeypatch, tmp_path):
+    import builtins
+    original_import = builtins.__import__
+
+    def blocked_import(name, *args, **kwargs):
+        if name == "psycopg" or name.startswith("psycopg."):
+            raise ImportError("test driver unavailable")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", blocked_import)
+    try:
+        MissionStore(tmp_path / "unused.sqlite3", database_url="postgresql://invalid")
+    except RuntimeError as exc:
+        assert "hosted extra" in str(exc)
+    else:
+        raise AssertionError("Expected clear missing-driver error")

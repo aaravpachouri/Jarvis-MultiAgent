@@ -537,3 +537,17 @@ The optional Windows desktop companion has been removed from this project. Atlas
 Athena now has a deterministic, ten-scenario evidence benchmark covering source relevance, substantive extraction, all four Tavily Search API evidence dimensions, Scout provenance, duplicate sources, partial failures, and cross-topic regression behavior. The benchmark uses labelled synthetic fixtures only; it makes no live-provider accuracy claim.
 
 Run it with `python -m evaluation.athena_benchmark`. See [the research protocol](docs/ATHENA_RESEARCH_LAB.md) for the methodology, metrics, limitations and next experiments. Relevant CI runs publish the machine-readable report as an artifact.
+
+
+### Hosted mission persistence (Supabase Free)
+
+JARVIS uses SQLite by default for local installations. For hosted deployments, configure
+`JARVIS_DATABASE_URL` with the private PostgreSQL connection string from the dedicated
+JARVIS Supabase project. Install the pinned driver using `pip install -e ".[hosted]"`.
+The backend writes only to the `jarvis_private.jarvis_missions` schema; do not use a
+publishable/anon key. Keep the database URL in Render's private environment variables,
+never in the frontend or source control. The `/api/health` endpoint reports storage
+backend health without exposing connection details.
+
+The Supabase Free project may pause after inactivity and has usage limits. JARVIS remains
+on the Render Free and Supabase Free plans; do not enable paid upgrades or add-ons.
