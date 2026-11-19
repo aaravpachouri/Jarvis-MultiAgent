@@ -122,7 +122,52 @@
     return `<details class="result-limitations"><summary>Data-quality notes</summary><p>${esc(value)}</p></details>`;
   }
 
+  function parseStructuredPayload(raw) {
+    if (raw && typeof raw === 'object') return raw;
+    if (typeof raw !== 'string') return null;
+    const source = raw.trim();
+    if (!(source.startsWith('{') || source.startsWith('['))) return null;
+    try { const parsed = JSON.parse(source); return parsed && typeof parsed === 'object' ? parsed : null; } catch { return null; }
+  }
+
+  function humanizeKey(value) { return String(value || 'Detail').replace(/[_-]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase()); }
+  function scalarText(value) {
+    if (value === null || value === undefined || value === '') return 'Not provided';
+    if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+    if (typeof value === 'number') return Number.isFinite(value) ? value.toLocaleString() : 'Not available';
+    if (typeof value === 'string') return value;
+    return '';
+  }
+  function renderStructuredObject(data, raw, options = {}) {
+    const compact = Boolean(options.compact);
+    const title = data.report_type === 'daily_india_market_brief' ? 'Daily Indian Market Brief' : data.title || data.summary_title || 'Agent Result';
+    const status = String(data.status || data.mission_status || 'returned').toLowerCase();
+    const statusClass = ['succeeded','success','completed'].includes(status) ? 'success' : ['failed','error','partial','timed_out'].includes(status) ? 'warning' : 'unknown';
+    const generated = data.generated_at_utc || data.retrieved_at_utc || data.timestamp || '';
+    const summary = data.summary || data.overview || data.market_pulse || data.message || '';
+    const indexRows = data.indexes && typeof data.indexes === 'object' ? Object.entries(data.indexes).map(([name, item]) => ({index:name,...item})) : [];
+    const table = (heading, rows, columns) => rows.length ? '<section class="result-object-group"><h4>' + esc(heading) + '</h4><div class="result-table-wrap"><table class="result-table"><thead><tr>' + columns.map(col => '<th>' + esc(humanizeKey(col.label)) + '</th>').join('') + '</tr></thead><tbody>' + rows.slice(0,15).map(row => '<tr>' + columns.map(col => '<td>' + esc(scalarText(row[col.key])) + '</td>').join('') + '</tr>').join('') + '</tbody></table></div>' + (rows.length > 15 ? '<p class="result-muted">Showing 15 of ' + rows.length + ' records.</p>' : '') + '</section>' : '';
+    const indexMarkup = table('Market indices', indexRows, [{key:'index',label:'Index'},{key:'close',label:'Latest close'},{key:'change_1d_pct',label:'1-day %'},{key:'change_5d_pct',label:'5-day %'},{key:'change_20d_pct',label:'20-day %'},{key:'rsi14',label:'RSI 14'}]);
+    const leaders = Array.isArray(data.gainers_in_monitored_universe) ? data.gainers_in_monitored_universe : Array.isArray(data.research_shortlist) ? data.research_shortlist : [];
+    const leaderMarkup = table('Leading monitored stocks', leaders, [{key:'ticker',label:'Ticker'},{key:'name',label:'Company'},{key:'close',label:'Latest close'},{key:'change_1d_pct',label:'1-day %'},{key:'change_5d_pct',label:'5-day %'},{key:'rsi14',label:'RSI 14'}]);
+    const omit = new Set(['indexes','gainers_in_monitored_universe','research_shortlist','raw','full_runtime_output','debug','stack']);
+    const entries = Object.entries(data).filter(([key]) => !omit.has(key));
+    const scalar = entries.filter(([,v]) => v === null || ['string','number','boolean'].includes(typeof v));
+    const nested = entries.filter(([,v]) => v && typeof v === 'object');
+    const fields = scalar.map(([key,value]) => '<div class="result-field"><span>' + esc(humanizeKey(key)) + '</span><strong>' + esc(scalarText(value)) + '</strong></div>').join('');
+    const groups = nested.map(([key,value]) => {
+      if (Array.isArray(value)) {
+        const rows = value.filter(item => item && typeof item === 'object').slice(0,12);
+        if (rows.length) { const cols = [...new Set(rows.flatMap(item => Object.keys(item)))].slice(0,5); return table(humanizeKey(key), rows, cols.map(col => ({key:col,label:col}))); }
+        return value.length ? '<section class="result-object-group"><h4>' + esc(humanizeKey(key)) + '</h4><ul>' + value.slice(0,12).map(item => '<li>' + esc(scalarText(item) || JSON.stringify(item)) + '</li>').join('') + '</ul></section>' : '';
+      }
+      return '<section class="result-object-group"><h4>' + esc(humanizeKey(key)) + '</h4>' + Object.entries(value).map(([k,v]) => '<div class="result-field"><span>' + esc(humanizeKey(k)) + '</span><strong>' + esc(scalarText(v) || JSON.stringify(v)) + '</strong></div>').join('') + '</section>';
+    }).join('');
+    return '<section class="result-rich result-structured' + (compact ? ' compact' : '') + '" aria-label="Readable structured agent result"><header class="result-head"><div><div class="result-eyebrow">' + esc(data.agent || data.provider || 'JARVIS RESULT') + '</div><h3>' + esc(title) + '</h3>' + (generated ? '<p>Generated ' + esc(generated) + '</p>' : '') + '</div><span class="result-status ' + statusClass + '">' + esc(status.toUpperCase()) + '</span></header>' + (summary ? '<section class="result-outcome"><div class="result-outcome-icon">◎</div><div><strong>In plain English</strong><p>' + esc(summary) + '</p></div></section>' : '') + (data.market ? '<p class="result-muted">' + esc(data.market) + ' · Latest session: ' + esc(data.latest_session || 'Not supplied') + '</p>' : '') + indexMarkup + leaderMarkup + (fields ? '<div class="result-object-fields">' + fields + '</div>' : '') + groups + (data.disclaimer ? '<section class="result-data-warning"><span>!</span><div><strong>Important limitation</strong><p>' + esc(data.disclaimer) + '</p></div></section>' : '') + renderRawDetails(typeof raw === 'string' ? raw : JSON.stringify(raw, null, 2), 'Technical data (JSON)') + '</section>';
+  }
   function renderGeneric(raw, options = {}) {
+    const structured = parseStructuredPayload(raw);
+    if (structured && !Array.isArray(structured)) return renderStructuredObject(structured, raw, options);
     const compact = Boolean(options.compact);
     const text = asText(raw).trim();
     if (!text) return '<div class="result-note">The runtime did not return result text.</div>';
