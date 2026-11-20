@@ -28,8 +28,10 @@ def test_dashboard_loads_result_and_conversation_helpers_before_main_app():
 
 def test_mission_result_surfaces_full_answers_in_the_central_conversation():
     app = APP_JS.read_text(encoding="utf-8")
-    assert "renderTaskResult(latest.output)" in app
-    assert "renderTaskResult(output)" in app
+    assert "renderTaskResult(latest.output, latest.agentId || latest.agent_id)" in app
+    assert "renderTaskResult(output, entry.agentId || entry.agent_id)" in app
+    assert "renderTaskResult(r.output || r.error || r.summary || 'No output', r.agent_id)" in app
+    assert "agentId !== 'trading.quant'" in app
     assert "renderConversation()" in app
     assert "getMissionCoordination(state.liveEvents || [], entry.taskId)" in app
     assert "OPEN FULL RESPONSE ↗" in app
