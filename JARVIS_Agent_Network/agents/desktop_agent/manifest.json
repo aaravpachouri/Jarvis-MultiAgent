@@ -1,0 +1,45 @@
+{
+  "agent_id": "desktop.atlas",
+  "name": "Atlas",
+  "role": "Local desktop and file-system specialist",
+  "description": "Works with explicitly authorized local folders, file inspection and artifact saving; may later operate approved desktop applications through a local bridge.",
+  "capabilities": [
+    "desktop.inspect",
+    "filesystem.read",
+    "filesystem.write",
+    "desktop.automation",
+    "artifact.save"
+  ],
+  "routing_keywords": [
+    "on my computer",
+    "on my pc",
+    "local file",
+    "save the file",
+    "save a report",
+    "folder",
+    "file explorer",
+    "open app",
+    "desktop",
+    "download to my computer"
+  ],
+  "tags": [
+    "local",
+    "desktop",
+    "filesystem"
+  ],
+  "requires_approval_for": [
+    "filesystem.delete",
+    "system.shutdown",
+    "external_send",
+    "filesystem.write",
+    "desktop.automation"
+  ],
+  "max_concurrency": 1,
+  "timeout_seconds": 120,
+  "version": "0.1.0",
+  "enabled": true,
+  "metadata": {
+    "profile_only": true,
+    "folder": "desktop_agent"
+  }
+}

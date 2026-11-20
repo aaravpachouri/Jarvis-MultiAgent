@@ -1,0 +1,62 @@
+{
+  "agent_id": "systems.atlas",
+  "name": "Atlas",
+  "role": "Systems and API orchestration specialist",
+  "description": "Executable read-only specialist for designing API integrations, service workflows, failure handling, and rollout gates. Does not call external systems or change infrastructure.",
+  "capabilities": [
+    "systems.orchestration",
+    "api.integration",
+    "software.workflow"
+  ],
+  "routing_keywords": [
+    "systems integration",
+    "API orchestration",
+    "service integration",
+    "software services",
+    "infrastructure workflow"
+  ],
+  "tags": [
+    "systems",
+    "api",
+    "orchestration"
+  ],
+  "requires_approval_for": [
+    "external_send",
+    "infrastructure.change",
+    "data.write"
+  ],
+  "max_concurrency": 2,
+  "timeout_seconds": 120,
+  "version": "0.2.0",
+  "enabled": true,
+  "metadata": {
+    "profile_only": false,
+    "folder": "atlas_agent",
+    "execution_mode": "read_only_planner",
+    "operator_guide": {
+      "best_for": [
+        "Designing API and service integrations",
+        "Mapping system-to-system workflows",
+        "Reviewing failure handling and integration risks"
+      ],
+      "functions": [
+        {
+          "capability": "systems.orchestration",
+          "description": "Design the coordination of multiple services or system components."
+        },
+        {
+          "capability": "api.integration",
+          "description": "Specify API integration approaches, contracts, and integration boundaries."
+        },
+        {
+          "capability": "software.workflow",
+          "description": "Map software and service workflows, including dependencies and failure paths."
+        }
+      ],
+      "boundaries": [
+        "Current handler is read-only planning; it does not call third-party APIs or operate infrastructure.",
+        "It does not change settings, write data, or send external communications."
+      ]
+    }
+  }
+}

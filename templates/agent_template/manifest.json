@@ -1,0 +1,24 @@
+{
+  "agent_id": "example.template",
+  "name": "Agent Template",
+  "role": "Template for future specialist agents",
+  "description": "A non-executable example manifest and module showing how to add a new specialist without changing the shared core.",
+  "capabilities": [
+    "example.template"
+  ],
+  "routing_keywords": [
+    "example template agent"
+  ],
+  "tags": [
+    "template"
+  ],
+  "requires_approval_for": [],
+  "max_concurrency": 1,
+  "timeout_seconds": 60,
+  "version": "0.1.0",
+  "enabled": true,
+  "metadata": {
+    "profile_only": true,
+    "folder": "agent_template"
+  }
+}
