@@ -166,7 +166,7 @@
     return '<section class="result-rich result-structured' + (compact ? ' compact' : '') + '" aria-label="Readable structured agent result"><header class="result-head"><div><div class="result-eyebrow">' + esc(data.agent || data.provider || 'JARVIS RESULT') + '</div><h3>' + esc(title) + '</h3>' + (generated ? '<p>Generated ' + esc(generated) + '</p>' : '') + '</div><span class="result-status ' + statusClass + '">' + esc(status.toUpperCase()) + '</span></header>' + (summary ? '<section class="result-outcome"><div class="result-outcome-icon">◎</div><div><strong>In plain English</strong><p>' + esc(summary) + '</p></div></section>' : '') + (data.market ? '<p class="result-muted">' + esc(data.market) + ' · Latest session: ' + esc(data.latest_session || 'Not supplied') + '</p>' : '') + indexMarkup + leaderMarkup + (fields ? '<div class="result-object-fields">' + fields + '</div>' : '') + groups + (data.disclaimer ? '<section class="result-data-warning"><span>!</span><div><strong>Important limitation</strong><p>' + esc(data.disclaimer) + '</p></div></section>' : '') + renderRawDetails(typeof raw === 'string' ? raw : JSON.stringify(raw, null, 2), 'Technical data (JSON)') + '</section>';
   }
   function renderGeneric(raw, options = {}) {
-    const structured = parseStructuredPayload(raw);
+    const structured = options.readableStructured ? parseStructuredPayload(raw) : null;
     if (structured && !Array.isArray(structured)) return renderStructuredObject(structured, raw, options);
     const compact = Boolean(options.compact);
     const text = asText(raw).trim();
