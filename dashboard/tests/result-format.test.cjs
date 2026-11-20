@@ -108,7 +108,7 @@ test("structured JSON agent output is rendered as a readable report with technic
       { ticker: "SBIN.NS", name: "State Bank of India", close: 1135, change_1d_pct: 2.38, change_5d_pct: 6.95, rsi14: 86.4 }
     ]
   };
-  const html = sandbox.window.JARVISResultFormatter.render(JSON.stringify(payload));
+  const html = sandbox.window.JARVISResultFormatter.render(JSON.stringify(payload), { readableStructured: true });
   assert.match(html, /result-structured/);
   assert.match(html, /Daily Indian Market Brief/);
   assert.match(html, /Market indices/);
@@ -116,4 +116,12 @@ test("structured JSON agent output is rendered as a readable report with technic
   assert.match(html, /State Bank of India/);
   assert.match(html, /Technical data \(JSON\)/);
   assert.doesNotMatch(html, /<script>/i);
+});
+
+
+test("structured JSON stays on the legacy renderer unless explicitly enabled", () => {
+  const raw = JSON.stringify({ report_type: "daily_india_market_brief", indexes: { "Nifty 50": { close: 25000 } } });
+  const html = sandbox.window.JARVISResultFormatter.render(raw, { readableStructured: false });
+  assert.doesNotMatch(html, /result-structured/);
+  assert.match(html, /result-generic/);
 });
