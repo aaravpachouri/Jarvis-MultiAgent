@@ -110,3 +110,43 @@ def test_athena_benchmark_endpoint_remains_session_protected(monkeypatch):
     handler.do_GET()
 
     assert sent == []
+
+
+def test_public_health_endpoint_is_minimal_and_does_not_require_dashboard_auth(monkeypatch):
+    sent = []
+    handler = object.__new__(dashboard_server.Handler)
+    handler.path = "/healthz"
+    monkeypatch.setattr(
+        dashboard_server.Handler,
+        "_authorize_api",
+        lambda self: (_ for _ in ()).throw(AssertionError("health probe must not require a session")),
+    )
+    monkeypatch.setattr(
+        dashboard_server.Handler,
+        "_send",
+        lambda self, status, payload, *args: sent.append((status, payload)),
+    )
+
+    handler.do_GET()
+
+    assert sent == [(200, {"ok": True, "service": "jarvis-multiagent-api"})]
+
+
+def test_api_health_endpoint_is_also_public_for_same_origin_vercel_proxy(monkeypatch):
+    sent = []
+    handler = object.__new__(dashboard_server.Handler)
+    handler.path = "/api/healthz"
+    monkeypatch.setattr(
+        dashboard_server.Handler,
+        "_authorize_api",
+        lambda self: (_ for _ in ()).throw(AssertionError("health probe must not require a session")),
+    )
+    monkeypatch.setattr(
+        dashboard_server.Handler,
+        "_send",
+        lambda self, status, payload, *args: sent.append((status, payload)),
+    )
+
+    handler.do_GET()
+
+    assert sent == [(200, {"ok": True, "service": "jarvis-multiagent-api"})]
