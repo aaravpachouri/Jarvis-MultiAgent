@@ -31,3 +31,16 @@ jobs:
           grep -Eiq '^content-type: application/json([;[:space:]]|$)' login.headers
           python -c "import json; data=json.load(open('login.body', encoding='utf-8')); assert isinstance(data, dict); assert 'error' in data or data.get('authenticated') is True; print('Login POST returned valid JSON; response class:', 'error' if 'error' in data else 'authenticated')"
           case "$code" in 400|401|429|503) ;; *) echo "Unexpected status from login endpoint"; exit 1 ;; esac
+
+      - name: Verify mission APIs remain protected without a session
+        shell: bash
+        run: |
+          set -euo pipefail
+          for endpoint in agents missions/history; do
+            code="$(curl --silent --show-error --retry 3 --retry-all-errors --retry-delay 2 --max-time 20 --output protected.body --dump-header protected.headers --write-out '%{http_code}' "https://jarvis-multiagent-dashboard.vercel.app/api/$endpoint")"
+            echo "/api/$endpoint unauthenticated status: $code"
+            test "$code" = "401"
+            grep -Eiq '^content-type: application/json([;[:space:]]|$)' protected.headers
+            python -c "import json; data=json.load(open('protected.body', encoding='utf-8')); assert isinstance(data, dict) and data.get('error'); print('Protected endpoint correctly returned JSON authentication error')"
+          done
+
