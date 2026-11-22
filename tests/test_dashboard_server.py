@@ -150,3 +150,26 @@ def test_api_health_endpoint_is_also_public_for_same_origin_vercel_proxy(monkeyp
     handler.do_GET()
 
     assert sent == [(200, {"ok": True, "service": "jarvis-multiagent-api"})]
+
+
+def test_dashboard_responses_include_complete_security_headers(monkeypatch):
+    import io
+
+    handler = object.__new__(dashboard_server.Handler)
+    sent_headers = {}
+    handler.wfile = io.BytesIO()
+    monkeypatch.setattr(dashboard_server.Handler, "send_response", lambda self, status: setattr(self, "_test_status", status))
+    monkeypatch.setattr(
+        dashboard_server.Handler,
+        "send_header",
+        lambda self, key, value: sent_headers.__setitem__(key.lower(), value),
+    )
+    monkeypatch.setattr(dashboard_server.Handler, "end_headers", lambda self: None)
+
+    handler._send(200, {"ok": True})
+
+    assert handler._test_status == 200
+    assert sent_headers["strict-transport-security"] == "max-age=63072000; includeSubDomains; preload"
+    assert sent_headers["x-frame-options"] == "DENY"
+    assert "frame-ancestors 'none'" in sent_headers["content-security-policy"]
+    assert sent_headers["permissions-policy"] == "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
