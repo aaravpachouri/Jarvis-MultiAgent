@@ -757,6 +757,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urlparse(self.path).path
+        # Minimal public health endpoint for Render and deployment probes.
+        # It deliberately exposes no credentials, provider state, or storage paths.
+        if path in {"/healthz", "/api/healthz"}:
+            return self._send(200, {"ok": True, "service": "jarvis-multiagent-api"})
         if path == "/api/auth/session":
             configured = bool(os.environ.get("JARVIS_DASHBOARD_ACCESS_KEY", "").strip())
             if not configured and os.environ.get("RENDER"):
