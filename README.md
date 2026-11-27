@@ -12,6 +12,7 @@ Built by [Aarav Pachouri](https://github.com/aaravpachouri) as a solo project.
 
 - **One front door.** JARVIS takes a request, works out which specialists apply, and delegates. Compound requests are split across agents.
 - **Ten agents, each with a narrow job.** Scout (search), Athena (research and evidence), Forge (code, inside a bounded workspace), Planner, Scribe (documents), Atlas (systems and API plans), Launch (deployment preflight), Quant (market research), Memory & Notes, and JARVIS itself.
+- **Better routing.** Everyday phrasing like "plan a 4-week study schedule" or "integrate the Stripe API" reaches the right agent, with regression tests. Duration-based goals get a week-by-week plan.
 - **Truthful status.** An agent shows `ready` only if a real handler is registered. Not-yet-built work is reported, not faked.
 - **Safe by design.** Quant never places trades. Atlas and Launch only produce plans. Forge verifies its writes and can roll back a failed change. Web pages and documents are treated as untrusted input.
 - **Model-optional.** Routing, planning and note-taking work with no API key. A provider chain (Gemini, then Groq, then local Ollama) adds open-ended chat.
@@ -35,11 +36,11 @@ python dashboard_server.py    # dashboard at http://127.0.0.1:8765
 ## Tests
 
 ```bash
-python -m pytest -q                       # 426 Python tests
+python -m pytest -q                       # 457 Python tests
 node --test dashboard/tests/*.test.cjs    # 30 dashboard tests
 ```
 
-All 456 pass on this branch. CI runs the same suite on Ubuntu and Windows (`.github/workflows/agent-network-ci.yml`).
+All 487 pass on this branch. CI runs the same suite on Ubuntu and Windows (`.github/workflows/agent-network-ci.yml`).
 
 ## How it fits together
 
@@ -70,4 +71,4 @@ Each agent is a folder with a `manifest.json`, an `agent.py` and `instructions.m
 
 ## License
 
-All rights reserved for now. The author has not yet picked an open-source license.
+[MIT](LICENSE)

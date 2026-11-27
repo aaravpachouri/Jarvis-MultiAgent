@@ -8,6 +8,18 @@ from .registry import AgentRegistry
 _WORD_RE = re.compile(r"[a-z0-9_+#.-]+", re.IGNORECASE)
 
 
+def _stem(word: str) -> str:
+    """Tiny suffix stemmer so "plans", "planning" and "plan" match each other."""
+    word = word.casefold()
+    for suffix in ("ing", "ed", "es", "s"):
+        if len(word) > len(suffix) + 3 and word.endswith(suffix):
+            word = word[: -len(suffix)]
+            break
+    if len(word) > 4 and word[-1] == word[-2] and word[-1] not in "aeiou":
+        word = word[:-1]  # "planning" -> "plann" -> "plan"
+    return word
+
+
 @dataclass(frozen=True, slots=True)
 class RouteMatch:
     agent_id: str
@@ -42,6 +54,7 @@ class CapabilityRouter:
             return []
         excluded = {str(item).strip().lower() for item in exclude}
         words = set(_WORD_RE.findall(text))
+        stems = {_stem(word) for word in words}
         matches: list[RouteMatch] = []
         for spec in self.registry.list(enabled_only=True):
             if spec.agent_id in excluded:
@@ -56,7 +69,7 @@ class CapabilityRouter:
                 if " " in phrase and phrase in text:
                     score += 3.0
                     matched.append(phrase)
-                elif " " not in phrase and phrase in words:
+                elif " " not in phrase and (phrase in words or _stem(phrase) in stems):
                     score += 1.0
                     matched.append(phrase)
             capability_tokens: set[str] = set()

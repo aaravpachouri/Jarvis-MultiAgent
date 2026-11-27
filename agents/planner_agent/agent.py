@@ -45,15 +45,20 @@ class PlannerAgent:
                 "user_supplied_milestones" if explicit_milestones else "steps_extracted_from_request"
             )
         else:
-            step_titles = self._default_steps(goal)
-            plan_basis = "goal_decomposition"
+            timeboxed = self._timeboxed_steps(goal)
+            if timeboxed:
+                step_titles = timeboxed
+                plan_basis = "timeboxed_goal_decomposition"
+            else:
+                step_titles = self._default_steps(goal)
+                plan_basis = "goal_decomposition"
 
         # A list is an order, not proof of a dependency. Only language that
         # explicitly describes a sequence creates edges automatically.
         sequential = (
             plan_basis == "steps_extracted_from_request"
             and bool(re.search(r"\b(?:then|after that|once|when completed)\b", prompt, re.IGNORECASE))
-        )
+        ) or plan_basis == "timeboxed_goal_decomposition"
         available_agents = supplied.get("available_executable_agents", [])
         if not isinstance(available_agents, list):
             available_agents = []
@@ -146,6 +151,34 @@ class PlannerAgent:
         parts = re.split(r"\s*(?:;|\n|\bthen\b|\bafter that\b)\s*", body, flags=re.I)
         cleaned = [part.strip(" .;:-") for part in parts if part.strip(" .;:-")]
         return cleaned if len(cleaned) >= 2 else []
+
+    @staticmethod
+    def _timeboxed_steps(goal: str) -> list[str]:
+        """Split a goal like "a 4-week SAT study plan" into one phase per period.
+
+        Only fires for an explicit duration of 2 to 12 days/weeks/months, so a
+        plan is never padded with invented periods.
+        """
+        match = re.search(r"\b(\d{1,2})[\s-]*(day|week|month)s?\b", goal, re.IGNORECASE)
+        if not match:
+            return []
+        count, unit = int(match.group(1)), match.group(2).lower().capitalize()
+        if not 2 <= count <= 12:
+            return []
+        subject = re.sub(r"\s+", " ", goal).strip().rstrip(".")
+        steps = [f"Baseline and setup: define the target, measure the starting point and set the schedule for: {subject}"]
+        for number in range(1, count + 1):
+            if number == 1:
+                focus = "build foundations and fix the biggest gaps first"
+            elif number == count:
+                focus = "full-length practice or final run-through, then close remaining gaps"
+            elif number == count - 1:
+                focus = "work under realistic conditions and review mistakes"
+            else:
+                focus = "practice the next-priority areas and review mistakes"
+            steps.append(f"{unit} {number}: {focus}")
+        steps.append("Final review: compare results to the baseline and decide what to repeat or adjust")
+        return steps
 
     @staticmethod
     def _default_steps(goal: str) -> list[str]:
