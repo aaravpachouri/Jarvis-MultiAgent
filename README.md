@@ -8,6 +8,10 @@ Built by [Aarav Pachouri](https://github.com/aaravpachouri) as a solo project.
 
 *The dashboard running locally from this repo: 10 of 10 agents ready, live activity from the runtime event bus, and the mission console.*
 
+**Demo (10 seconds, offline, no API key):** a request goes in, JARVIS hands it to Planner, and a week-by-week plan comes back with the handoff shown.
+
+![Demo: a SAT study plan request routed to the Planner agent](docs/images/demo.gif)
+
 ## What it does
 
 - **One front door.** JARVIS takes a request, works out which specialists apply, and delegates. Compound requests are split across agents.
