@@ -3,9 +3,11 @@ name: Agent network CI
 on:
   push:
     branches:
-      - refactor/remove-desktop-companion
+      - main
+      - publish/jarvis-multiagent
   pull_request:
     branches:
+      - main
       - publish/jarvis-multiagent
     paths:
       - "agents/**"
