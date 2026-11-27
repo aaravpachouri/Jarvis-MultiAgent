@@ -1,0 +1,20 @@
+{
+  "rewrites": [
+    {
+      "source": "/quant",
+      "destination": "https://jarvis-multiagent-api.onrender.com/quant"
+    },
+    {
+      "source": "/quant/:path*",
+      "destination": "https://jarvis-multiagent-api.onrender.com/quant/:path*"
+    },
+    {
+      "source": "/assets/:path*",
+      "destination": "https://jarvis-multiagent-api.onrender.com/assets/:path*"
+    },
+    {
+      "source": "/",
+      "destination": "https://jarvis-multiagent-api.onrender.com/"
+    }
+  ]
+}

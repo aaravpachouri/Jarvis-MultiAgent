@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jarvis-agent-network"
+version = "0.1.0"
+description = "Multi-agent AI command center: ten specialist agents, typed task contracts, dependency-aware orchestration, and a live mission dashboard"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "Aarav Pachouri" }]
+dependencies = ["requests>=2.31.0"]
+
+[project.optional-dependencies]
+hosted = ["psycopg[binary]==3.2.9"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
+voice = [
+    "SpeechRecognition>=3.10.0",
+    "pyttsx3>=2.90",
+    'PyAudio>=0.2.14; platform_system == "Windows"',
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-ra"
+
+[tool.setuptools]
+py-modules = ["main"]
+packages = { find = { include = ["core*", "agents*"] } }
