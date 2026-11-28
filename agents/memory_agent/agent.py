@@ -31,6 +31,22 @@ class MemoryNotesAgent:
         re.I,
     )
     _NOTE_FIELDS = {"id", "content", "created_at"}
+    _RECALL_PATTERNS = tuple(
+        re.compile(pattern, re.I)
+        for pattern in (
+            r"\bwhat\s+(?:did|have)\s+i\s+(?:save|saved|note|noted|write|wrote|tell\s+you|told\s+you)"
+            r"(?:\s+down)?\s+(?:about|on|regarding)\s+(.+)$",
+            r"\b(?:do\s+you\s+remember|did\s+i\s+(?:note|save)|did\s+i\s+tell\s+you)\s+(?:about\s+)?(.+)$",
+            r"\b(?:look\s+up|check)\s+(.+?)\s+in\s+my\s+notes\b",
+            r"\bsearch\s+(?:my\s+)?notes\s+(?:for\s+)?(.+)$",
+            r"\bnotes?\s+(?:about|on|regarding)\s+(.+)$",
+        )
+    )
+    _STOPWORDS = frozenset(
+        "a an the of to for on in at is are was were be my me i you it its that this "
+        "about note notes any all and or with from do did does have has had what when "
+        "where which who how remember saved save".split()
+    )
 
     def __init__(self, store_path: str | Path | None = None):
         self.store_path = (
@@ -70,10 +86,7 @@ class MemoryNotesAgent:
                 context, "memory.note.search", action_type="file",
                 metadata={"operation": "read", "tool_name": "local_notes_store"},
             ):
-                notes = [
-                    note for note in self._read_all()
-                    if payload.casefold().strip() in note["content"].casefold()
-                ]
+                notes = self._rank_notes(self._read_all(), payload)
             return {
                 "operation": "search", "query": payload, "count": len(notes),
                 "notes": [self._public_note(note) for note in notes],
@@ -81,6 +94,16 @@ class MemoryNotesAgent:
                     f"Found {len(notes)} note(s) matching “{payload}”."
                     if notes else f"No saved notes matched “{payload}”."
                 ),
+            }
+        if intent == "count":
+            with action_scope(
+                context, "memory.note.list", action_type="file",
+                metadata={"operation": "read", "tool_name": "local_notes_store"},
+            ):
+                total = len(self._read_all())
+            return {
+                "operation": "count", "count": total,
+                "summary": f"You have {total} saved note(s)." if total else "No saved notes yet.",
             }
         if intent == "delete":
             with action_scope(
@@ -137,7 +160,55 @@ class MemoryNotesAgent:
         match = re.search(r"\bwhat do you remember about\s+(.+)$", text, re.I)
         if match:
             return "search", match.group(1).strip().strip("\"' ?")
+        for pattern in cls._RECALL_PATTERNS:
+            match = pattern.search(text)
+            if match:
+                query = match.group(1).strip().strip("\"' ?.!")
+                if query:
+                    return "search", query
+        if re.search(r"\bhow many notes\b", text, re.I):
+            return "count", ""
         return "help", ""
+
+    @classmethod
+    def _terms(cls, text: str) -> set[str]:
+        words = re.findall(r"[a-z0-9][a-z0-9'+#.-]*", text.casefold())
+        terms = set()
+        for word in words:
+            word = word.strip(".-'")
+            if not word or word in cls._STOPWORDS:
+                continue
+            for suffix in ("ing", "ed", "es", "s"):
+                if len(word) > len(suffix) + 3 and word.endswith(suffix):
+                    word = word[: -len(suffix)]
+                    break
+            terms.add(word)
+        return terms
+
+    @classmethod
+    def _rank_notes(cls, notes: list[dict[str, str]], query: str) -> list[dict[str, str]]:
+        """Exact phrase matches first, then notes sharing most query terms.
+
+        Newest note wins ties. A fuzzy match needs at least two thirds of the query terms
+        so unrelated notes are not returned.
+        """
+        phrase = query.casefold().strip()
+        if not phrase:
+            return []
+        exact = [n for n in notes if phrase in n["content"].casefold()]
+        exact_ids = {n["id"] for n in exact}
+        terms = cls._terms(query)
+        scored: list[tuple[int, str, dict[str, str]]] = []
+        if terms:
+            needed = max(1, -(-2 * len(terms) // 3))
+            for note in notes:
+                if note["id"] in exact_ids:
+                    continue
+                overlap = len(terms & cls._terms(note["content"]))
+                if overlap >= needed:
+                    scored.append((overlap, note["created_at"], note))
+        scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
+        return exact + [item[2] for item in scored]
 
     def _save(self, content: str) -> dict[str, Any]:
         if self._SENSITIVE.search(content):

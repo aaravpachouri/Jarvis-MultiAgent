@@ -40,11 +40,11 @@ python dashboard_server.py    # dashboard at http://127.0.0.1:8765
 ## Tests
 
 ```bash
-python -m pytest -q                       # 464 Python tests
+python -m pytest -q                       # 483 Python tests
 node --test dashboard/tests/*.test.cjs    # 30 dashboard tests
 ```
 
-All 494 pass on this branch. CI runs the same suite on Ubuntu and Windows (`.github/workflows/agent-network-ci.yml`).
+All 513 pass on this branch. CI runs the same suite on Ubuntu and Windows (`.github/workflows/agent-network-ci.yml`).
 
 ## How it fits together
 
