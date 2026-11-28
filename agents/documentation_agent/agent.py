@@ -242,13 +242,23 @@ class DocumentationAgent:
             if key_points:
                 lines.extend(["Key points:", ""] + [f"- {item}" for item in key_points] + [""])
             if not summary and not body and not key_points:
-                lines.extend([
-                    "I'm reaching out regarding [topic/purpose].",
-                    "",
-                    "[Add the key message, relevant context, and any requested action or deadline.]",
-                    "",
-                ])
-                missing.append("purpose_or_body_or_key_points")
+                topic = cls._prompt_topic(prompt)
+                if topic:
+                    lines.extend([
+                        f"I'm reaching out regarding {topic}.",
+                        "",
+                        "[Add the key message, relevant context, and any requested action or deadline.]",
+                        "",
+                    ])
+                    missing.append("key_message_details")
+                else:
+                    lines.extend([
+                        "I'm reaching out regarding [topic/purpose].",
+                        "",
+                        "[Add the key message, relevant context, and any requested action or deadline.]",
+                        "",
+                    ])
+                    missing.append("purpose_or_body_or_key_points")
             lines.extend([cls._first_text(material.get("closing"), "Best regards,"), cls._first_text(material.get("sender"), "[Your name]")])
         else:
             lines.extend([f"# {title}", "", f"> Draft type: {doc_type}. Generated only from supplied context; not independently verified."])
@@ -289,6 +299,21 @@ class DocumentationAgent:
             "source_material_count": len(cls._as_lines(material.get("source_material"))),
             "summary": f"Scribe generated a {doc_type} draft; no files were written.",
         }
+
+    @staticmethod
+    def _prompt_topic(prompt: str) -> str:
+        """Extract an email topic stated in the request itself, if one is present.
+
+        Only an explicit "about/regarding X" clause in the user's own prompt is
+        used; Scribe still never invents a topic.
+        """
+        match = re.search(r"\b(?:about|regarding|re)\s+(.+?)\s*[.!?]?\s*$", str(prompt or ""), re.IGNORECASE)
+        if not match:
+            return ""
+        topic = " ".join(match.group(1).split()).strip(" .;:-")
+        if not topic or len(topic) > 120 or topic.startswith("["):
+            return ""
+        return topic
 
     @classmethod
     def _draft_complex_mission_report(
