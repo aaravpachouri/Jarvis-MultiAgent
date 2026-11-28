@@ -19,7 +19,7 @@ Built by [Aarav Pachouri](https://github.com/aaravpachouri) as a solo project.
 - **Better routing.** Everyday phrasing like "plan a 4-week study schedule" or "integrate the Stripe API" reaches the right agent, with regression tests. Duration-based goals get a week-by-week plan.
 - **Truthful status.** An agent shows `ready` only if a real handler is registered. Not-yet-built work is reported, not faked.
 - **Safe by design.** Quant never places trades. Atlas and Launch only produce plans. Forge verifies its writes and can roll back a failed change. Web pages and documents are treated as untrusted input.
-- **Model-optional.** Routing, planning and note-taking work with no API key. A provider chain (Gemini, then Groq, then local Ollama) adds open-ended chat.
+- **Model-optional.** Routing, planning, note-taking, Forge's offline workspace analysis and Athena's offline context analysis all work with no API key. A provider chain (Gemini, then Groq, then local Ollama) adds open-ended chat and semantic code review.
 
 ## Quick start
 
@@ -40,11 +40,11 @@ python dashboard_server.py    # dashboard at http://127.0.0.1:8765
 ## Tests
 
 ```bash
-python -m pytest -q                       # 457 Python tests
+python -m pytest -q                       # 464 Python tests
 node --test dashboard/tests/*.test.cjs    # 30 dashboard tests
 ```
 
-All 487 pass on this branch. CI runs the same suite on Ubuntu and Windows (`.github/workflows/agent-network-ci.yml`).
+All 494 pass on this branch. CI runs the same suite on Ubuntu and Windows (`.github/workflows/agent-network-ci.yml`).
 
 ## How it fits together
 

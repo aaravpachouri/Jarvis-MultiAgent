@@ -598,6 +598,62 @@ class ResearchAgent:
                         material.append(rendered)
         return material
 
+    _PROMPT_STOPWORDS = frozenset({
+        "this", "that", "these", "those", "with", "from", "into", "about",
+        "what", "when", "where", "which", "while", "would", "could", "should",
+        "please", "explain", "summarize", "summarise", "analyze", "analyse",
+        "review", "compare", "evaluate", "break", "down", "tell", "show",
+        "give", "have", "has", "been", "were", "was", "are", "the", "and",
+        "for", "our", "your", "their", "supplied", "provided", "context",
+        "material", "notes", "documents", "conversation", "discussed",
+    })
+
+    @classmethod
+    def _key_statements(cls, prompt: str, excerpts: list[str]) -> list[dict[str, Any]]:
+        """Rank supplied sentences by overlap with the prompt's topic keywords.
+
+        This is extractive ranking only: statements are quoted verbatim from the
+        supplied material, never paraphrased or extended, so no new claim is
+        introduced beyond the user's own context.
+        """
+        keywords = {
+            token
+            for token in re.findall(r"[a-z0-9_]{4,}", str(prompt or "").casefold())
+            if token not in cls._PROMPT_STOPWORDS
+        }
+        if not keywords:
+            return []
+        ranked: list[tuple[int, int, str]] = []
+        for item_index, item in enumerate(excerpts, 1):
+            sentences = [
+                part.strip()
+                for part in re.split(r"(?<=[.!?])\s+|\n+", item)
+                if part.strip()
+            ]
+            if not sentences and item.strip():
+                sentences = [item.strip()]
+            for sentence in sentences:
+                tokens = set(re.findall(r"[a-z0-9_]{4,}", sentence.casefold()))
+                overlap = len(tokens & keywords)
+                if overlap:
+                    ranked.append((overlap, item_index, sentence[:400]))
+        ranked.sort(key=lambda entry: (-entry[0], entry[1], entry[2]))
+        statements: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for overlap, item_index, sentence in ranked:
+            key = sentence.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            statements.append({
+                "item": item_index,
+                "statement": sentence,
+                "matched_keywords": overlap,
+            })
+            if len(statements) >= 5:
+                break
+        return statements
+
     @staticmethod
     def _analyze_provided_material(prompt: str, material: list[str]) -> dict[str, Any]:
         """Return a traceable, local analysis of supplied text without web calls."""
@@ -617,6 +673,16 @@ class ResearchAgent:
             "Supplied information:",
         ]
         summary.extend(f"{index}. {item}" for index, item in enumerate(excerpts, 1))
+        key_statements = ResearchAgent._key_statements(prompt, excerpts)
+        if key_statements:
+            summary.extend([
+                "",
+                "Most relevant supplied statements (extractive; quoted verbatim, ranked by topic-word overlap):",
+            ])
+            summary.extend(
+                f"- (item {entry['item']}) {entry['statement']}"
+                for entry in key_statements
+            )
         summary.extend([
             "",
             "Assessment:",
@@ -661,6 +727,7 @@ class ResearchAgent:
             "evidence_level": "user_supplied_context_only",
             "analysis_mode": "offline_context_analysis",
             "provided_item_count": len(excerpts),
+            "key_statements": key_statements,
             "complete": True,
         }
 
